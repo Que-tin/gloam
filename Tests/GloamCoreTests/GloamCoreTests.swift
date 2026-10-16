@@ -265,14 +265,13 @@ private func date(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
         #expect(s.darkest == Schedule.darkestRange.lowerBound)
     }
 
-    @Test func allowancesMapTheLimitsBothWays() {
+    @Test func warmthAllowanceMapsTheCapBothWays() {
         var s = Schedule()
-        #expect(abs(s.warmthAllowance - 1) < 1e-9 && abs(s.dimmingAllowance - 1) < 1e-9)  // defaults = all of it
+        #expect(abs(s.warmthAllowance - 1) < 1e-9)  // default = all of it
         s.warmthAllowance = 0
-        s.dimmingAllowance = 0
-        #expect(abs(s.warmest - Kelvin.daylight) < 1e-6 && abs(s.darkest - 1) < 1e-9)
-        s.dimmingAllowance = 0.5
-        #expect(abs(s.darkest - 0.775) < 1e-9 && abs(s.dimmingAllowance - 0.5) < 1e-9)
+        #expect(abs(s.warmest - Kelvin.daylight) < 1e-6)
+        s.warmthAllowance = 0.5
+        #expect(abs(s.warmthAllowance - 0.5) < 1e-9)
         s.warmthAllowance = 2
         #expect(abs(s.warmest - s.night.kelvin) < 1e-6)
     }

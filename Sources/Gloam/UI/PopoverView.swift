@@ -18,10 +18,18 @@ struct PopoverView: View {
     private var current: Tint { model.manual ?? model.display.effective }
     /// Blue light saved right now, by the screen's live tint, rounded to 5% (the estimate is
     /// good to about that).
-    private var lessPercent: Int { Int(((1 - Melanopic.relative(model.display.effective)) * 20).rounded() * 5) }
+    private var lessPercent: Int {
+        Int(((1 - Melanopic.relative(model.display.effective, in: model.display.mainColourSpace)) * 20).rounded() * 5)
+    }
     /// Whether the lamp is lit: Gloam is visibly tinting the screen.
     /// The same test decides what the orb says, so the two never disagree.
     private var lampLit: Bool { !model.isHeld && lessPercent >= 5 }
+    /// The lowest brightness the main screen can show (see `DisplayController.builtinSignalFloor`).
+    private var ladderFloor: Double {
+        model.display.mainIsBuiltin ? DisplayController.builtinSignalFloor : Stage.brightnessRange.lowerBound
+    }
+    /// A tint is scheduled (or set by hand) right now.
+    private var isEvening: Bool { model.stage != .day || model.manual != nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,7 +40,7 @@ struct PopoverView: View {
             // bindings ignore input while held.)
             dial
                 .disabled(model.isHeld && model.enabled)
-            BrightnessLadder(brightness: brightness, floor: Stage.brightnessRange.lowerBound, title: "Brightness",
+            BrightnessLadder(brightness: brightness, floor: ladderFloor, title: "Brightness",
                              kelvin: current.kelvin, core: core)
                 .padding(.top, 20)
                 .disabled(model.isHeld)
@@ -108,10 +116,13 @@ struct PopoverView: View {
     private var orb: (title: String, caption: String) {
         if !model.enabled { return ("off", "") }
         if let app = model.excludedFrontmost { return ("aside", "true colour for \(app.name)") }
-        if lampLit { return ("−\(lessPercent)%", "blue light") }
-        // By day: just when it starts; a state word ("resting", "warms up") read as jargon.
-        if let next = model.nextStage { return (Format.time(next.at), "") }
-        return ("day", "")
+        // By day: just when it starts. Decided by the time of day, not by how lit the screen is,
+        // so turning Gloam on in the evening fades the percentage in rather than flashing a time.
+        if !isEvening {
+            if let next = model.nextStage { return (Format.time(next.at), "") }
+            return ("day", "")
+        }
+        return ("−\(lessPercent)%", "blue light")
     }
 
     private var stageTitle: String {
@@ -151,7 +162,7 @@ struct PopoverView: View {
     /// What changes next, and when: the one question a schedule raises. (A separate "next"
     /// line and an evening timeline strip were tried; both said what this says, louder.)
     private var dialCaption: String {
-        if !lampLit && model.manual == nil { return "" }  // the orb already says when
+        if !isEvening { return "" }  // the orb already says when
         guard let next = model.nextStage else { return model.stage.title }
         return "\(next.kind.title) at \(Format.time(next.at))"
     }

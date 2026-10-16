@@ -23,6 +23,7 @@ final class AppModel {
         didSet {
             if !enabled { manual = nil }  // a hand setting must not come back on re-enable
             save(enabled, "enabled")
+            syncBacklight()
             update(fade: 1)
             announce(enabled ? "Gloam on" : "Gloam off")
         }
@@ -102,6 +103,10 @@ final class AppModel {
         tasks = [
             observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didActivateApplicationNotification) { model, note in
                 model.frontmostChanged(note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)
+            },
+            // After sleep the clock has jumped: ease to what's due now, not hours later.
+            observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification) { model, _ in
+                model.update(fade: 1.5)
             },
             observe(.default, .NSSystemTimeZoneDidChange) { model, _ in
                 model.timeZonePlace = Place.forTimeZone() ?? .greenwich
@@ -213,6 +218,7 @@ final class AppModel {
     /// switched on eases the screen over a minute rather than in one 5-second step. A missed
     /// read keeps the last value; three in a row (about 15 s) mean the sensor is gone.
     private func readRoom() {
+        guard enabled && autoDimming else { roomLux = nil; return }  // no sensor reads while unused
         guard !Debug.isShowcase, let lux = roomLight.read() else {
             missedReads += 1
             if missedReads >= 3 { roomLux = nil }
@@ -234,7 +240,7 @@ final class AppModel {
     /// The backlight eases automatic dimming only; a hand setting or a preview shows exactly
     /// what was chosen.
     private func syncBacklight() {
-        display.followsBacklight = autoDimming && manual == nil && preview == nil
+        display.followsBacklight = enabled && autoDimming && manual == nil && preview == nil
     }
 
     private func applyStrengths() {

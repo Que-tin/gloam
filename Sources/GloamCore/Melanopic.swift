@@ -14,8 +14,10 @@ public enum Melanopic {
     static let displayGamma = 2.2
 
     /// 1 = untouched white; 0.1 = a tenth of the melanopic light.
-    public static func relative(_ tint: Tint) -> Double {
-        let gain = Kelvin.displayGain(tint)  // display-encoded, brightness included
+    /// `space`: the display's own linear RGB; a P3 panel keeps more blue and green at warm
+    /// temperatures than sRGB numbers suggest, so the estimate follows what it really shows.
+    public static func relative(_ tint: Tint, in space: LinearRGB = Kelvin.sRGB) -> Double {
+        let gain = Kelvin.displayGain(tint, in: space)  // display-encoded, brightness included
         let lin = { (v: Double) in pow(max(0, v), displayGamma) }
         return weights.red * lin(gain.red) + weights.green * lin(gain.green) + weights.blue * lin(gain.blue)
     }

@@ -12,14 +12,13 @@ import SwiftUI
 final class MenuBarPanel: NSObject, NSWindowDelegate {
     static let shared = MenuBarPanel()
 
-    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    /// Created on first use: before Start there is no menu-bar icon at all.
+    private lazy var item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var panel: LampPanel?
     private var outsideClicks: Any?
-    /// The panel hangs from the menu bar: when it changes height its top edge stays put.
-    private var top: CGFloat = 0
 
     func install() {
-        guard let button = item.button else { return }
+        guard let button = item.button, button.target == nil else { return }
         button.target = self
         button.action = #selector(clicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -36,8 +35,6 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     }
 
     func toggle() {
-        // Until setup is finished the icon leads back to Welcome, wherever that window went.
-        if !AppModel.shared.hasOnboarded { return Windows.showWelcome() }
         if panel?.isVisible == true { close() } else { open() }
     }
 
@@ -70,6 +67,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
         controller.view.layer?.cornerRadius = 16
         controller.view.layer?.cornerCurve = .continuous
         controller.view.layer?.masksToBounds = true
+        controller.view.layoutSubtreeIfNeeded()
         panel.setContentSize(controller.view.fittingSize)
         panel.delegate = self
 
@@ -79,7 +77,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
         var origin = NSPoint(x: anchor.midX - panel.frame.width / 2, y: anchor.minY - panel.frame.height - 6)
         origin.x = min(max(origin.x, screen.minX + 8), screen.maxX - panel.frame.width - 8)
         panel.setFrameOrigin(origin)
-        top = origin.y + panel.frame.height
+        panel.top = origin.y + panel.frame.height
 
         NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
@@ -106,11 +104,6 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     var panelWindow: NSWindow? { panel }
     #endif
 
-    func windowDidResize(_ notification: Notification) {
-        guard let panel, abs(panel.frame.maxY - top) > 0.5 else { return }
-        panel.setFrameOrigin(NSPoint(x: panel.frame.minX, y: top - panel.frame.height))
-    }
-
     func windowDidResignKey(_ notification: Notification) {
         // Menus (the gear) and dialogs opened from the panel keep it; anything else closes it.
         guard let panel, NSApp.keyWindow?.parent != panel, !(NSApp.keyWindow is LampPanel) else { return }
@@ -122,7 +115,9 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
         let model = AppModel.shared
         withObservationTracking {
             let mode: GloamGlyph.Mode = !model.enabled ? .off : model.excludedFrontmost != nil ? .aside : .running
-            item.button?.image = GloamGlyph.cached(mode: mode, depth: model.eveningDepth)
+            // Cached images: assign only when it changes (this re-runs on every model change).
+            let image = GloamGlyph.cached(mode: mode, depth: model.eveningDepth)
+            if item.button?.image !== image { item.button?.image = image }
             item.button?.setAccessibilityLabel(!model.enabled ? "Gloam, off"
                 : mode == .aside ? "Gloam, stepping aside" : "Gloam, \(model.stage.title)")
         } onChange: {
@@ -134,6 +129,17 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
 /// A borderless panel that can take keyboard focus (for the dial and ladder) and
 /// closes on Escape.
 private final class LampPanel: NSPanel {
+    /// The panel hangs from the menu bar: when its content changes height, the top edge stays
+    /// put. Applied inside the resize itself; moving it back afterwards (windowDidResize) drew
+    /// one frame at the old origin, a visible jump.
+    var top: CGFloat?
+
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        var frame = frameRect
+        if let top { frame.origin.y = top - frame.height }
+        super.setFrame(frame, display: flag)
+    }
+
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isOpaque = false

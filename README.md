@@ -5,7 +5,7 @@
 <h1 align="center">Gloam</h1>
 
 <p align="center">
-  <strong>A warm lamp for your Mac's evenings: it warms and dims the screen before bed, timed to when you actually sleep.</strong><br>
+  <strong>A warm lamp for your Mac's evenings: it warms the screen from sunset and dims it before bed, timed to the sun.</strong><br>
   Free and open source · no account · no tracking · native Swift
 </p>
 
@@ -13,6 +13,14 @@
   <img src="docs/screenshots/popover-2115.png" alt="Gloam during wind-down" width="300">
   <img src="docs/screenshots/popover-2330.png" alt="Gloam at night" width="300">
 </p>
+
+<details>
+  <summary>Welcome and Settings</summary>
+  <p align="center">
+    <img src="docs/screenshots/welcome.png" alt="The welcome window" width="380">
+    <img src="docs/screenshots/settings.png" alt="Settings" width="380">
+  </p>
+</details>
 
 ---
 
@@ -43,8 +51,8 @@ screen can.
 - **True colour where it matters.** Add apps such as Lightroom, Photoshop or a video player as
   exceptions (from the gear menu while you're using one, or in Settings) and Gloam steps aside
   while they're in front. To stop Gloam for a while, use the switch.
-- **Too warm or too dark?** Warmth and Dimming (in Welcome's preview and in Settings) cap the
-  evening; automatic runs as designed until it would cross a cap. Auto dimming eases the
+- **Too warm or too dark?** Warmth and Night brightness (in Welcome's preview and in Settings)
+  cap the evening; automatic runs as designed until it would cross a cap. Auto dimming eases the
   dimming on a MacBook whose backlight is already low, and in a bright room (lid open).
 - **Settings** (gear, or right-click the menu-bar icon) also hold your location, which screens
   to tint, app exceptions and launch at login.

@@ -23,7 +23,7 @@ doi:10.1371/journal.pbio.3001571; reaffirmed in CIE TN 015:2023), measured at th
 | Sleep environment | ≤ 1 lx |
 
 Individual sensitivity varies more than 50-fold (Phillips et al. 2019, *PNAS*
-doi:10.1073/pnas.1901824116), which is why Warmth and Dimming (Settings, and Welcome's
+doi:10.1073/pnas.1901824116), which is why Warmth and Night brightness (Settings, and Welcome's
 preview) cap the automatic tint without replacing it.
 
 ## How much light a screen gives off
@@ -91,8 +91,8 @@ but with two rules that keep the product light:
 - **No setup question.** Settings outside onboarding are changed by roughly 2–5% of users (UIE;
   Firefox telemetry), while an onboarding question taxes everyone. A 23:00 default fits ~60% of
   adults within an hour (Withings, 117k adults: mean bedtime 23:30, SD 65 min), and people's own
-  night-to-night variation (SD ~94 min) is larger than that error. Late sleepers turn
-  Dimming down; an editable bedtime was cut (almost nobody would set it).
+  night-to-night variation (SD ~94 min) is larger than that error. Late sleepers raise
+  Night brightness (it caps how deep the evening goes; it does not move it later); an editable bedtime was cut (almost nobody would set it).
 - **No dimming in daylight.** Wind-down and Night never start while the sun is up. At 52°N a fixed
   20:00 wind-down would otherwise dim the screen before sunset on ~170 days a year, which reads as
   broken, and anyone who wants it can lower brightness by hand. In summer they follow sunset.
@@ -124,18 +124,33 @@ The display's matrix is built from its profile's primaries: asking ColorSync to 
 straight to the display clips at 1 and silently weakens every warm tint.
 Transitions interpolate in mireds (10⁶/K), where equal steps look equally large.
 
+## Built-in screens: dim the backlight, not the signal
+
+Dimming the signal (scaling the gamma table) of a built-in LCD at a bright backlight makes it
+smear: every white becomes a mid grey, and grey-to-grey transitions are the slowest a liquid
+crystal makes. The 14″ M3 Max XDR panel is slow to begin with (Notebookcheck, 20 Nov 2023:
+78.8 ms black→white, 80.8 ms 50→80% grey), and its mini-LED zones ramp over ~100 ms (Mayo,
+2022), so static halos grow too. Observed here: heavy smearing at 55% signal with the slider at
+100%, none at 80%. Warming alone suffers less: it keeps red at full drive. For the melanopic dose only light counts (Schöllhorn 2023), so lowering
+the backlight gives the same reduction with the panel at full range.
+
+So on built-in displays Gloam never scales the signal below 80% (≈ 61% light); warmth is
+unrestricted. Deeper evening dimming has to come from the backlight (the brightness keys or
+auto-brightness). No public report of this smearing was found; the cap is empirical, from one
+panel, and other built-in LCDs may tolerate more.
+
 ## Auto dimming (optional inputs)
 
 Two readings, both through private macOS interfaces, ease the dimming; no reading means no
 change. **Backlight:** on a built-in display whose brightness slider is already low (a dark
 room under auto-brightness), Gloam keeps less of its dimming: all of it from 75%, none at 25%
-or below. The two would otherwise stack, and dimming the signal of an already-dim backlight
-pushed the panel into dark pixel levels that respond slowly and smear (seen on an XDR panel:
-gone with dimming capped at 80%). Gloam only reads the slider; moving it would fight
-auto-brightness. **Room light:** with a MacBook's lid open, the ambient light sensor eases
-the dimming in a bright room: all of it at ≤ 10 lx, the evening ceiling Brown et al. 2022
-recommend, a third of it at ≥ 500 lx, log-linear between.
-In a bright room the room dominates the light reaching the eye (Gooley et al. 2011, *JCEM*:
+or below, so the two never stack into a screen that is too dark. Gloam only reads the slider;
+moving it would fight auto-brightness. These thresholds are a heuristic.
+
+**Room light:** with a MacBook's lid open, the ambient light sensor eases the dimming in a
+bright room: all of it at ≤ 10 lx, a third of it at ≥ 500 lx, log-linear between. The sensor
+reads photopic lux at the lid, a proxy for the melanopic light at the eye that Brown et al.
+2022's ≤ 10 lx ceiling refers to; the two points are a heuristic. In a bright room the room dominates the light reaching the eye (Gooley et al. 2011, *JCEM*:
 room light < 200 lx before bed delayed melatonin onset in nearly everyone), so a much darker
 screen mostly costs readability. This is a reasoned default, not a trial result.
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Renders the popover at several times of day, and the welcome window, into docs/screenshots/.
+# Renders the popover at several times of day, the welcome window and Settings into docs/screenshots/.
 # Debug-only showcase mode: no permissions needed and the real screen is never tinted.
 # Each render quits itself; a watchdog kills any that hangs, so no instance is left behind.
 set -eu
@@ -23,6 +23,13 @@ for at in 13:00 19:30 21:15 23:30; do
   render --showcase --onboarded --at "$at" --snapshot "$OUT/popover-$(echo "$at" | tr -d :).png"
 done
 render --showcase welcome --at 16:00 --snapshot "$OUT/welcome.png"
+# Settings is native AppKit forms, which the snapshot renderer can't draw: photograph the real
+# window instead (needs the Screen Recording permission for the terminal running this).
+CAP="$(mktemp -d)"
+render --capture "$CAP" --at 21:15
+if [ -f "$CAP/window-settings.png" ]; then mv "$CAP/window-settings.png" "$OUT/settings.png"
+else echo "warning: no settings capture (Screen Recording permission?)" >&2; fi
+rm -rf "${CAP:?}"
 
 if pgrep -f "$BIN" >/dev/null; then echo "warning: Gloam still running" >&2; pkill -f "$BIN"; fi
 # Debug runs keep their settings in the "Gloam" domain; leave nothing behind.

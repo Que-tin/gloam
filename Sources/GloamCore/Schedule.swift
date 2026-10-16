@@ -76,18 +76,14 @@ public struct Schedule: Codable, Equatable, Sendable {
     public static let warmestRange = deepest.kelvin...Kelvin.daylight
     public static let darkestRange = deepest.brightness...1.0
 
-    /// The limits as sliders, 0 (none of it) … 1 (all of it, the default): "Warmth" and
-    /// "Dimming" read more naturally than a cap. Warmth is mired-even, like the popover's dial.
+    /// The warmth cap as a slider, 0 (no warming) … 1 (all of it, the default): "Warmth" reads
+    /// more naturally than a Kelvin cap. Mired-even, like the popover's dial.
     public var warmthAllowance: Double {
         get { (Kelvin.mired(warmest) - Kelvin.mired(Kelvin.daylight)) / (Kelvin.mired(Self.deepest.kelvin) - Kelvin.mired(Kelvin.daylight)) }
         set {
             let a = (0.0...1.0).clamp(newValue)
             warmest = 1e6 / (Kelvin.mired(Kelvin.daylight) + a * (Kelvin.mired(Self.deepest.kelvin) - Kelvin.mired(Kelvin.daylight)))
         }
-    }
-    public var dimmingAllowance: Double {
-        get { (1 - darkest) / (1 - Self.deepest.brightness) }
-        set { darkest = 1 - (0.0...1.0).clamp(newValue) * (1 - Self.deepest.brightness) }
     }
 
     public init() {}

@@ -61,16 +61,21 @@ final class GammaEngine: TintEngine {
         tinted = []
     }
 
-    /// Only resets what we tinted: while Gloam is off or a display is at 0%, another app's
-    /// table must survive wakes and reconnects untouched.
+    /// Forgets every per-display base without writing: writing the old base back (as this once
+    /// did) re-captured it as the "new" calibration, so a re-profiled monitor kept its old curve,
+    /// and could write to displays that were gone. macOS restores each display's profile on a
+    /// reconfiguration itself; the next apply captures that fresh.
     func displaysChanged() {
-        reset()
+        tinted = []
+        written = [:]
         calibration.removeAll()
         spaces.removeAll()
     }
 
     /// The display's linear RGB, from its ColorSync profile's primaries, or sRGB when the
     /// profile can't be used.
+    func colourSpace(_ id: CGDirectDisplayID) -> LinearRGB { space(id) }
+
     private func space(_ id: CGDirectDisplayID) -> LinearRGB {
         if let known = spaces[id] { return known }
         var result = Kelvin.sRGB

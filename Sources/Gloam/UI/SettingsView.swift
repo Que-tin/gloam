@@ -20,7 +20,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .frame(width: 500, height: 680)
+        .frame(width: 500, height: 740)  // fits every section without scrolling
         .background(LampSurface(glow: Tint(kelvin: 2700, brightness: 0.6), lit: 0.6).ignoresSafeArea())
         .environment(\.colorScheme, .dark)
         .tint(Color.kelvin(2700))
@@ -32,8 +32,8 @@ struct SettingsView: View {
         }
     }
 
-    /// Limits rather than numbers per stage: automatic runs as designed until it would cross
-    /// one. "Full" (the right end, the default) means no limit.
+    /// Caps rather than numbers per stage: automatic runs as designed until it would cross one.
+    /// Warmth's right end ("Full") and Night brightness's left end are the defaults.
     private var evening: some View {
         Section {
             LabeledContent("Warmth") {
@@ -42,11 +42,13 @@ struct SettingsView: View {
                     allowanceLabel(model.schedule.warmthAllowance) { Format.kelvin((model.schedule.warmest / 100).rounded() * 100) }
                 }
             }
-            LabeledContent("Dimming") {
+            // Brightness rather than "dimming": right is brighter, like every brightness control.
+            LabeledContent("Night brightness") {
                 HStack {
-                    Slider(value: $model.schedule.dimmingAllowance, in: 0...1, step: 1.0 / 9,
+                    Slider(value: $model.schedule.darkest, in: Schedule.darkestRange, step: 0.05,
                            onEditingChanged: previewNight).frame(width: 150)
-                    allowanceLabel(model.schedule.dimmingAllowance) { "to \(Format.percent(model.schedule.darkest))" }
+                    Text(Format.percent(model.schedule.darkest))
+                        .monospacedDigit().foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
                 }
             }
             if model.roomLight.isAvailable || model.display.displays.contains(where: \.isBuiltin) {
@@ -90,7 +92,8 @@ struct SettingsView: View {
 
     private var displays: some View {
         Section {
-            ForEach(model.display.displays) { display in
+            // With one screen, a per-screen switch would just be a second Gloam switch.
+            ForEach(model.display.displays.count > 1 ? model.display.displays : []) { display in
                 // On/off rather than a strength: the one real need is leaving a colour-
                 // calibrated monitor untouched, and a 0–100% scale read as brightness.
                 Toggle(display.name, isOn: Binding(get: { model.strength(for: display) > 0 },

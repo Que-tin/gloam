@@ -84,14 +84,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Also covers `swift run`, where there is no Info.plist to say LSUIElement.
         NSApp.setActivationPolicy(.accessory)
-        MenuBarPanel.shared.install()
         Debug.applyLaunchArguments()
-        if !Debug.isSnapshot && !Debug.isCapture && !AppModel.shared.hasOnboarded { Windows.showWelcome() }
+        // The menu-bar icon arrives with Start: until then Welcome is the whole app.
+        if AppModel.shared.hasOnboarded || Debug.isShowcase { MenuBarPanel.shared.install() } else { Windows.showWelcome() }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for command in urls.compactMap(Command.init(url:)) {
-            if command == .open { MenuBarPanel.shared.open() } else { AppModel.shared.run(command) }
+            if command != .open { AppModel.shared.run(command) }
+            else if AppModel.shared.hasOnboarded { MenuBarPanel.shared.open() }
+            else { Windows.showWelcome() }
         }
     }
 
@@ -112,7 +114,8 @@ enum Windows {
         present(settings!)
     }
 
-    /// Closing the window counts as finishing setup with the defaults, like Start.
+    /// Closing the window before Start quits without saving (the next launch shows Welcome
+    /// again); Start saves, then shows the menu-bar icon with its popover open beneath it.
     static func showWelcome() {
         welcome = welcome ?? make(WelcomeView(model: .shared) { welcome?.close() }, title: "Welcome to Gloam")
         welcome!.delegate = welcomeCloser
@@ -124,8 +127,12 @@ enum Windows {
     private final class WelcomeCloser: NSObject, NSWindowDelegate {
         func windowWillClose(_ notification: Notification) {
             AppModel.shared.preview = nil
-            if !AppModel.shared.hasOnboarded { AppModel.shared.hasOnboarded = true }
-            DispatchQueue.main.async { Windows.welcome = nil }
+            DispatchQueue.main.async {
+                Windows.welcome = nil
+                guard AppModel.shared.hasOnboarded else { return NSApp.terminate(nil) }
+                MenuBarPanel.shared.install()
+                MenuBarPanel.shared.open()
+            }
         }
     }
 

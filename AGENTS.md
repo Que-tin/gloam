@@ -51,11 +51,11 @@ swift run Gloam --capture DIR                 # photograph the real popover, Wel
 - No dependencies, no telemetry, no location permission (zone.tab or a city search, the only
   network use). Wording stays non-medical; defaults change only with evidence in
   `docs/science.md`.
-- Onboarding asks nothing. Bedtime is a fixed 23:00 ("bedtime" is a clock time, never a stage);
-  dimming never starts before sunset. Stages are fixed; two caps (Warmth, Dimming) live in
-  Settings and, optionally, Welcome's preview. The popover's
-  dial and ladder are a hand override until the next stage (per-stage values and global
-  strengths were both tried and cut: "back to automatic" became unclear).
+- Onboarding asks nothing; Welcome is a draft until Start (closing it first quits, unsaved; the
+  menu-bar icon appears with Start). Bedtime is a fixed 23:00, a clock time, never a stage;
+  dimming never starts before sunset. Stages are fixed; Warmth and Night brightness caps live in
+  Settings and Welcome's preview. The popover's dial and ladder override until the next stage
+  (per-stage values and global strengths were tried and cut: "back to automatic" got unclear).
 - Tint gains use each display's own colour space (`GammaEngine.space`): sRGB gains on P3 panels
   turn warm white into bloomy pure red. `RoomLight`/`Backlight` are private API: nil means no change.
 - Only one app can own the gamma table. Interference is detected generically
@@ -68,7 +68,7 @@ swift run Gloam --capture DIR                 # photograph the real popover, Wel
   rewrites the gamma table only when something overwrote it. Saves are debounced.
 - Deliberately absent, cut after review: an "Always" mode, presets, a daytime tint, per-stage
   tuning, editable bedtime/wake, an evening timeline or "next" strip, Kelvin numbers in the
-  popover, a timed Pause (the switch and app exceptions cover it), naming rival apps.
+  popover, a timed Pause (the switch and app exceptions cover it), naming rival apps in the app.
 - The brand avoids eyes, sun-over-horizon and plain discs (other apps' marks).
 - Anything launched locally must be quit and checked with `pgrep -lx Gloam`; `snapshots.sh` and
   `--capture` exit by themselves.

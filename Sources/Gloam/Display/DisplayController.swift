@@ -18,11 +18,14 @@ protocol TintEngine: AnyObject {
     func displaysChanged()
     /// Whether another app has rewritten what this engine put on screen.
     func isOverwritten() -> Bool
+    /// The display's linear RGB, for estimates that should match what it really shows.
+    func colourSpace(_ id: CGDirectDisplayID) -> LinearRGB
 }
 
 extension TintEngine {
     func isOverwritten() -> Bool { false }
     func restoreAll() { reset() }
+    func colourSpace(_ id: CGDirectDisplayID) -> LinearRGB { Kelvin.sRGB }
 }
 
 @Observable
@@ -34,6 +37,9 @@ final class DisplayController {
     /// Detected, not guessed from a list of app names: it works for any app.
     private(set) var interference = false
     @ObservationIgnored private var overwrites: [Date] = []
+    /// macOS resets gamma tables itself just after a wake or reconfiguration; those resets are
+    /// not another app and must not count toward the interference notice.
+    @ObservationIgnored private var quietUntil = Date.distantPast
     /// Per-display strength 0…1, looked up by display UUID. 0 leaves a display alone.
     @ObservationIgnored var strength: (String) -> Double = { _ in 1 } { didSet { push() } }
     /// Ease dimming on a display whose backlight is already low (`Backlight`). Off for a hand
@@ -42,15 +48,25 @@ final class DisplayController {
         didSet { if followsBacklight != oldValue { readBacklights() } }
     }
     /// Each display's share of the dimming, from its backlight; read every few seconds, not
-    /// per fade frame, and eased over a second when it moves. Missing means all of it.
+    /// per fade frame, and eased over about half a second when it moves. Missing means all of it.
     private var dimShare: [CGDirectDisplayID: Double] = [:]
     @ObservationIgnored private var shareTask: Task<Void, Never>?
 
-    /// What the main display shows after its backlight share: what the popover's ladder and
-    /// orb describe.
-    var effective: Tint {
-        var t = shown
-        t.brightness = 1 - (1 - t.brightness) * (dimShare[CGMainDisplayID()] ?? 1)
+    /// Built-in LCD panels smear when their signal is dimmed much at a bright backlight: dark
+    /// pixel transitions are the slowest a liquid crystal makes (seen on an XDR panel: heavy
+    /// below ~80%, none at 80%). So the signal stops there; deeper dimming is the backlight's.
+    static let builtinSignalFloor = 0.8
+
+    /// What the main display shows after its backlight share and floor: what the popover's
+    /// ladder and orb describe.
+    var effective: Tint { adjusted(shown, for: CGMainDisplayID()) }
+    var mainIsBuiltin: Bool { CGDisplayIsBuiltin(CGMainDisplayID()) != 0 }
+    var mainColourSpace: LinearRGB { engine.colourSpace(CGMainDisplayID()) }
+
+    private func adjusted(_ tint: Tint, for id: CGDirectDisplayID) -> Tint {
+        var t = tint
+        t.brightness = 1 - (1 - t.brightness) * (dimShare[id] ?? 1)
+        if CGDisplayIsBuiltin(id) != 0 { t.brightness = max(t.brightness, min(1, Self.builtinSignalFloor)) }
         return t
     }
 
@@ -74,6 +90,15 @@ final class DisplayController {
                 for await _ in center.notifications(named: name) { self?.displaysChanged() }
             }
         }
+        // The backlight is read twice a second (a microsecond call) so a brightness key or
+        // auto-brightness is followed within half a second; macOS offers no public change hook.
+        tasks.append(Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500), tolerance: .milliseconds(100))
+                guard let self else { return }
+                if self.followsBacklight || !self.dimShare.isEmpty { self.readBacklights() }
+            }
+        })
         // Reasserts the tint only when something overwrote it (macOS on some ColorSync events,
         // or another tinting app); wakes and display changes arrive as notifications.
         keepAlive = Task { [weak self] in
@@ -81,7 +106,6 @@ final class DisplayController {
                 try? await Task.sleep(for: .seconds(5), tolerance: .seconds(1))
                 guard let self else { return }
                 guard self.fadeTask == nil else { continue }
-                self.readBacklights()
                 if self.noteInterference() { self.push() }
             }
         }
@@ -148,14 +172,12 @@ final class DisplayController {
         for display in displays {
             let s = strength(display.uuid)
             guard s > 0 else { continue }
-            var tint = Tint.mix(.neutral, shown, s)
-            tint.brightness = 1 - (1 - tint.brightness) * (dimShare[display.id] ?? 1)
-            tints[display.id] = tint
+            tints[display.id] = adjusted(.mix(.neutral, shown, s), for: display.id)
         }
         engine.apply(tints)
     }
 
-    /// Re-reads the backlights and, when a share moved, eases to it over a second (a brightness
+    /// Re-reads the backlights and, when a share moved, eases to it over 0.6 s (a brightness
     /// key press can move it a lot; a jump read as Gloam fighting the key).
     private func readBacklights() {
         var next: [CGDirectDisplayID: Double] = [:]
@@ -168,7 +190,7 @@ final class DisplayController {
         shareTask?.cancel()
         shareTask = Task { [weak self] in
             while let self, !Task.isCancelled {
-                let t = min(1, Date().timeIntervalSince(start) / 1.2)
+                let t = min(1, Date().timeIntervalSince(start) / 0.6)
                 let eased = t * t * (3 - 2 * t)
                 var share: [CGDirectDisplayID: Double] = [:]
                 for id in ids { share[id] = (from[id] ?? 1) + ((next[id] ?? 1) - (from[id] ?? 1)) * eased }
@@ -185,7 +207,7 @@ final class DisplayController {
     private func noteInterference() -> Bool {
         let now = Date()
         let overwritten = engine.isOverwritten()
-        if overwritten { overwrites.append(now) }
+        if overwritten && now > quietUntil { overwrites.append(now) }
         overwrites.removeAll { now.timeIntervalSince($0) > 120 }
         let raised = overwrites.filter { now.timeIntervalSince($0) <= 60 }.count >= 2
         if raised != interference && (raised || overwrites.isEmpty) { interference = raised }
@@ -193,6 +215,7 @@ final class DisplayController {
     }
 
     private func displaysChanged() {
+        quietUntil = Date().addingTimeInterval(10)
         displays = Displays.current()
         engine.displaysChanged()
         readBacklights()
