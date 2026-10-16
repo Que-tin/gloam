@@ -1,0 +1,12 @@
+.build/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+.DS_Store
+.env
+
+# Editor-local launch configs (generated, machine-specific)
+.vscode/
+# Personal Claude Code settings
+.claude/settings.local.json

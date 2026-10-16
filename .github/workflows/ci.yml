@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: swift test
+      - name: Build app bundle
+        # Zipped with ditto: uploading the bundle directory would drop its exec bits.
+        run: |
+          ./scripts/build-app.sh
+          ditto -c -k --keepParent .build/Gloam.app .build/Gloam.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gloam
+          path: .build/Gloam.zip
