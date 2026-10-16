@@ -22,7 +22,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
 - `Sources/Gloam/App/MenuBarPanel.swift` — status item (click: popover; right-click: menu).
 - `Sources/Gloam/Model/AppModel.swift` — single source of truth: settings, clock, target tint.
 - `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `GammaEngine`,
-  `OverlayEngine`, `Displays` (screen info), `RoomLight` (ambient light sensor).
+  `OverlayEngine`, `Displays` (screen info), `RoomLight` and `Backlight` (auto dimming inputs).
 - `Sources/Gloam/UI/` — the "light as material" design: `PopoverView`, `Lamp` (orb dial,
   brightness ladder, small parts), `GloamGlyph` (menu-bar mark), `WelcomeView`, `SettingsView`,
   `CitySearch` (both), `Theme` (kelvin colours, stage and light names, formatting).
@@ -52,11 +52,12 @@ swift run Gloam --capture DIR                 # photograph the real popover, Wel
   network use). Wording stays non-medical; defaults change only with evidence in
   `docs/science.md`.
 - Onboarding asks nothing. Bedtime is a fixed 23:00 ("bedtime" is a clock time, never a stage);
-  dimming never starts before sunset. Stages are fixed; Settings sets two limits. The popover's
+  dimming never starts before sunset. Stages are fixed; two caps (Warmth, Dimming) live in
+  Settings and, optionally, Welcome's preview. The popover's
   dial and ladder are a hand override until the next stage (per-stage values and global
   strengths were both tried and cut: "back to automatic" became unclear).
 - Tint gains use each display's own colour space (`GammaEngine.space`): sRGB gains on P3 panels
-  turn warm white into bloomy pure red. `RoomLight` is private API: nil means no change.
+  turn warm white into bloomy pure red. `RoomLight`/`Backlight` are private API: nil means no change.
 - Only one app can own the gamma table. Interference is detected generically
   (`DisplayController.interference`), never by app name.
 - Every window is ours and AppKit-hosted: the popover is a borderless panel (`MenuBarPanel`),

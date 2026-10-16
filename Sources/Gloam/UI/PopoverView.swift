@@ -14,11 +14,11 @@ struct PopoverView: View {
     @State private var bloom = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// What the controls show: the hand setting, else what's on screen this instant.
-    private var current: Tint { model.manual ?? model.display.shown }
+    /// What the controls show: the hand setting, else what the main screen shows this instant.
+    private var current: Tint { model.manual ?? model.display.effective }
     /// Blue light saved right now, by the screen's live tint, rounded to 5% (the estimate is
     /// good to about that).
-    private var lessPercent: Int { Int(((1 - Melanopic.relative(model.display.shown)) * 20).rounded() * 5) }
+    private var lessPercent: Int { Int(((1 - Melanopic.relative(model.display.effective)) * 20).rounded() * 5) }
     /// Whether the lamp is lit: Gloam is visibly tinting the screen.
     /// The same test decides what the orb says, so the two never disagree.
     private var lampLit: Bool { !model.isHeld && lessPercent >= 5 }
@@ -28,13 +28,14 @@ struct PopoverView: View {
             header.padding(.bottom, 12)
             notices
             // Off or stepping aside, nothing a control does would show: they rest, inactive.
-            Group {
-                dial
-                BrightnessLadder(brightness: brightness, floor: Stage.brightnessRange.lowerBound, title: "Brightness",
-                                 kelvin: current.kelvin, core: core)
-                    .padding(.top, 20)
-            }
-            .disabled(model.isHeld)
+            // (When off the dial stays enabled so its orb can be the power button; its
+            // bindings ignore input while held.)
+            dial
+                .disabled(model.isHeld && model.enabled)
+            BrightnessLadder(brightness: brightness, floor: Stage.brightnessRange.lowerBound, title: "Brightness",
+                             kelvin: current.kelvin, core: core)
+                .padding(.top, 20)
+                .disabled(model.isHeld)
             if model.manual != nil {
                 footer.padding(.top, 16)
             }
@@ -56,6 +57,7 @@ struct PopoverView: View {
         let orb = self.orb
         return LampDial(fraction: warmth, kelvinAt: Self.kelvin(at:), shown: model.display.shown,
                         core: core, bloom: bloom, orbTitle: orb.title, orbCaption: orb.caption,
+                        onPower: model.enabled ? nil : { model.enabled = true },
                         stageName: model.stage.title, caption: dialCaption)
     }
 
@@ -93,7 +95,7 @@ struct PopoverView: View {
     private var warmth: Binding<Double> {
         let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(Stage.kelvinRange.lowerBound))
         return Binding(get: { (Kelvin.mired(Stage.kelvinRange.clamp(current.kelvin)) - cool) / (warm - cool) },
-                       set: { model.manual = Tint(kelvin: Self.kelvin(at: $0), brightness: current.brightness) })
+                       set: { if !model.isHeld { model.manual = Tint(kelvin: Self.kelvin(at: $0), brightness: current.brightness) } })
     }
 
     private var brightness: Binding<Double> {
@@ -149,7 +151,7 @@ struct PopoverView: View {
     /// What changes next, and when: the one question a schedule raises. (A separate "next"
     /// line and an evening timeline strip were tried; both said what this says, louder.)
     private var dialCaption: String {
-        if !lampLit && model.manual == nil { return "Untinted" }  // the orb already says when
+        if !lampLit && model.manual == nil { return "" }  // the orb already says when
         guard let next = model.nextStage else { return model.stage.title }
         return "\(next.kind.title) at \(Format.time(next.at))"
     }

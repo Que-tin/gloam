@@ -40,14 +40,22 @@ final class AppModel {
     var excludedApps: [ExcludedApp] { didSet { save(excludedApps, "excludedApps"); update(fade: 0.6) } }
     /// Per-display strength by display UUID; missing means full strength.
     var displayStrength: [String: Double] { didSet { save(displayStrength, "displayStrength"); applyStrengths() } }
-    /// Lets the room's light (MacBook lid open) ease the dimming; see `RoomLight`.
-    var adaptsToRoom: Bool { didSet { save(adaptsToRoom, "adaptsToRoom"); update(fade: 1) } }
+    /// Lets the room's light (`RoomLight`) and a backlight that is already low (`Backlight`)
+    /// ease the dimming, so the screen never gets darker than the room calls for.
+    var autoDimming: Bool {
+        didSet {
+            save(autoDimming, "autoDimming")
+            syncBacklight()
+            update(fade: 1)
+        }
+    }
     /// A hand setting from the popover. It holds until the next change the popover names
     /// ("Manual until 22:00"), then automatic takes over again, so a tweak never quietly
     /// becomes the new every-night.
     var manual: Tint? {
         didSet {
             if manual != nil && oldValue == nil { manualUntil = nextStage?.at }
+            syncBacklight()
             update(fade: manual == nil ? 1 : 0.15)
         }
     }
@@ -81,12 +89,13 @@ final class AppModel {
         self.engine = engine
         displayStrength = Self.load("displayStrength") ?? [:]
         excludedApps = Self.load("excludedApps") ?? []
-        adaptsToRoom = Self.load("adaptsToRoom") ?? true
+        autoDimming = Self.load("autoDimming") ?? true
         frontmost = NSWorkspace.shared.frontmostApplication.flatMap {
             $0.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : $0
         }
         hasOnboarded = Self.load("hasOnboarded") ?? false
         display = DisplayController(engine: engine)
+        syncBacklight()
         applyStrengths()
         readRoom()
 
@@ -127,6 +136,7 @@ final class AppModel {
     var preview: Tint? {
         didSet {
             guard preview != oldValue else { return }  // re-clearing must not restart a fade
+            syncBacklight()
             update(fade: preview == nil || oldValue == nil ? 0.6 : 0.15)
         }
     }
@@ -147,7 +157,7 @@ final class AppModel {
     }
 
     /// The schedule's tint now, limits and room light included.
-    var automatic: Tint { schedule.tint(at: now, place.coordinate, roomLux: adaptsToRoom ? roomLux : nil) }
+    var automatic: Tint { schedule.tint(at: now, place.coordinate, roomLux: autoDimming ? roomLux : nil) }
 
     /// How far into the evening, 0 (day) … 1 (night); the menu-bar glyph fills with it.
     var eveningDepth: Double { schedule.depth(at: now, place.coordinate) }
@@ -219,6 +229,12 @@ final class AppModel {
         let wasExcluded = excludedFrontmost != nil
         frontmost = app
         if wasExcluded != (excludedFrontmost != nil) { update(fade: 0.5) }
+    }
+
+    /// The backlight eases automatic dimming only; a hand setting or a preview shows exactly
+    /// what was chosen.
+    private func syncBacklight() {
+        display.followsBacklight = autoDimming && manual == nil && preview == nil
     }
 
     private func applyStrengths() {

@@ -62,16 +62,19 @@ struct WelcomeView: View {
                 Text(plan)
                     .foregroundStyle(Lamp.ink.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    LampPill(title: previewing ? "Previewing…" : "Preview tonight", symbol: "eye", action: previewNight)
-                        .fixedSize()
-                        .disabled(previewing)
-                    Text("Too dark or too warm? Settings has limits.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Lamp.ink.opacity(0.6))
-                        .fixedSize(horizontal: false, vertical: true)
+                LampPill(title: previewing ? "Done" : "Preview tonight",
+                         symbol: previewing ? "checkmark" : "eye", action: togglePreview)
+                    .fixedSize()
+                    .padding(.top, 10)
+                // Seeing tonight is the moment to say "a bit less": the same two sliders as
+                // Settings, live on the real screen while the preview is on.
+                if previewing {
+                    VStack(spacing: 8) {
+                        allowance("Warmth", $model.schedule.warmthAllowance, step: nil)
+                        allowance("Dimming", $model.schedule.dimmingAllowance, step: 1.0 / 9)
+                    }
+                    .padding(.top, 12)
                 }
-                .padding(.top, 8)
             }
 
             HStack {
@@ -104,6 +107,7 @@ struct WelcomeView: View {
         .tint(Color.kelvin(2700))
         .onAppear { if !model.hasOnboarded { model.setLaunchAtLogin(openAtLogin) } }
         .onDisappear { model.preview = nil }
+        .onChange(of: model.schedule) { if previewing { showNight() } }
     }
 
     private func section(_ title: String, top: CGFloat, @ViewBuilder _ content: () -> some View) -> some View {
@@ -124,14 +128,20 @@ struct WelcomeView: View {
         close()
     }
 
-    /// Shows the night stage on the real screen for a few seconds, then eases back.
-    private func previewNight() {
-        previewing = true
-        model.preview = model.schedule.limited(model.schedule.night.tint)
-        Task {
-            try? await Task.sleep(for: .seconds(3))
-            model.preview = nil
-            previewing = false
+    /// Shows the night on the real screen until "Done", following the sliders.
+    private func togglePreview() {
+        previewing.toggle()
+        showNight()
+    }
+
+    private func showNight() {
+        model.preview = previewing ? model.schedule.limited(model.schedule.night.tint) : nil
+    }
+
+    private func allowance(_ title: String, _ value: Binding<Double>, step: Double?) -> some View {
+        HStack(spacing: 10) {
+            Text(title).font(.system(size: 12)).foregroundStyle(Lamp.ink.opacity(0.75)).frame(width: 64, alignment: .leading)
+            if let step { Slider(value: value, in: 0...1, step: step) } else { Slider(value: value, in: 0...1) }
         }
     }
 

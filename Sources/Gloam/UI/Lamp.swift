@@ -50,28 +50,36 @@ struct LampSurface: View {
             RadialGradient(colors: [Color.kelvin(glow.kelvin).opacity(0.2 * glow.brightness * lit), .clear],
                            center: UnitPoint(x: 0.5, y: 0.28), startRadius: 0, endRadius: 330)
             LinearGradient(colors: [.clear, .black.opacity(0.35)], startPoint: .center, endPoint: .bottom)
-            Grain().opacity(0.35)
+            Grain().opacity(0.12)
         }
     }
 }
 
-/// Deterministic film grain, so large dark areas never look flat.
+/// Fine film grain, so the dark surface never looks 100% smooth (the way Arc grains its
+/// backgrounds). One deterministic 128 px noise tile, generated once and tiled: drawing
+/// thousands of dots per frame cost more and still read as sparse speckles.
 struct Grain: View {
-    var body: some View {
-        Canvas { ctx, size in
-            var seed: UInt64 = 0x9E3779B97F4A7C15
-            func rnd() -> Double {
-                seed = seed &* 6364136223846793005 &+ 1442695040888963407
-                return Double(seed >> 33) / Double(1 << 31)
-            }
-            for _ in 0..<Int(size.width * size.height / 30) {
-                let p = CGPoint(x: rnd() * size.width, y: rnd() * size.height)
-                ctx.fill(Path(CGRect(origin: p, size: CGSize(width: 0.6, height: 0.6))),
-                         with: .color(rnd() > 0.5 ? .white.opacity(0.07) : .black.opacity(0.18)))
-            }
+    private static let tile: NSImage = {
+        let side = 128
+        var seed: UInt64 = 0x9E3779B97F4A7C15
+        var pixels = [UInt8](repeating: 0, count: side * side)
+        for i in pixels.indices {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            pixels[i] = UInt8(truncatingIfNeeded: seed >> 56)
         }
-        .allowsHitTesting(false)
-        .drawingGroup()
+        let provider = CGDataProvider(data: Data(pixels) as CFData)!
+        let image = CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: side,
+                            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGBitmapInfo(rawValue: 0),
+                            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        // Half-size points: one noise pixel per Retina pixel, as fine as film grain gets.
+        return NSImage(cgImage: image, size: NSSize(width: side / 2, height: side / 2))
+    }()
+
+    var body: some View {
+        Image(nsImage: Self.tile)
+            .resizable(resizingMode: .tile)
+            .blendMode(.overlay)
+            .allowsHitTesting(false)
     }
 }
 
@@ -126,6 +134,8 @@ struct LampDial: View {
     let bloom: Double
     let orbTitle: String
     let orbCaption: String
+    /// When set, the orb is a quiet power button (Gloam is off) instead of a readout.
+    var onPower: (() -> Void)?
     /// Spoken by VoiceOver: "Warmth for Wind-down".
     let stageName: String
     /// Under the readout: what changes next and when ("Night at 22:00").
@@ -265,7 +275,7 @@ struct LampDial: View {
                 .foregroundStyle(Lamp.ink)
                 .shadow(color: Color.kelvin(kelvin).opacity(0.6), radius: 6)
                 .contentTransition(.opacity)
-            LampLabel(text: caption)
+            if !caption.isEmpty { LampLabel(text: caption) }
         }
         .fixedSize()
         .help("\(Format.kelvin((kelvin / 100).rounded() * 100)). Changing it holds until the next stage.")
@@ -357,6 +367,35 @@ struct LampDial: View {
                                          startRadius: r * 0.8, endRadius: r))
             Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .clear, glow.opacity(0.05 + 0.35 * core)],
                                                  startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
+            if onPower != nil {
+                Image(systemName: "power")
+                    .font(.system(size: 22, weight: .light))
+                    .foregroundStyle(Lamp.ink.opacity(0.4))
+            } else {
+                readoutText(r: r, ink: ink, etched: etched)
+            }
+        }
+        .compositingGroup()
+        .shadow(color: glow.opacity(0.8 * b), radius: 14)
+        .shadow(color: glow.opacity(0.5 * b * bloom), radius: 40)
+
+        return Group {
+            if let onPower {
+                Button(action: onPower) { face.contentShape(Circle()) }
+                    .buttonStyle(.plain)
+                    .help("Turn Gloam on")
+                    .accessibilityLabel("Turn Gloam on")
+            } else {
+                face
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(orbTitle) \(orbCaption)")
+                    .help("Less of the blue-rich light that keeps you alert in the evening (melanopic light), "
+                        + "estimated against the same screen untinted at full brightness.")
+            }
+        }
+    }
+
+    private func readoutText(r: CGFloat, ink: Color, etched: Bool) -> some View {
             VStack(spacing: 2) {
                 orbHeadline
                     .tracking(-1)
@@ -378,16 +417,6 @@ struct LampDial: View {
             .foregroundStyle(ink.opacity(core > 0.5 ? 0.92 : 0.75))
             .blendMode(etched ? .multiply : .normal)
             .offset(y: 2)
-        }
-        .compositingGroup()
-        .shadow(color: glow.opacity(0.8 * b), radius: 14)
-        .shadow(color: glow.opacity(0.5 * b * bloom), radius: 40)
-
-        return face
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(orbTitle) \(orbCaption)")
-        .help("Less of the blue-rich light that keeps you alert in the evening (melanopic light), "
-            + "estimated against the same screen untinted at full brightness.")
     }
 }
 

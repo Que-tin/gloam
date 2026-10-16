@@ -1,7 +1,8 @@
 // Owns the active engine and moves the screen toward a target tint: eased fades for user
 // actions, direct writes for the clock's small steps (writes are skipped when nothing changed).
 // It checks every few seconds whether the tint was overwritten and only then writes it again,
-// because macOS quietly resets gamma tables on wake, display changes and some ColorSync events.
+// because macOS quietly resets gamma tables on wake, display changes and some ColorSync events,
+// and reads each built-in display's backlight, whose level eases that display's dimming.
 
 import AppKit
 import GloamCore
@@ -35,6 +36,23 @@ final class DisplayController {
     @ObservationIgnored private var overwrites: [Date] = []
     /// Per-display strength 0…1, looked up by display UUID. 0 leaves a display alone.
     @ObservationIgnored var strength: (String) -> Double = { _ in 1 } { didSet { push() } }
+    /// Ease dimming on a display whose backlight is already low (`Backlight`). Off for a hand
+    /// setting or a preview: those show exactly what was chosen.
+    @ObservationIgnored var followsBacklight = true {
+        didSet { if followsBacklight != oldValue { readBacklights() } }
+    }
+    /// Each display's share of the dimming, from its backlight; read every few seconds, not
+    /// per fade frame, and eased over a second when it moves. Missing means all of it.
+    private var dimShare: [CGDirectDisplayID: Double] = [:]
+    @ObservationIgnored private var shareTask: Task<Void, Never>?
+
+    /// What the main display shows after its backlight share: what the popover's ladder and
+    /// orb describe.
+    var effective: Tint {
+        var t = shown
+        t.brightness = 1 - (1 - t.brightness) * (dimShare[CGMainDisplayID()] ?? 1)
+        return t
+    }
 
     @ObservationIgnored private var engine: TintEngine
     @ObservationIgnored private(set) var resolvedEngine: Engine
@@ -45,6 +63,7 @@ final class DisplayController {
     init(engine choice: Engine) {
         resolvedEngine = Self.resolve(choice)
         engine = Self.make(resolvedEngine)
+        readBacklights()
         let workspace = NSWorkspace.shared.notificationCenter
         tasks = [
             (NotificationCenter.default, NSApplication.didChangeScreenParametersNotification),
@@ -62,6 +81,7 @@ final class DisplayController {
                 try? await Task.sleep(for: .seconds(5), tolerance: .seconds(1))
                 guard let self else { return }
                 guard self.fadeTask == nil else { continue }
+                self.readBacklights()
                 if self.noteInterference() { self.push() }
             }
         }
@@ -117,6 +137,7 @@ final class DisplayController {
         fadeTask?.cancel()
         fadeTask = nil
         fade = nil
+        shareTask?.cancel()
         tasks.forEach { $0.cancel() }
         keepAlive?.cancel()
         engine.restoreAll()
@@ -126,9 +147,37 @@ final class DisplayController {
         var tints: [CGDirectDisplayID: Tint] = [:]
         for display in displays {
             let s = strength(display.uuid)
-            if s > 0 { tints[display.id] = .mix(.neutral, shown, s) }
+            guard s > 0 else { continue }
+            var tint = Tint.mix(.neutral, shown, s)
+            tint.brightness = 1 - (1 - tint.brightness) * (dimShare[display.id] ?? 1)
+            tints[display.id] = tint
         }
         engine.apply(tints)
+    }
+
+    /// Re-reads the backlights and, when a share moved, eases to it over a second (a brightness
+    /// key press can move it a lot; a jump read as Gloam fighting the key).
+    private func readBacklights() {
+        var next: [CGDirectDisplayID: Double] = [:]
+        if followsBacklight {
+            for display in displays { if let level = Backlight.level(display.id) { next[display.id] = Schedule.backlightFactor(level) } }
+        }
+        let ids = Set(next.keys).union(dimShare.keys)
+        guard ids.contains(where: { abs((next[$0] ?? 1) - (dimShare[$0] ?? 1)) > 0.01 }) else { return }
+        let from = dimShare, start = Date()
+        shareTask?.cancel()
+        shareTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                let t = min(1, Date().timeIntervalSince(start) / 1.2)
+                let eased = t * t * (3 - 2 * t)
+                var share: [CGDirectDisplayID: Double] = [:]
+                for id in ids { share[id] = (from[id] ?? 1) + ((next[id] ?? 1) - (from[id] ?? 1)) * eased }
+                self.dimShare = share
+                if self.fadeTask == nil { self.push() }  // a running fade pushes every frame anyway
+                if t >= 1 { return }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
     }
 
     /// Two overwrites within a minute raise the notice; two quiet minutes clear it. Returns
@@ -146,6 +195,7 @@ final class DisplayController {
     private func displaysChanged() {
         displays = Displays.current()
         engine.displaysChanged()
+        readBacklights()
         push()
     }
 

@@ -76,6 +76,20 @@ public struct Schedule: Codable, Equatable, Sendable {
     public static let warmestRange = deepest.kelvin...Kelvin.daylight
     public static let darkestRange = deepest.brightness...1.0
 
+    /// The limits as sliders, 0 (none of it) … 1 (all of it, the default): "Warmth" and
+    /// "Dimming" read more naturally than a cap. Warmth is mired-even, like the popover's dial.
+    public var warmthAllowance: Double {
+        get { (Kelvin.mired(warmest) - Kelvin.mired(Kelvin.daylight)) / (Kelvin.mired(Self.deepest.kelvin) - Kelvin.mired(Kelvin.daylight)) }
+        set {
+            let a = (0.0...1.0).clamp(newValue)
+            warmest = 1e6 / (Kelvin.mired(Kelvin.daylight) + a * (Kelvin.mired(Self.deepest.kelvin) - Kelvin.mired(Kelvin.daylight)))
+        }
+    }
+    public var dimmingAllowance: Double {
+        get { (1 - darkest) / (1 - Self.deepest.brightness) }
+        set { darkest = 1 - (0.0...1.0).clamp(newValue) * (1 - Self.deepest.brightness) }
+    }
+
     public init() {}
 
     // MARK: Timing constants
@@ -146,6 +160,15 @@ public struct Schedule: Codable, Equatable, Sendable {
     /// A tint held to the limits.
     public func limited(_ t: Tint) -> Tint {
         Tint(kelvin: max(t.kelvin, warmest), brightness: max(t.brightness, darkest))
+    }
+
+    /// How much of Gloam's dimming a display with this backlight level (0…1, the brightness
+    /// slider) should keep: all of it from 75%, none at 25% or below, smooth between. When the
+    /// backlight is already low (a dark room under auto-brightness, or by hand) the screen is
+    /// already dim; dimming its signal as well made it too dark, and pushed LCD pixels into the
+    /// dark levels where they respond slowly and smear.
+    public static func backlightFactor(_ level: Double) -> Double {
+        smoothstep(min(1, max(0, (level - 0.25) / 0.5)))
     }
 
     /// How much of the scheduled dimming to keep for the room's light: all of it in a dim room

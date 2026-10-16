@@ -140,7 +140,9 @@ enum Windows {
     /// Lamp-styled chrome: the dark surface runs full-bleed under a transparent title bar, so
     /// there's no grey system strip above the panel.
     private static func make(_ view: some View, title: String) -> NSWindow {
-        let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+        let controller = NSHostingController(rootView: view)
+        controller.sizingOptions = [.preferredContentSize]  // windows follow their content (Welcome's preview sliders)
+        let window = NSWindow(contentViewController: controller)
         window.title = title
         window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true

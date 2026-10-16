@@ -265,6 +265,24 @@ private func date(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
         #expect(s.darkest == Schedule.darkestRange.lowerBound)
     }
 
+    @Test func allowancesMapTheLimitsBothWays() {
+        var s = Schedule()
+        #expect(abs(s.warmthAllowance - 1) < 1e-9 && abs(s.dimmingAllowance - 1) < 1e-9)  // defaults = all of it
+        s.warmthAllowance = 0
+        s.dimmingAllowance = 0
+        #expect(abs(s.warmest - Kelvin.daylight) < 1e-6 && abs(s.darkest - 1) < 1e-9)
+        s.dimmingAllowance = 0.5
+        #expect(abs(s.darkest - 0.775) < 1e-9 && abs(s.dimmingAllowance - 0.5) < 1e-9)
+        s.warmthAllowance = 2
+        #expect(abs(s.warmest - s.night.kelvin) < 1e-6)
+    }
+
+    @Test func lowBacklightTakesOverTheDimming() {
+        #expect(Schedule.backlightFactor(1) == 1 && Schedule.backlightFactor(0.75) == 1)
+        #expect(Schedule.backlightFactor(0.25) == 0 && Schedule.backlightFactor(0) == 0)
+        #expect(abs(Schedule.backlightFactor(0.5) - 0.5) < 1e-9)
+    }
+
     @Test func roomLightEasesDimmingOnlyInABrightRoom() {
         let s = Schedule()
         let night = at(3, 0, month: 3)

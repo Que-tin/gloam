@@ -43,9 +43,9 @@ screen can.
 - **True colour where it matters.** Add apps such as Lightroom, Photoshop or a video player as
   exceptions (from the gear menu while you're using one, or in Settings) and Gloam steps aside
   while they're in front. To stop Gloam for a while, use the switch.
-- **Every night a little different?** Settings has two limits, Warmest and Darkest: automatic
-  runs as designed until it would cross one. On a MacBook with the lid open, Gloam can also dim
-  less in a brightly lit room, using the light sensor.
+- **Too warm or too dark?** Warmth and Dimming (in Welcome's preview and in Settings) cap the
+  evening; automatic runs as designed until it would cross a cap. Auto dimming eases the
+  dimming on a MacBook whose backlight is already low, and in a bright room (lid open).
 - **Settings** (gear, or right-click the menu-bar icon) also hold your location, which screens
   to tint, app exceptions and launch at login.
 

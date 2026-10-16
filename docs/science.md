@@ -23,8 +23,8 @@ doi:10.1371/journal.pbio.3001571; reaffirmed in CIE TN 015:2023), measured at th
 | Sleep environment | ≤ 1 lx |
 
 Individual sensitivity varies more than 50-fold (Phillips et al. 2019, *PNAS*
-doi:10.1073/pnas.1901824116), which is why Settings has two limits (warmest, darkest) that
-hold the automatic tint back without replacing it.
+doi:10.1073/pnas.1901824116), which is why Warmth and Dimming (Settings, and Welcome's
+preview) cap the automatic tint without replacing it.
 
 ## How much light a screen gives off
 
@@ -91,8 +91,8 @@ but with two rules that keep the product light:
 - **No setup question.** Settings outside onboarding are changed by roughly 2–5% of users (UIE;
   Firefox telemetry), while an onboarding question taxes everyone. A 23:00 default fits ~60% of
   adults within an hour (Withings, 117k adults: mean bedtime 23:30, SD 65 min), and people's own
-  night-to-night variation (SD ~94 min) is larger than that error. Late sleepers set a
-  gentler Darkest limit; an editable bedtime was cut (almost nobody would set it).
+  night-to-night variation (SD ~94 min) is larger than that error. Late sleepers turn
+  Dimming down; an editable bedtime was cut (almost nobody would set it).
 - **No dimming in daylight.** Wind-down and Night never start while the sun is up. At 52°N a fixed
   20:00 wind-down would otherwise dim the screen before sunset on ~170 days a year, which reads as
   broken, and anyone who wants it can lower brightness by hand. In summer they follow sunset.
@@ -124,11 +124,17 @@ The display's matrix is built from its profile's primaries: asking ColorSync to 
 straight to the display clips at 1 and silently weakens every warm tint.
 Transitions interpolate in mireds (10⁶/K), where equal steps look equally large.
 
-## Room light (optional)
+## Auto dimming (optional inputs)
 
-With a MacBook's lid open, the ambient light sensor (read through a private IOKit interface;
-no reading means no change) eases the dimming in a bright room: all of it at ≤ 10 lx, the
-evening ceiling Brown et al. 2022 recommend, a third of it at ≥ 500 lx, log-linear between.
+Two readings, both through private macOS interfaces, ease the dimming; no reading means no
+change. **Backlight:** on a built-in display whose brightness slider is already low (a dark
+room under auto-brightness), Gloam keeps less of its dimming: all of it from 75%, none at 25%
+or below. The two would otherwise stack, and dimming the signal of an already-dim backlight
+pushed the panel into dark pixel levels that respond slowly and smear (seen on an XDR panel:
+gone with dimming capped at 80%). Gloam only reads the slider; moving it would fight
+auto-brightness. **Room light:** with a MacBook's lid open, the ambient light sensor eases
+the dimming in a bright room: all of it at ≤ 10 lx, the evening ceiling Brown et al. 2022
+recommend, a third of it at ≥ 500 lx, log-linear between.
 In a bright room the room dominates the light reaching the eye (Gooley et al. 2011, *JCEM*:
 room light < 200 lx before bed delayed melatonin onset in nearly everyone), so a much darker
 screen mostly costs readability. This is a reasoned default, not a trial result.

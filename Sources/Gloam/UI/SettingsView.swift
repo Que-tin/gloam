@@ -33,38 +33,34 @@ struct SettingsView: View {
     }
 
     /// Limits rather than numbers per stage: automatic runs as designed until it would cross
-    /// one. At the left end a limit is off ("None").
+    /// one. "Full" (the right end, the default) means no limit.
     private var evening: some View {
         Section {
-            LabeledContent("Warmest") {
+            LabeledContent("Warmth") {
                 HStack {
-                    Slider(value: warmest, in: 0...1, onEditingChanged: previewNight).frame(width: 150)
-                    limitLabel(model.schedule.warmest, Schedule.warmestRange, none: "No warming") {
-                        Format.kelvin(($0 / 100).rounded() * 100)
-                    }
+                    Slider(value: $model.schedule.warmthAllowance, in: 0...1, onEditingChanged: previewNight).frame(width: 150)
+                    allowanceLabel(model.schedule.warmthAllowance) { Format.kelvin((model.schedule.warmest / 100).rounded() * 100) }
                 }
             }
-            LabeledContent("Darkest") {
+            LabeledContent("Dimming") {
                 HStack {
-                    Slider(value: $model.schedule.darkest, in: Schedule.darkestRange, step: 0.05,
+                    Slider(value: $model.schedule.dimmingAllowance, in: 0...1, step: 1.0 / 9,
                            onEditingChanged: previewNight).frame(width: 150)
-                    limitLabel(model.schedule.darkest, Schedule.darkestRange, none: "No dimming", Format.percent)
+                    allowanceLabel(model.schedule.dimmingAllowance) { "to \(Format.percent(model.schedule.darkest))" }
                 }
             }
-            if model.roomLight.isAvailable {
-                Toggle("Auto dimming", isOn: $model.adaptsToRoom)
+            if model.roomLight.isAvailable || model.display.displays.contains(where: \.isBuiltin) {
+                Toggle("Auto dimming", isOn: $model.autoDimming)
             }
         } header: {
-            Text("Evening limits")
+            Text("Evening")
         }
         .onChange(of: model.schedule) { if model.preview != nil { previewNight(true) } }
     }
 
-    /// "No limit" at the left end, "No warming"/"No dimming" at the right, else the value.
-    private func limitLabel(_ v: Double, _ range: ClosedRange<Double>, none: String,
-                            _ format: (Double) -> String) -> some View {
-        Text(v <= range.lowerBound ? "No limit" : v >= range.upperBound ? none : format(v))
-            .monospacedDigit().foregroundStyle(.secondary).frame(width: 84, alignment: .trailing)
+    private func allowanceLabel(_ a: Double, _ value: () -> String) -> some View {
+        Text(a >= 0.999 ? "Full" : a <= 0.001 ? "None" : value())
+            .monospacedDigit().foregroundStyle(.secondary).frame(width: 64, alignment: .trailing)
     }
 
     /// While a limit is dragged the screen shows the night it allows, so it's never set blind
@@ -73,12 +69,6 @@ struct SettingsView: View {
         model.preview = editing && model.enabled ? model.schedule.limited(model.schedule.night.tint) : nil
     }
 
-    /// Mired-even like the popover's dial, from no limit (left) to no warming at all (right).
-    private var warmest: Binding<Double> {
-        let (lo, hi) = (Kelvin.mired(Schedule.warmestRange.lowerBound), Kelvin.mired(Schedule.warmestRange.upperBound))
-        return Binding(get: { (lo - Kelvin.mired(model.schedule.warmest)) / (lo - hi) },
-                       set: { model.schedule.warmest = (1e6 / (lo - (lo - hi) * $0) / 100).rounded() * 100 })
-    }
 
     private var location: some View {
         Section {
