@@ -27,7 +27,7 @@ body:
     id: method
     attributes:
       label: Method in Settings
-      options: [Colour signal, Overlay, Not sure]
+      options: [Automatic, Colour signal, Overlay, Not sure]
   - type: input
     id: version
     attributes:
