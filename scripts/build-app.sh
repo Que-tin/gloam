@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds a release Gloam.app (universal arm64 + x86_64) into .build/Gloam.app.
-# Signs ad hoc unless SIGN_IDENTITY names a Developer ID certificate.
+# Signed ad hoc: without a paid Apple developer account it can't be notarized (README › Install).
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -23,7 +23,5 @@ cp "$BIN" "$APP/Contents/MacOS/Gloam"
 cp .build/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
 
-# Notarization needs a secure timestamp; an ad-hoc signature can't have one.
-if [ -n "${SIGN_IDENTITY:-}" ]; then TIMESTAMP=--timestamp; else TIMESTAMP=--timestamp=none; fi
-codesign --force --options runtime "$TIMESTAMP" --sign "${SIGN_IDENTITY:--}" "$APP"
+codesign --force --options runtime --timestamp=none --sign - "$APP"
 echo "Built $APP ($VERSION)"
