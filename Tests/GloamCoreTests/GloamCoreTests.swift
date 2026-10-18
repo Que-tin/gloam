@@ -189,11 +189,10 @@ private let p3: LinearRGB = { c in
         #expect(e.sunset! < e.windDown! && e.windDown! < e.bedtime && e.bedtime < e.wake)
     }
 
-    @Test func eveningWithoutSunsetOrValidRhythm() {
-        var s = Schedule()
-        s.wake = ClockTime(16, 0)
-        let e = s.evening(around: at(12, 0, month: 12), tromso, calendar: berlinCalendar)  // polar night
-        #expect(e.sunset == nil && e.windDown == nil && e.night == nil)
+    // Polar night: no sunset to wait for, so wind-down and night come at their clock times.
+    @Test func eveningWithoutSunset() {
+        let e = Schedule().evening(around: at(12, 0, month: 12), tromso, calendar: berlinCalendar)
+        #expect(e.sunset == nil && e.windDown! < e.night! && e.night! < e.bedtime)
     }
 
     @Test(arguments: [6, 12]) func depthIsContinuousAndOrdered(month: Int) {
@@ -218,16 +217,6 @@ private let p3: LinearRGB = { c in
         // A bedtime of 01:00 puts wind-down at 22:00 the previous evening.
         #expect(Schedule.window(23 * 60, from: 60 - 180, to: 420) == 1)
         #expect(Schedule.window(600, from: 420, to: 420) == 0)
-    }
-
-    @Test func halfAdjustedRhythmNeverDimsTheDay() {
-        var s = Schedule()
-        s.wake = ClockTime(21, 30)  // "sleeping" 22.5 h: only reachable mid-adjustment
-        #expect(!s.isRhythmValid)
-        #expect(tint(s, at(12, 0)) == .neutral)
-        s.wake = ClockTime(7, 0)
-        s.bedtime = ClockTime(1, 0)  // after midnight is a normal rhythm
-        #expect(s.isRhythmValid && stage(s, at(23, 30)) == .windDown)
     }
 
     @Test func upcomingListsTheNextChangesInOrder() {

@@ -10,6 +10,7 @@ struct SettingsView: View {
     @Bindable var model: AppModel
     /// "Preview tonight" is on: the screen shows the night the limits allow until "Done".
     @State private var previewing = false
+    private static let titleBarHeight: CGFloat = 28
     /// The form has scrolled under the title bar (`ScrollWatcher`).
     @State private var scrolled = false
     /// "Choose a city…" picked, no city found yet.
@@ -34,10 +35,15 @@ struct SettingsView: View {
         // strip of the surface's colour comes in behind them (a permanent strip looked heavy).
         .background(ScrollWatcher { now in if now != scrolled { scrolled = now } })
         .overlay(alignment: .top) {
-            Rectangle().fill(Lamp.surface)
-                .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.07)).frame(height: 0.5) }
-                .frame(height: 0)
-                .ignoresSafeArea(.container, edges: .top)
+            // The form's frame starts below the title bar while its content scrolls up under it,
+            // so the strip is lifted above the form's top. Frosted and tinted with the surface,
+            // fading out below the buttons rather than ending in a hard edge.
+            Rectangle().fill(.ultraThinMaterial)
+                .overlay(Lamp.surface.opacity(0.55))
+                .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.6),
+                                             .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+                .frame(height: Self.titleBarHeight + 18)
+                .offset(y: -Self.titleBarHeight)
                 .opacity(scrolled ? 1 : 0)
                 .animation(.easeOut(duration: 0.15), value: scrolled)
                 .allowsHitTesting(false)
@@ -119,19 +125,15 @@ struct SettingsView: View {
         model.preview = previewing ? night : nil
     }
 
-    /// What going past the recommended night costs, said once a limit goes there: there the
-    /// safety floors ease off with it (`Schedule.pastRecommended`), so every step does something.
+    /// What going warmer than the recommended night may cost, said once Warmest goes there (the
+    /// smear floor eases off with it, `Schedule.pastRecommended`). Dimmer needs no note: a dim
+    /// screen is plainly dim.
     private var deeperNote: String? {
         let (s, r) = (model.schedule, Schedule.recommendedNight)
         var notes: [String] = []
         if Kelvin.mired(s.warmest) > Kelvin.mired(r.kelvin) + 1 {
             // Tentative on purpose: what happens depends on the screen, which Gloam can't know.
             notes.append(String(localized: "Warmer than recommended: colours may begin to fade, and moving text may smear."))
-        }
-        if s.darkest < r.brightness - 0.002 {
-            notes.append(model.display.dimsBySignal
-                ? String(localized: "Dimmer than recommended: text may get harder to read, and moving text may smear.")
-                : String(localized: "Dimmer than recommended: text may get harder to read."))
         }
         return notes.isEmpty ? nil : notes.joined(separator: "\n")
     }

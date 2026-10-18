@@ -1,7 +1,7 @@
 // The menu-bar window: a lamp. The orb glows with what the screen really shows and says how
 // much blue light reaches you once it gets there. The dial and ladder show the warmth and
 // dimming asked for, so they move with the automatic easing; moving them takes over by hand
-// until the next sunset, bedtime, sunrise or wake (Settings sets every night). "Auto" hands back.
+// until the next morning, or by day the next evening (Settings sets every night). "Auto" hands back.
 //
 // Both controls run from nothing to as far as this screen goes: the dial to the warmest it
 // shows without smearing scrolled text, the ladder to its light floor. Every step does

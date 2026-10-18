@@ -58,8 +58,8 @@ final class AppModel {
             update(fade: 1)
         }
     }
-    /// A hand setting from the popover. It holds to the next sunset, bedtime, sunrise or wake
-    /// ("Manual until 23:00"), then automatic takes over again, so a tweak never quietly
+    /// A hand setting from the popover. It holds to the next phase, morning or evening
+    /// ("Manual until 7:00"), then automatic takes over again, so a tweak never quietly
     /// becomes the new every-night.
     var manual: Tint? {
         didSet {
@@ -351,7 +351,7 @@ final class AppModel {
         if !enabled, let resume = resumeAt, now >= resume { enabled = true }
     }
 
-    /// A hand setting holds to the next sunset, bedtime, sunrise or wake (`Schedule.manualHold`).
+    /// A hand setting holds to the next phase, morning or evening (`Schedule.manualHold`).
     private func holdManualUntilNextChange() {
         refreshClock()
         manualUntil = schedule.manualHold(after: now, place.coordinate)

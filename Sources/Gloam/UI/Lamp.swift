@@ -295,7 +295,7 @@ struct LampDial: View {
             if !caption.isEmpty { LampLabel(text: caption) }
         }
         .fixedSize()
-        .help("\(Format.kelvin(kelvin)). Changing it holds until the next sunset, bedtime, sunrise or wake-up.")
+        .help("\(Format.kelvin(kelvin)). Changing it holds until morning (or, by day, until evening).")
     }
 
     /// Flattened into one layer: 49 capsules redrawn every frame of a fade or drag.

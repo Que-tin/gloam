@@ -59,8 +59,7 @@ struct EveningGraph: View {
     /// How far each limit can go: the whole scale (ember, 30 %), past the recommended night.
     private var warmthRange: ClosedRange<Double> { 0...Light.warmth(Schedule.warmestRange.lowerBound) }
     private var dimmingRange: ClosedRange<Double> { 0...Light.dimming(Schedule.darkestRange.lowerBound) }
-    /// Where the recommended night sits on each scale: marked faintly once a limit moves off it,
-    /// so the way back is one drag.
+    /// Where the recommended night sits on each scale: a drag back within a step snaps onto it.
     private static let recommended = (warmth: Light.warmth(Schedule.recommendedNight.kelvin),
                                       dimming: Light.dimming(Schedule.recommendedNight.brightness))
 
@@ -110,16 +109,6 @@ struct EveningGraph: View {
                 .foregroundStyle(Self.warm).symbolSize(dragging == .warmth ? 90 : 55)
             PointMark(x: .value("Time", span.upperBound), y: .value("Dimming limit", dimmingCap))
                 .foregroundStyle(Self.dim).symbolSize(dragging == .dimming ? 90 : 55)
-            if abs(warmthCap - Self.recommended.warmth) > 0.005 {
-                PointMark(x: .value("Time", span.lowerBound), y: .value("Recommended", Self.recommended.warmth))
-                    .foregroundStyle(Self.warm.opacity(0.35)).symbolSize(30)
-                    .annotation(position: .trailing, spacing: 4) { recommendedLabel }
-            }
-            if abs(dimmingCap - Self.recommended.dimming) > 0.005 {
-                // Unlabelled on this side: the wake line sits near the edge and the word ran into it.
-                PointMark(x: .value("Time", span.upperBound), y: .value("Recommended", Self.recommended.dimming))
-                    .foregroundStyle(Self.dim.opacity(0.35)).symbolSize(30)
-            }
             PointMark(x: .value("Bedtime", e.bedtime), y: .value("Top", 1.0))
                 .foregroundStyle(.white.opacity(0.85)).symbolSize(dragging == .bedtime ? 90 : 55)
             PointMark(x: .value("Wake", e.wake), y: .value("Top", 1.0))
@@ -212,10 +201,6 @@ struct EveningGraph: View {
         let all = ClockTime.all(in: window)
         guard let i = all.firstIndex(of: schedule[keyPath: path]) else { return }
         schedule[keyPath: path] = all[min(all.count - 1, max(0, i + steps))]
-    }
-
-    private var recommendedLabel: some View {
-        Text("Recommended").font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
     }
 
     private func marker(_ title: String, _ date: Date) -> some View {

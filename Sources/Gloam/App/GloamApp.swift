@@ -358,6 +358,13 @@ enum Debug {
             for window in Windows.all {
                 shoot(window, window === Windows.settings ? "settings" : "welcome")
             }
+            // Settings scrolled too: its title strip only shows once the form is under it.
+            if let settings = Windows.settings, let scroll = Self.firstScrollView(in: settings.contentView) {
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: scroll.contentView.bounds.origin.y + 160))
+                scroll.reflectScrolledClipView(scroll.contentView)
+                try? await Task.sleep(for: .seconds(0.8))
+                shoot(settings, "settings-scrolled")
+            }
             exit(0)  // skip the termination handshake; nothing to save in a capture run
         }
     }
@@ -388,6 +395,12 @@ enum Debug {
             await roll(1.6)
             exit(0)
         }
+    }
+
+    private static func firstScrollView(in view: NSView?) -> NSScrollView? {
+        guard let view else { return nil }
+        if let scroll = view as? NSScrollView { return scroll }
+        return view.subviews.lazy.compactMap { firstScrollView(in: $0) }.first
     }
 
     private static func showcaseView(welcome: Bool) -> AnyView {

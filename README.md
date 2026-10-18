@@ -49,7 +49,8 @@ screen can.
 - **The lamp.** It glows with your screen's colour right now and shows how much blue light still
   reaches you. Its dial (warmth) and ladder (dimming) each run from nothing to as far as your screen
   goes, and show what the evening asks for; move them (or scroll, or use the arrow keys) to take
-  over by hand until the next sunset, bedtime, sunrise or wake-up, and "Auto" hands back at once.
+  over by hand until the next morning (in the evening) or the next evening (by day), and "Auto"
+  hands back at once.
 - **On, off, or off for a while.** The switch at the top turns Gloam off and on. Right-click the
   menu-bar icon to **Pause** for an hour or until morning; either ends by itself.
 - **Paused where colour matters.** Right-click while using Lightroom, Photoshop or a video player

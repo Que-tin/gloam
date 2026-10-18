@@ -153,10 +153,6 @@ public struct Schedule: Codable, Equatable, Sendable {
     static let easeIn = 45.0, easeOut = 20.0             // evening ramps are gentle, mornings brisk
     /// After waking, ignore the sun for this long so a dark winter morning stays bright.
     static let morning = 300.0
-    /// Sleep longer than this can't be a real rhythm; wind-down and night then stay off rather
-    /// than dimming the whole day. (The settable ranges never get there; this guards the logic
-    /// for values set directly, as tests do.)
-    static let maxSleep = 16 * 60
 
     // MARK: Evaluation
 
@@ -172,11 +168,6 @@ public struct Schedule: Codable, Equatable, Sendable {
         return smoothstep(min(1, max(0, t)))
     }
 
-    public var isRhythmValid: Bool {
-        let asleep = (wake.minutesOfDay - bedtime.minutesOfDay + 1440) % 1440
-        return asleep > 0 && asleep <= Self.maxSleep
-    }
-
     public struct Factors: Equatable, Sendable {
         public var sunset = 0.0, windDown = 0.0, night = 0.0
     }
@@ -188,11 +179,10 @@ public struct Schedule: Codable, Equatable, Sendable {
         var f = Factors()
         let afterMorning = Self.window(now, from: wakeMin + Self.morning, to: wakeMin)
         if afterMorning > 0 { f.sunset = afterMorning * Self.nightFactor(elevation: Sun.elevation(at: date, c)) }
-        if isRhythmValid {  // ≥ 8 h awake, so the 3 h lead always fits after wake
-            let afterSundown = Self.sundownFactor(elevation: Sun.elevation(at: date, c))
-            f.windDown = afterSundown * Self.window(now, from: bedMin - Double(Self.windDownLead), to: wakeMin)
-            f.night = afterSundown * Self.window(now, from: bedMin - Double(Self.nightLead), to: wakeMin)
-        }
+        // The settable times always leave ≥ 8 h awake, so the 3 h lead fits after wake.
+        let afterSundown = Self.sundownFactor(elevation: Sun.elevation(at: date, c))
+        f.windDown = afterSundown * Self.window(now, from: bedMin - Double(Self.windDownLead), to: wakeMin)
+        f.night = afterSundown * Self.window(now, from: bedMin - Double(Self.nightLead), to: wakeMin)
         return f
     }
 
@@ -272,29 +262,28 @@ public struct Schedule: Codable, Equatable, Sendable {
             ?? evening(around: date, c, calendar: calendar).wake
     }
 
-    /// How long a hand setting holds: to the next big boundary of the day, sunset, bedtime,
-    /// sunrise or wake, whichever comes first, so a tweak lasts the part of the day it was made
-    /// in (the next stage change was often under an hour away). Between sunrise and wake it is
-    /// already light: it holds on to the evening (sunset or bedtime) instead.
+    /// How long a hand setting holds: to the next phase of the day. In the evening and night (the
+    /// last boundary passed was sunset or bedtime) until morning, the first of sunrise and wake;
+    /// by day (sunrise or wake passed) until evening, the first of sunset and bedtime. A tweak
+    /// lasts the evening, or the day, it was made in (the next stage was often under an hour).
     public func manualHold(after date: Date, _ c: Coordinate, calendar: Calendar = .current) -> Date {
-        enum Kind { case sunset, sunrise, bedtime, wake }
-        var anchors: [(at: Date, kind: Kind)] = []
+        var anchors: [(at: Date, evening: Bool)] = []
         let window = DateInterval(start: date.addingTimeInterval(-24 * 3600), end: date.addingTimeInterval(36 * 3600))
-        for (rising, kind) in [(false, Kind.sunset), (true, .sunrise)] {
+        for rising in [false, true] {
             var from = window.start
             while from < window.end, let t = Sun.crossing(-0.833, rising: rising, in: DateInterval(start: from, end: window.end), c) {
-                anchors.append((t, kind))
+                anchors.append((t, !rising))
                 from = t.addingTimeInterval(3600)
             }
         }
         var night = evening(around: window.start, c, calendar: calendar)
         while night.bedtime < window.end {
-            anchors += [(night.bedtime, .bedtime), (night.wake, .wake)]
+            anchors += [(night.bedtime, true), (night.wake, false)]
             night = evening(around: night.wake.addingTimeInterval(60), c, calendar: calendar)
         }
         anchors.sort { $0.at < $1.at }
-        let lightAlready = anchors.last { $0.at <= date }?.kind == .sunrise
-        return anchors.first { $0.at > date.addingTimeInterval(60) && !(lightAlready && $0.kind == .wake) }?.at
+        let inEvening = anchors.last { $0.at <= date }?.evening ?? false
+        return anchors.first { $0.at > date.addingTimeInterval(60) && $0.evening != inEvening }?.at
             ?? evening(around: date, c, calendar: calendar).wake
     }
 
@@ -368,12 +357,10 @@ public struct Schedule: Codable, Equatable, Sendable {
         // only sunset is the previous night's, at 00:03.
         let sunset = Sun.crossing(-0.833, rising: false, in: DateInterval(start: bed.addingTimeInterval(-15 * 3600), end: wakeDate), c)
         e.sunset = sunset
-        if isRhythmValid {
-            // Dimming waits for the sun to go down, so in summer it starts at sunset.
-            let notBeforeSunset = { (d: Date) in sunset.map { max(d, $0) } ?? d }
-            e.windDown = notBeforeSunset(before(ClockTime(minutesOfDay: bedtime.minutesOfDay - Self.windDownLead)))
-            e.night = notBeforeSunset(before(ClockTime(minutesOfDay: bedtime.minutesOfDay - Self.nightLead)))
-        }
+        // Dimming waits for the sun to go down, so in summer it starts at sunset.
+        let notBeforeSunset = { (d: Date) in sunset.map { max(d, $0) } ?? d }
+        e.windDown = notBeforeSunset(before(ClockTime(minutesOfDay: bedtime.minutesOfDay - Self.windDownLead)))
+        e.night = notBeforeSunset(before(ClockTime(minutesOfDay: bedtime.minutesOfDay - Self.nightLead)))
         return e
     }
 

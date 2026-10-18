@@ -45,8 +45,8 @@ swift run Gloam --film DIR             # popover frames while switching off and 
   menu-bar icon appears with Start). Bedtime and wake are clock times, never stages, set only in
   Settings (bedtime 20:00–03:00, wake 04:00–12:00, quarter hours: a night-time sleep, ≥ 8 h awake);
   dimming never starts before sunset. Stages are fixed; only Warmest and Dimmest (where Night goes)
-  are settings. The popover's dial and ladder override until the next sunset, bedtime, sunrise or
-  wake (per-stage values and global strengths were cut: "back to automatic" got unclear).
+  are settings. The popover's dial and ladder override until the next morning (first of sunrise
+  and wake) or evening (first of sunset and bedtime); per-stage values were cut ("Auto" got unclear).
 - Popover controls run to as far as the screen goes (`warmestOnMain`, `darkestOnMain`), every step
   doing something, no notices. Their ends move only with the user's brightness: the smear floor's
   share is held while Gloam dims (an end that moved with Gloam's dimming made the knob wander).
