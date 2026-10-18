@@ -5,7 +5,7 @@
 <h1 align="center">Gloam</h1>
 
 <p align="center">
-  <strong>A warm lamp for your Mac's evenings: it warms the screen from sunset and dims it before bed, timed to the sun.</strong><br>
+  <strong>A warm lamp for your Mac's evenings: it warms the screen from sunset and dims it before bed.</strong><br>
   Free and open source · no account · no tracking · native Swift
 </p>
 
@@ -38,8 +38,8 @@ around what sleep research says matters:
 - **It shows you the effect.** The lamp in the popover glows with your screen's current colour and
   estimates how much blue light still reaches you, compared with the same screen untinted at
   your daytime brightness (so turning brightness down in the evening counts too). On the built-in screen, Apple displays and monitors that support
-  DDC/CI it dims the backlight itself, the way the brightness keys do (never below about
-  40 cd/m² on a typical laptop screen); other monitors are dimmed in software, never below 30%, so shadows stay readable.
+  DDC/CI, it dims the backlight itself, the way the brightness keys do (by default never below
+  about 40 cd/m² on a typical laptop screen, lower only past the recommended night); other monitors are dimmed in software, never below 30%, so shadows stay readable.
 
 Room lighting and total screen time matter more than any screen app. Gloam helps with the part a
 screen can.
@@ -54,22 +54,27 @@ screen can.
 - **On, off, or off for a while.** The switch at the top turns Gloam off and on. Right-click the
   menu-bar icon to **Pause** for an hour or until morning; either ends by itself.
 - **Paused where colour matters.** Right-click while using Lightroom, Photoshop or a video player
-  and choose **Pause for** it (or add apps in Settings): Gloam pauses while it's in front.
+  and choose **Always Pause for** it (or add apps in Settings): Gloam pauses while it's in front.
 - **Your evening, as a graph.** Settings shows tonight's warmth and dimming against sunset, bedtime
   and wake. Drag bedtime or wake sideways, or the dashed Warmest and Dimmest lines up and down:
-  they set where the night goes, lighter or (past "Recommended") deeper. **Preview tonight** shows the night on
+  they set where the night goes, lighter or, past the recommended night, deeper. **Preview tonight** shows the night on
   your screen while you set it. "Adapt to room light" eases the dimming in a bright room (MacBook, lid open).
-- **Settings** (gear, or right-click the menu-bar icon) also hold your location, which screens
+- **Settings** (gear, or right-click the menu-bar icon) also holds your location, which screens
   to tint, app exceptions and launch at login.
 
 Everything works from the keyboard and with VoiceOver.
 
 ## Install
 
-Download `Gloam.app` from [Releases](https://github.com/Que-tin/gloam/releases) and move it to
-Applications. Builds aren't notarized yet, so macOS blocks the first launch: open **System
-Settings › Privacy & Security**, scroll down and click **Open Anyway**. (On macOS 14 you can
-right-click Gloam.app and choose **Open** instead.)
+Download `Gloam.zip` from [Releases](https://github.com/Que-tin/gloam/releases), open it and
+move `Gloam.app` to Applications. Builds aren't notarized yet, so macOS blocks the first launch:
+open Gloam once, then **System Settings › Privacy & Security**, scroll down and click **Open
+Anyway**. (On macOS 14 you can right-click Gloam.app and choose **Open** instead.) If neither
+appears, run `xattr -dr com.apple.quarantine /Applications/Gloam.app` in Terminal.
+
+To update, quit Gloam (right-click the menu-bar icon), replace the app in Applications with the
+new one and open it; settings stay. Gloam doesn't check for updates itself: watch the repository's
+releases to hear of new ones.
 
 Or build it yourself (needs Xcode 26):
 
@@ -128,6 +133,17 @@ name is sent to Apple Maps. Settings stay in your Mac's user defaults.
 Gloam reduces the evening screen light that most affects your body clock (melanopic light, per
 CIE S 026), following the 2022 expert recommendations. It is not a medical device and makes no
 claim to improve sleep or treat any condition.
+
+## Known issues
+
+- **Not notarized yet**, so the first launch needs **Open Anyway** (see Install).
+- **External monitors:** hardware brightness over DDC/CI is verified on one monitor so far. Hubs,
+  docks, DisplayLink adapters, TVs and some picture modes don't answer; those screens are dimmed
+  in software instead.
+- **Private macOS interfaces** read the backlight, the light sensor and DDC/CI. A macOS update can
+  break them; Gloam then falls back to dimming in software rather than failing.
+- **Intel Macs and macOS 14–15** build and should work, but haven't been tested on hardware yet.
+- **No update check**: new versions appear under Releases.
 
 ## Contributing
 

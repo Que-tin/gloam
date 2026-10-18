@@ -1,0 +1,35 @@
+name: Display problem
+description: The screen doesn't tint, dim or restore as expected
+labels: [display]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you expected, what you saw, and when (evening, after sleep, after plugging in…).
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac and macOS
+      placeholder: e.g. MacBook Air M2, macOS 26.1
+    validations:
+      required: true
+  - type: textarea
+    id: displays
+    attributes:
+      label: Displays
+      description: Each display's name (System Settings › Displays), how it's connected (cable, hub, dock), and whether HDR is on.
+    validations:
+      required: true
+  - type: dropdown
+    id: method
+    attributes:
+      label: Method in Settings
+      options: [Colour signal, Overlay, Not sure]
+  - type: input
+    id: version
+    attributes:
+      label: Gloam version
+      description: Right-click Gloam.app › Get Info.

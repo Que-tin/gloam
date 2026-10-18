@@ -29,7 +29,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>MIT License</string>
+	<string>© 2026 Quentin Albert. MIT License.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
