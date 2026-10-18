@@ -168,6 +168,11 @@ struct SettingsView: View {
                 Text(model.customPlace == nil ? String(localized: "Choose a city…") : String(localized: "Choose another city…"))
                     .tag(LocationChoice.choose)
             }
+            if let city = model.customPlace, !model.customPlaceInUse, !choosingCity {
+                Text("\(city.name) keeps another time than your Mac, so sunset follows \(model.timeZonePlace.name) until the clocks match again.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if choosingCity {
                 CitySearch { picked in
                     model.customPlace = picked

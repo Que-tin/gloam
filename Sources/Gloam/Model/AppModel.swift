@@ -167,7 +167,10 @@ final class AppModel {
 
     // MARK: Derived state
 
-    var place: Place { customPlace ?? timeZonePlace }
+    /// The chosen city while it keeps the Mac's time; otherwise (travel, a city in another zone)
+    /// the time zone's own, until the clocks match again.
+    var place: Place { customPlaceInUse ? customPlace! : timeZonePlace }
+    var customPlaceInUse: Bool { customPlace?.keepsTime(of: .current, at: now) ?? false }
     /// Stored rather than computed (`refreshClock`): views read them on every redraw, and
     /// finding the next change scans the next 24 hours.
     private(set) var stage = StageKind.day

@@ -71,3 +71,27 @@ import Testing
         #expect(abs(s.darkest - Schedule.darkestRange.lowerBound) < 1e-9)
     }
 }
+
+// A chosen city counts only while it keeps the Mac's time: Munich does for a Berlin Mac, New
+// York doesn't, and Phoenix keeps Denver's time only in winter (it skips daylight saving).
+@Suite struct PlaceTimeTests {
+    let c = Coordinate(latitude: 0, longitude: 0)
+    let winter = Date(timeIntervalSince1970: 1_767_225_600)  // 2026-01-01
+    let summer = Date(timeIntervalSince1970: 1_782_864_000)  // 2026-07-01
+
+    @Test func keepsTheMacsTime() {
+        let berlin = TimeZone(identifier: "Europe/Berlin")!, denver = TimeZone(identifier: "America/Denver")!
+        #expect(Place(name: "Munich", coordinate: c, timeZone: "Europe/Berlin").keepsTime(of: berlin, at: summer))
+        #expect(Place(name: "Paris", coordinate: c, timeZone: "Europe/Paris").keepsTime(of: berlin, at: summer))
+        #expect(!Place(name: "New York", coordinate: c, timeZone: "America/New_York").keepsTime(of: berlin, at: summer))
+        let phoenix = Place(name: "Phoenix", coordinate: c, timeZone: "America/Phoenix")
+        #expect(phoenix.keepsTime(of: denver, at: winter) && !phoenix.keepsTime(of: denver, at: summer))
+        #expect(Place(name: "Old save", coordinate: c).keepsTime(of: berlin, at: summer))
+    }
+
+    @Test func oldSavesStillLoad() throws {
+        let old = #"{"name":"Munich","coordinate":{"latitude":48.1,"longitude":11.6}}"#
+        let place = try JSONDecoder().decode(Place.self, from: Data(old.utf8))
+        #expect(place.name == "Munich" && place.timeZone == nil)
+    }
+}

@@ -9,9 +9,21 @@ import Foundation
 public struct Place: Equatable, Sendable, Codable {
     public var name: String
     public var coordinate: Coordinate
-    public init(name: String, coordinate: Coordinate) {
+    /// The place's own time zone (an IANA identifier), when known: a chosen city's.
+    public var timeZone: String?
+    public init(name: String, coordinate: Coordinate, timeZone: String? = nil) {
         self.name = name
         self.coordinate = coordinate
+        self.timeZone = timeZone
+    }
+
+    /// Whether the place keeps the same time as `zone` at `date`. Everything runs on the Mac's
+    /// clock (bedtime is 23:00 there), so a city in another zone, chosen or left behind by
+    /// travel, put its sunset at odd hours of that clock and dragged the evening with it.
+    /// Places without a known zone (the zone table's own, older saves) count as keeping it.
+    public func keepsTime(of zone: TimeZone, at date: Date) -> Bool {
+        guard let id = timeZone, let own = TimeZone(identifier: id) else { return true }
+        return own.secondsFromGMT(for: date) == zone.secondsFromGMT(for: date)
     }
 
     /// Fallback when the zone table is unreadable: Greenwich.

@@ -81,7 +81,8 @@ struct CitySearch: View {
             let c = if #available(macOS 26, *) { item.location.coordinate } else { item.placemark.coordinate }
             // Maps can hand back an invalid (-180, -180) coordinate; it must never become the place.
             guard CLLocationCoordinate2DIsValid(c) else { return nil }
-            return Place(name: item.name ?? text, coordinate: Coordinate(latitude: c.latitude, longitude: c.longitude))
+            return Place(name: item.name ?? text, coordinate: Coordinate(latitude: c.latitude, longitude: c.longitude),
+                         timeZone: item.timeZone?.identifier)
         }.prefix(5).map { $0 }
         // MapKit reports "nothing found" as an error too; offline is the other common cause.
         status = results.isEmpty
