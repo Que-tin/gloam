@@ -12,9 +12,10 @@
 // 0–50 scale): read, dim and restore on quit all work, and its EDID pairs it.
 //
 // All I2C traffic runs on one serial queue per monitor, never the main thread: each command
-// sleeps 10–60 ms. Writes are coalesced to the latest value and spaced 200 ms apart, because
-// MCCS asks for ~50 ms between commands, some monitors drop a flood, and many store every
-// brightness write in EEPROM (a fade at 60 frames a second would be thousands a night).
+// sleeps 10–60 ms. Writes are coalesced to the latest value and spaced 60 ms apart: MCCS asks
+// for ~50 ms between commands and some monitors drop a flood. Many store every brightness write
+// in EEPROM, so the controller sends one step per write (`BacklightDim.nextStep`): the count is
+// the levels crossed, however fast they go.
 
 import CoreGraphics
 import Foundation
@@ -90,17 +91,30 @@ nonisolated final class DDC: @unchecked Sendable {
     }
 
     private func drain() {
-        let wait = 0.2 - Date().timeIntervalSince(lastWrite)
+        let wait = 0.06 - Date().timeIntervalSince(lastWrite)
         if wait > 0 { usleep(UInt32(wait * 1_000_000)) }
         guard let (fraction, done) = lock.withLock({ defer { pending = nil }; return pending }) else { return }
+        // Written twice (some monitors drop the first), but heard
+        // of after the first that got through: the signal evens out the step as soon as it can.
         var ok = false
-        for attempt in 0..<3 where !ok {
-            if attempt > 0 { usleep(50_000) }
-            ok = send(fraction)
+        for attempt in 0..<6 {  // up to three tries of two writes
+            if attempt > 0 && attempt.isMultiple(of: 2) {
+                if ok { break }
+                usleep(50_000)
+            }
+            usleep(10_000)
+            guard send(fraction) else { continue }
+            if !ok {
+                lock.withLock { lastFailed = false }
+                DispatchQueue.main.async { done(true) }
+            }
+            ok = true
         }
         lastWrite = Date()
-        lock.withLock { lastFailed = !ok }
-        DispatchQueue.main.async { [ok] in done(ok) }
+        if !ok {
+            lock.withLock { lastFailed = true }
+            DispatchQueue.main.async { done(false) }
+        }
     }
 
     private func send(_ fraction: Double) -> Bool {
@@ -108,12 +122,7 @@ nonisolated final class DDC: @unchecked Sendable {
         let value = UInt16(max(0, min(Double(maximum), (fraction * Double(maximum)).rounded())))
         var data: [UInt8] = [0x84, 0x03, Self.brightness, UInt8(value >> 8), UInt8(value & 0xFF), 0]
         data[5] = Self.checksum(data.dropLast(), from: Self.destination ^ Self.host)
-        var ok = false
-        for _ in 0..<2 {  // written twice: some monitors drop the first
-            usleep(10_000)
-            ok = write(service, Self.chip, UInt32(Self.host), data, UInt32(data.count)) == kIOReturnSuccess || ok
-        }
-        return ok
+        return write(service, Self.chip, UInt32(Self.host), data, UInt32(data.count)) == kIOReturnSuccess
     }
 
     /// MCCS's checksum: every byte XORed onto the addresses it travels between.

@@ -110,18 +110,24 @@ public struct BacklightDim: Equatable, Codable, Sendable {
 
     /// For a display that takes whole steps (`step` > 0) a few times a second: the next light to
     /// write toward `fraction`, one step from what it shows, and rounded up, so the signal only
-    /// ever has to dim the rest (a jump of several steps showed as a jolt). nil when it's there;
-    /// `final` when this write reaches it. Without a step, `light(for:)` in one go.
-    public func nextStep(for fraction: Double) -> (light: Double, final: Bool)? {
-        guard step > 0 else { return light(for: fraction).map { ($0, true) } }
+    /// ever has to dim the rest (a jump of several steps showed as a jolt), though never above
+    /// the light found. nil when it's there. `fraction` is what to record with it (`wrote`): the
+    /// step's own place on the curve, so `observe` scales the baseline after an outside move,
+    /// except where the floor holds it, and 1 for the write that ends a release.
+    /// Without a step, `light(for:)` in one go.
+    public func nextStep(for fraction: Double) -> (light: Double, fraction: Double)? {
+        guard step > 0 else { return light(for: fraction).map { ($0, fraction) } }
         let release = fraction >= 1
         if release && written == nil { return nil }
-        let goal = release ? min(1, baseline) : min(1, (target(for: fraction) / step - 1e-6).rounded(.up) * step)
+        let target = target(for: fraction)
+        let goal = release ? target : min(1, baseline, (target / step - 1e-6).rounded(.up) * step)
         let from = written ?? min(1, baseline)
         let gap = abs(goal - from)
-        if gap <= step / 2 { return release ? (goal, true) : nil }  // a release is recorded even there
+        if gap <= step / 2 { return release ? (goal, 1) : nil }  // a release is recorded even there
         let next = gap <= step * 1.5 ? goal : from + (goal > from ? step : -step)
-        return (next, next == goal)
+        if next == goal && release { return (next, 1) }
+        if next == goal && fraction < lowestFraction { return (next, fraction) }
+        return (next, min(0.999, next / max(baseline, next)))
     }
 
     /// Records a write of `light(for:)` that reached the panel.

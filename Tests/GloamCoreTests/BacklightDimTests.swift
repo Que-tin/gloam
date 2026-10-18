@@ -206,17 +206,40 @@ import Testing
     @Test func aMonitorWalksOneStepAtATime() {
         var d = BacklightDim(baseline: 12.0 / 50, step: 1.0 / 50)
         var lights: [Int] = []
-        while let (light, final) = d.nextStep(for: 0.3) {
+        while let (light, fraction) = d.nextStep(for: 0.3) {
             lights.append(Int((light * 50).rounded()))
-            d.wrote(light, for: final ? 0.3 : light / d.baseline)
+            d.wrote(light, for: fraction)
         }
         #expect(lights == [11, 10, 9, 8, 7, 6, 5, 4])   // 0.3 × 12 = 3.6 is under the light floor (4 of 50)
         #expect(d.isDimming)
         var back: [Int] = []
-        while let (light, final) = d.nextStep(for: 1) {
+        while let (light, fraction) = d.nextStep(for: 1) {
             back.append(Int((light * 50).rounded()))
-            d.wrote(light, for: final ? 1 : min(0.999, light / d.baseline))
+            d.wrote(light, for: fraction)
         }
         #expect(back == [5, 6, 7, 8, 9, 10, 11, 12] && !d.isDimming)
+    }
+
+    // Rounded up onto the curve, the last step is recorded there: a press on the monitor's own
+    // buttons afterwards scales the baseline, and doesn't read as raising the floor.
+    @Test func aRoundedStepStaysOnTheCurve() {
+        var d = BacklightDim(baseline: 0.24, step: 0.02)
+        while let (light, fraction) = d.nextStep(for: 0.55) { d.wrote(light, for: fraction) }
+        #expect(abs(d.written! - 0.14) < 1e-9)          // 0.132 asked, up to 7 of 50
+        d.observe(light: 0.20)
+        #expect(d.lowestFraction < 0.5)                  // not held at 0.20
+        #expect(d.nextStep(for: 0.55) == nil)            // and the press is kept, not undone
+    }
+
+    // A baseline off the step grid (scaled by an outside move) is never exceeded.
+    @Test func roundingNeverGoesAboveTheLightFound() {
+        var d = BacklightDim(baseline: 0.245, step: 0.02), highest = 0.0
+        for asked in [0.8, 0.99] {
+            while let (light, fraction) = d.nextStep(for: asked) {
+                highest = max(highest, light)
+                d.wrote(light, for: fraction)
+            }
+        }
+        #expect(d.isDimming && highest <= 0.245)
     }
 }

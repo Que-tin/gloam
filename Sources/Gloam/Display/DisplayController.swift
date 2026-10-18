@@ -330,7 +330,11 @@ final class DisplayController {
     /// A new target during a fade retargets the running one instead of restarting it: a drag
     /// sends ~120 targets a second, and restarting each time meant the fade never got past its
     /// first frame, so the screen only caught up on release. Retargets ease out (no slow start).
-    func show(_ target: Tint, duration: Double) {
+    func show(_ target: Tint, duration requested: Double) {
+        // A monitor takes about a step every 0.1 s: a fade shorter than its steps left the last
+        // ones landing after the signal had stopped, each a visible dip. Half again for the eased
+        // middle, where the fade outruns the steps. Drags (short fades) keep their pace.
+        let duration = requested >= 0.3 ? max(requested, 0.15 * monitorSteps(to: target)) : requested
         guard duration > 0 else {
             fadeTask?.cancel()
             fadeTask = nil
@@ -360,6 +364,16 @@ final class DisplayController {
     }
 
     private struct Fade { var from, to: Tint; var start: Date; var duration: Double; var retarget: Bool }
+
+    /// The most whole steps any monitor has to take to show `target`.
+    private func monitorSteps(to target: Tint) -> Double {
+        displays.reduce(0) { most, display in
+            guard monitors[display.id] != nil, let dim = dims[display.id], dim.step > 0 else { return most }
+            let t = adjusted(.mix(.neutral, target, strength(display.uuid)), for: display.id)
+            let goal = dim.target(for: pow(t.brightness, Kelvin.displayGamma))
+            return max(most, (abs(goal - (dim.written ?? min(1, dim.baseline))) / dim.step).rounded())
+        }
+    }
     @ObservationIgnored private var fade: Fade?
 
     /// Put the displays back exactly as macOS had them; used on quit.
@@ -380,13 +394,14 @@ final class DisplayController {
                 setBacklight(id, fraction: 1)
             }
         }
-        // A monitor's answer would arrive on the main actor after quitting: wait for it here,
-        // and record the restore only if it got through. Unreachable or unplugged, it stays saved
-        // as dimmed, so the next launch (or reconnect) restores it.
+        // A monitor walks back a step at a time, which quitting can't wait for: its baseline goes
+        // in one write here, waited for, and the restore is recorded only if it got through.
+        // Unreachable or unplugged, it stays saved as dimmed, so the next launch (or reconnect)
+        // restores it.
         for (id, monitor) in monitors where displays.contains(where: { $0.id == id }) {
             guard var dim = dims[id], dim.isDimming, let light = dim.light(for: 1) else { continue }
-            var ok = monitor.flush()
-            if !ok {
+            var ok = false
+            for _ in 0..<2 where !ok {
                 monitor.set(fraction: light)
                 ok = monitor.flush()
             }
@@ -429,8 +444,9 @@ final class DisplayController {
     /// light asked for, the signal dims what it shows too much of, so fades and the hand-over
     /// from signal dimming at launch run smoothly. A step up in flight already counts as shown:
     /// the signal darkens first and the monitor brightens after, so a timing slip dips, never flashes.
+    /// Not on a monitor guarded against smearing: a dimmed signal is what smears.
     private func signalShare(_ id: CGDirectDisplayID, fraction: Double) -> Double {
-        guard monitors[id] != nil, let dim = dims[id] else { return 1 }
+        guard monitors[id] != nil, smearFloor(for: id) == 0, let dim = dims[id] else { return 1 }
         let shown = max(dim.written ?? min(1, dim.baseline), inFlight[id] ?? 0)
         guard shown > 0 else { return 1 }
         return pow(min(1, dim.target(for: fraction) / shown), 1 / Kelvin.displayGamma)
@@ -451,8 +467,7 @@ final class DisplayController {
             // one (each answer pushes again), and recorded only then: a write lost to a sleeping
             // monitor must be sent again, not assumed.
             guard !probingIDs.contains(id), inFlight[id] == nil,  // its handle is being replaced
-                  let (light, final) = dim.nextStep(for: fraction) else { return }
-            let recorded = final ? fraction : min(0.999, light / max(dim.baseline, light))
+                  let (light, recorded) = dim.nextStep(for: fraction) else { return }
             inFlight[id] = light
             monitor.set(fraction: light) { [weak self] ok in
                 self?.monitorAnswered(id, monitor, light: light, fraction: recorded, ok: ok)
