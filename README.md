@@ -31,29 +31,30 @@ around what sleep research says matters:
 - **It dims as well as warms.** Warm colour on its own cuts only about half of the light that keeps
   you alert; lowering brightness does most of the work. Gloam does both.
 - **It follows the sun, then winds you down.** It warms as the sun goes down, dims later in the
-  evening (never while it's still light out), goes deepest an hour before bed, and is back to
+  evening (only once the sun is setting), goes deepest an hour before bed, and is back to
   daylight in the morning. Nothing to set up: the evening is timed from a 23:00 bedtime that
   suits most people; limits in Settings keep it from getting warmer or darker than you like.
 - **It shows you the effect.** The lamp in the popover glows with your screen's current colour and
-  estimates how much blue light it is saving, compared with the same screen untinted at
-  full brightness. Brightness never goes below 30%, so shadows stay readable; use your Mac's
-  brightness keys for more.
+  estimates how much blue light still reaches you, compared with the same screen untinted at
+  the brightness you set. On the built-in screen, Apple displays and monitors that support
+  DDC/CI it dims the backlight itself, the way the brightness keys do (never below about
+  40 cd/m²); other monitors are dimmed in software, never below 30%, so shadows stay readable.
 
 Room lighting and total screen time matter more than any screen app. Gloam helps with the part a
 screen can.
 
 ## Using it
 
-- **The lamp.** It glows with your screen's colour right now and shows how much blue light that
-  saves; by day, when it starts. Its dial and ladder show the live warmth and brightness; move
-  them (or scroll, or use the arrow keys) to take over by hand until the next change, and "Auto"
-  hands back at once. The switch at the top turns Gloam off and on.
+- **The lamp.** It glows with your screen's colour right now and shows how much blue light still
+  reaches you. Its dial and ladder show the live warmth and dimming, each from none to as far as
+  your screen goes; move them (or scroll, or use the arrow keys) to take over by hand until the
+  next change, and "Auto" hands back at once. The switch at the top turns Gloam off and on.
 - **True colour where it matters.** Add apps such as Lightroom, Photoshop or a video player as
   exceptions (from the gear menu while you're using one, or in Settings) and Gloam steps aside
   while they're in front. To stop Gloam for a while, use the switch.
-- **Too warm or too dark?** Warmth and Night brightness (in Welcome's preview and in Settings)
+- **Too warm or too dark?** Warmth and Dimming (in Welcome's preview and in Settings)
   cap the evening; automatic runs as designed until it would cross a cap. Auto dimming eases the
-  dimming on a MacBook whose backlight is already low, and in a bright room (lid open).
+  dimming in a bright room (MacBook, lid open).
 - **Settings** (gear, or right-click the menu-bar icon) also hold your location, which screens
   to tint, app exceptions and launch at login.
 
@@ -90,9 +91,9 @@ once make it flicker; Gloam tells you if something keeps changing the screen's c
 | Dims as part of the schedule | ✓ | – (dim by hand) | – |
 | Follows the sun | ✓ | ✓ | ✓ |
 | Deepens toward bedtime | ✓ | ✓ (from wake time) | – |
-| Shows how much blue light is saved | ✓ | – | – |
+| Shows how much blue light reaches you | ✓ | – | – |
 | Command line / scripting | URL scheme | – | – |
-| Dims external monitors in hardware (DDC/CI) | – | – | – |
+| Dims external monitors in hardware (DDC/CI) | ✓ | – | – |
 | Open source | ✓ (MIT) | – | – |
 
 ## Under the hood
@@ -100,8 +101,9 @@ once make it flicker; Gloam tells you if something keeps changing the screen's c
 - **Colour accuracy.** Colours come from the physics of warm light, so 1900 K looks like a candle
   rather than a filter. Gloam also keeps your monitor's colour calibration.
 - **Real tinting.** Gloam changes the colour signal itself, so blue is actually removed and blacks
-  stay black. On the few Macs where macOS ignores that (some M5 models on macOS 26+), it uses a
-  screen overlay instead. You can choose the method in Settings.
+  stay black. On the few Macs where macOS ignores that (M5 Pro and M5 Max MacBook Pros, and the
+  MacBook Neo on external displays), it uses a screen overlay instead. You can choose the method
+  in Settings.
 - **No location permission.** Sunset is worked out from your time zone on the Mac, or from a city
   you pick.
 - **Scriptable** with Shortcuts, Raycast, Alfred, cron or a shell:

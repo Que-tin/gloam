@@ -1,8 +1,8 @@
 // "Light as material": the popover is a lamp in a dark room. Its controls are made of the
 // light they set: the orb glows in the screen's current colour and brightness, the dial's
-// ticks are painted in the temperature each stands for, and the brightness ladder dims its
+// ticks are painted in the temperature each stands for, and the dimming ladder dims its
 // own light. Dark by design: Gloam lives at night, and a light variant would fight the glow.
-// By day the lamp is unlit and says when it starts; the evening is the event.
+// By day the lamp is unlit at 100% blue light; the evening is the event.
 
 import AppKit
 import GloamCore
@@ -27,7 +27,8 @@ enum Lamp {
     }
 }
 
-/// Mono caption in the lamp's label style.
+/// Mono caption in the lamp's label style. Like every lamp part taking a `String`, it shows it
+/// verbatim: callers pass text already localised (`String(localized:)`).
 struct LampLabel: View {
     let text: String
     var opacity = 0.6
@@ -87,11 +88,16 @@ struct Grain: View {
 struct PowerSwitch: View {
     @Binding var on: Bool
     let kelvin: Double
+    /// Hover text: what clicking does. Welcome's login switch passes its own.
+    var help: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let c = Color.kelvin(kelvin)
-        Button { withAnimation(reduceMotion ? nil : .snappy) { on.toggle() } } label: {
+        // Only the knob animates: wrapping the toggle in withAnimation also animated everything
+        // it changes elsewhere (a notice or the footer going), inside a panel that resizes at
+        // once, so the whole popover jumped.
+        Button { on.toggle() } label: {
             ZStack(alignment: on ? .trailing : .leading) {
                 Capsule().fill(Lamp.well)
                     .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
@@ -108,13 +114,14 @@ struct PowerSwitch: View {
                 .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
                 .padding(3)
             }
+            .animation(reduceMotion ? nil : .snappy, value: on)
             .frame(width: 40, height: 24)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(on ? "Turn Gloam off" : "Turn Gloam on")
+        .help(help ?? (on ? String(localized: "Turn Gloam off") : String(localized: "Turn Gloam on")))
         .accessibilityLabel("Gloam")
-        .accessibilityValue(on ? "On" : "Off")
+        .accessibilityValue(on ? String(localized: "On") : String(localized: "Off"))
         .accessibilityAddTraits(.isToggle)
     }
 }
@@ -136,6 +143,10 @@ struct LampDial: View {
     let orbCaption: String
     /// When set, the orb is a quiet power button (Gloam is off) instead of a readout.
     var onPower: (() -> Void)?
+    /// False when turning the ring would change nothing (off, stepping aside, no warmth left
+    /// at this brightness): no drag, no cursor, no detents. A drag the binding ignored used
+    /// to buzz the trackpad on every event.
+    var editable = true
     /// Spoken by VoiceOver: "Warmth for Wind-down".
     let stageName: String
     /// Under the readout: what changes next and when ("Night at 22:00").
@@ -176,13 +187,13 @@ struct LampDial: View {
                     knob(center: center, f: f, color: edit)
                     readout(kelvin).position(x: center.x, y: center.y + Self.ringRadius + 4)
                     // Which end is which, in words rather than Kelvin numbers.
-                    LampLabel(text: "cool", opacity: 0.45).position(x: center.x - 78, y: center.y + 86)
-                    LampLabel(text: "warm", opacity: 0.45).position(x: center.x + 78, y: center.y + 86)
+                    LampLabel(text: String(localized: "cool")).position(x: center.x - 78, y: center.y + 86)
+                    LampLabel(text: String(localized: "warm")).position(x: center.x + 78, y: center.y + 86)
                 }
                 .contentShape(Rectangle())
                 .gesture(drag(center: center))
                 .onContinuousHover { phase in
-                    if case .active(let p) = phase {
+                    if case .active(let p) = phase, editable {
                         let inBand = Self.band.contains(hypot(p.x - center.x, p.y - center.y))
                         if inBand != hovering {
                             hovering = inBand
@@ -196,7 +207,6 @@ struct LampDial: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Warmth for \(stageName)")
                 .accessibilityValue("\(Light.name(kelvin).lowercased()), \(Format.kelvin(kelvin))")
-                .accessibilityHint("Swipe up for warmer, down for cooler")
                 .accessibilityAdjustableAction { direction in nudge(direction == .increment ? 0.02 : -0.02) }
 
                 orb
@@ -229,6 +239,7 @@ struct LampDial: View {
 
     /// Steps warmer (+) or cooler (−).
     private func nudge(_ delta: Double) {
+        guard editable else { return }
         let new = min(1, max(0, fraction + delta))
         if new != fraction { fraction = new }
     }
@@ -237,12 +248,12 @@ struct LampDial: View {
         DragGesture(minimumDistance: 0)
             .updating($dragging) { g, state, _ in
                 // A press that starts off the ring (on the orb, in a corner) isn't a dial drag.
-                if Self.band.contains(hypot(g.startLocation.x - center.x, g.startLocation.y - center.y)) {
+                if editable, Self.band.contains(hypot(g.startLocation.x - center.x, g.startLocation.y - center.y)) {
                     state = true
                 }
             }
             .onChanged { g in
-                guard Self.band.contains(hypot(g.startLocation.x - center.x, g.startLocation.y - center.y)) else { return }
+                guard editable, Self.band.contains(hypot(g.startLocation.x - center.x, g.startLocation.y - center.y)) else { return }
                 NSCursor.closedHand.set()
                 let angle = atan2(g.location.y - center.y, g.location.x - center.x) * 180 / .pi
                 let new = Self.fraction(angle: angle, previous: fraction)
@@ -281,8 +292,9 @@ struct LampDial: View {
         .help("\(Format.kelvin((kelvin / 100).rounded() * 100)). Changing it holds until the next stage.")
     }
 
+    /// Flattened into one layer: 49 capsules redrawn every frame of a fade or drag.
     private func ticks(center: CGPoint, f: Double) -> some View {
-        ForEach(0..<Self.ticks, id: \.self) { i in
+        ZStack { ForEach(0..<Self.ticks, id: \.self) { i in
             let t = Double(i) / Double(Self.ticks - 1)
             let major = i % 9 == 0
             let isLit = t <= f + 0.001
@@ -292,7 +304,8 @@ struct LampDial: View {
                 .offset(y: -(Self.ringRadius + (major ? 10 : 8)))
                 .rotationEffect(.degrees(Self.arcStart + 90 + t * Self.arcSweep))
                 .position(center)
-        }
+        } }
+        .drawingGroup()
     }
 
     private func track(center: CGPoint, f: Double, color: Color) -> some View {
@@ -328,7 +341,7 @@ struct LampDial: View {
         .position(x: center.x + cos(a) * Self.ringRadius, y: center.y + sin(a) * Self.ringRadius)
     }
 
-    /// "−85%" or a time, large; a word ("aside", "off"), smaller.
+    /// "20%", large; a word ("aside"), smaller.
     private var orbHeadline: Text {
         let size: CGFloat = orbTitle.first?.isLetter == true ? 19 : 28
         return Text(orbTitle).font(.system(size: size, weight: .medium, design: .rounded).monospacedDigit())
@@ -367,32 +380,30 @@ struct LampDial: View {
                                          startRadius: r * 0.8, endRadius: r))
             Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .clear, glow.opacity(0.05 + 0.35 * core)],
                                                  startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
-            if onPower != nil {
-                Image(systemName: "power")
-                    .font(.system(size: 22, weight: .light))
-                    .foregroundStyle(Lamp.ink.opacity(0.4))
-            } else {
-                readoutText(r: r, ink: ink, etched: etched)
-            }
+            // Crossfaded in place: swapping the whole face for a button cut the lamp's own
+            // light-up and decay short.
+            Image(systemName: "power")
+                .font(.system(size: 22, weight: .light))
+                .foregroundStyle(Lamp.ink.opacity(0.4))
+                .opacity(onPower == nil ? 0 : 1)
+            readoutText(r: r, ink: ink, etched: etched)
+                .opacity(onPower == nil ? 1 : 0)
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: onPower == nil)
         .compositingGroup()
         .shadow(color: glow.opacity(0.8 * b), radius: 14)
         .shadow(color: glow.opacity(0.5 * b * bloom), radius: 40)
 
-        return Group {
-            if let onPower {
-                Button(action: onPower) { face.contentShape(Circle()) }
-                    .buttonStyle(.plain)
-                    .help("Turn Gloam on")
-                    .accessibilityLabel("Turn Gloam on")
-            } else {
-                face
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(orbTitle) \(orbCaption)")
-                    .help("Less of the blue-rich light that keeps you alert in the evening (melanopic light), "
-                        + "estimated against the same screen untinted at full brightness.")
-            }
-        }
+        return face
+            .contentShape(Circle())
+            .onTapGesture { onPower?() }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(onPower == nil ? "\(orbTitle) \(orbCaption)" : String(localized: "Turn Gloam on"))
+            .accessibilityAddTraits(onPower == nil ? [] : .isButton)
+            .accessibilityAction { onPower?() }
+            .help(onPower == nil
+                ? String(localized: "How much of the blue-rich light that keeps you alert in the evening (melanopic light) still reaches you, against the same screen untinted at the brightness you set.")
+                : String(localized: "Turn Gloam on"))
     }
 
     private func readoutText(r: CGFloat, ink: Color, etched: Bool) -> some View {
@@ -400,15 +411,16 @@ struct LampDial: View {
                 orbHeadline
                     .tracking(-1)
                     .lineLimit(1)
-                    // 28 pt keeps "−100%" (~89 pt) inside this padded frame, so percentages
-                    // never shrink or jump; only a 12-hour time ("10:09 PM") scales down.
+                    // 28 pt keeps "100%" inside this padded frame, so percentages never shrink
+                    // or jump.
                     .minimumScaleFactor(0.5)
                     .frame(maxWidth: r * 1.7)
                     .contentTransition(.numericText())
                 if !orbCaption.isEmpty {
                     Text(orbCaption)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .lineLimit(1)
+                        .lineLimit(2)  // "true colour for Adobe Lightroom Classic"
+                        .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.8)
                         .opacity(0.85)
                         .frame(width: r * 1.8)
@@ -420,32 +432,32 @@ struct LampDial: View {
     }
 }
 
-// MARK: - Brightness ladder
+// MARK: - Dimming ladder
 
-/// Cells rising like a volume wedge; lit cells glow as bright as the level they stand for, so
-/// the control dims its own light. Each cell is 5% of full brightness, so the lit cells always
-/// match the number; cells below `floor` stay lit and can't be dragged away.
-struct BrightnessLadder: View {
-    @Binding var brightness: Double
-    let floor: Double
-    let title: String
+/// Cells rising like a volume wedge, 0 (full brightness) … 1 (as dim as this screen goes);
+/// each lit cell glows as bright as the screen it stands for, so the further the ladder goes
+/// the dimmer its own light. Each cell is 5%, so the lit cells always match the number.
+/// "Dimming" rather than "brightness": what the control does is take light away, and the
+/// screen's own brightness is a different setting.
+struct DimmingLadder: View {
+    @Binding var dimming: Double
     let kelvin: Double
     let core: Double
     @GestureState private var dragging = false
     @FocusState private var focused: Bool
     @State private var ring = false  // keyboard focus only
+    @Environment(\.isEnabled) private var isEnabled
     static let cells = 20
-    private var floorCells: Int { Int((floor * Double(Self.cells) - 1e-6).rounded(.up)) }
 
-    private var litCells: Int { Int((brightness * Double(Self.cells)).rounded()) }
+    private var litCells: Int { Int((dimming * Double(Self.cells)).rounded()) }
 
     var body: some View {
         let c = Color.kelvin(kelvin)
         VStack(spacing: 7) {
             HStack {
-                LampLabel(text: title)
+                LampLabel(text: String(localized: "Dimming"))
                 Spacer()
-                Text(Format.percent(brightness))
+                Text(Format.percent(dimming))
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(Lamp.ink.opacity(0.9))
                     .contentTransition(.numericText())
@@ -454,15 +466,17 @@ struct BrightnessLadder: View {
                 HStack(spacing: 3) {
                     ForEach(0..<Self.cells, id: \.self) { i in
                         let on = i < litCells
-                        let level = 0.35 + 0.65 * Double(i + 1) / Double(Self.cells)
+                        let level = 1 - 0.65 * Double(i + 1) / Double(Self.cells)
                         RoundedRectangle(cornerRadius: 2, style: .continuous)
                             .fill(on ? c.opacity(level * (0.5 + 0.5 * core)) : .white.opacity(0.07))
                             .overlay(RoundedRectangle(cornerRadius: 2, style: .continuous)
                                 .strokeBorder(.white.opacity(on ? 0.25 : 0.05), lineWidth: 0.5))
-                            .shadow(color: on ? c.opacity(0.75 * level * core) : .clear, radius: 4)
                             .frame(height: 7 + 13 * Double(i + 1) / Double(Self.cells))
                     }
                 }
+                // One glow for the row rather than 20 shadows; it follows each lit cell's light.
+                .compositingGroup()
+                .shadow(color: c.opacity(0.75 * core), radius: 4)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 0)
@@ -470,7 +484,7 @@ struct BrightnessLadder: View {
                     .onChanged { g in
                         set(cells: Int((g.location.x / geo.size.width * Double(Self.cells) + 0.5).rounded(.down)))
                     })
-                .onHover { inside in (inside ? NSCursor.pointingHand : NSCursor.arrow).set() }
+                .onHover { inside in (inside && isEnabled ? NSCursor.pointingHand : NSCursor.arrow).set() }
             }
             .frame(height: 20)
             .padding(4)
@@ -479,6 +493,7 @@ struct BrightnessLadder: View {
                 .strokeBorder(ring ? Color.kelvin(kelvin).opacity(0.8)
                                    : Color.white.opacity(0.08), lineWidth: ring ? 1.2 : 0.8))
         }
+        .opacity(isEnabled ? 1 : 0.5)  // a disabled ladder must not look like a live one
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
@@ -492,18 +507,18 @@ struct BrightnessLadder: View {
             }
         }
         .onScrollWheel { delta in set(cells: litCells + (delta > 0 ? 1 : -1)) }
-        .help("Drag, click or scroll to set brightness")
+        .help("Drag, click or scroll to set dimming")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityValue(Format.percent(brightness))
+        .accessibilityLabel("Dimming")
+        .accessibilityValue(Format.percent(dimming))
         .accessibilityAdjustableAction { direction in set(cells: litCells + (direction == .increment ? 1 : -1)) }
     }
 
     private func set(cells: Int) {
-        let n = min(Self.cells, max(floorCells, cells))
+        let n = min(Self.cells, max(0, cells))
         guard n != litCells else { return }
         Lamp.detent()
-        brightness = Double(n) / Double(Self.cells)
+        dimming = Double(n) / Double(Self.cells)
     }
 }
 

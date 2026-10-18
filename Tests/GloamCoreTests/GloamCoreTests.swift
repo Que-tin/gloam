@@ -9,6 +9,12 @@ private var utcBerlin: Calendar {
     return c
 }
 private func date(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
+/// Display P3, XYZ → linear RGB.
+private let p3: LinearRGB = { c in
+    RGB(2.4934969 * c.x - 0.9313836 * c.y - 0.4027108 * c.z,
+        -0.8294890 * c.x + 1.7626641 * c.y + 0.0236247 * c.z,
+        0.0358458 * c.x - 0.0761724 * c.y + 0.9568845 * c.z)
+}
 
 @Suite struct ColorTemperatureTests {
     @Test func daylightIsIdentity() {
@@ -276,7 +282,7 @@ private func date(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
         #expect(abs(s.warmest - s.night.kelvin) < 1e-6)
     }
 
-    @Test func lowBacklightTakesOverTheDimming() {
+    @Test func lowBacklightEasesTheSmearFloor() {
         #expect(Schedule.backlightFactor(1) == 1 && Schedule.backlightFactor(0.75) == 1)
         #expect(Schedule.backlightFactor(0.25) == 0 && Schedule.backlightFactor(0) == 0)
         #expect(abs(Schedule.backlightFactor(0.5) - 0.5) < 1e-9)
@@ -303,13 +309,6 @@ private func date(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
 }
 
 @Suite struct ColourSpaceTests {
-    /// Display P3, XYZ → linear RGB.
-    let p3: LinearRGB = { c in
-        RGB(2.4934969 * c.x - 0.9313836 * c.y - 0.4027108 * c.z,
-            -0.8294890 * c.x + 1.7626641 * c.y + 0.0236247 * c.z,
-            0.0358458 * c.x - 0.0761724 * c.y + 0.9568845 * c.z)
-    }
-
     // The matrix built from a display's primaries must be the standard P3 one.
     @Test func primariesGiveTheDisplaysMatrix() throws {
         let built = try #require(Kelvin.linearRGB(
@@ -348,6 +347,51 @@ private func date(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
         #expect(cmd("gloam://on") == .on && cmd("gloam://OFF") == .off)
         #expect(cmd("gloam://open") == .open)
         #expect(cmd("gloam://explode") == nil && cmd("other://toggle") == nil)
+    }
+}
+
+@Suite struct SmearTests {
+    @Test func luminanceWeightsComeFromTheSpace() {
+        let s = Kelvin.luminanceWeights(of: Kelvin.sRGB)
+        #expect(abs(s.red - 0.2126) < 0.002 && abs(s.green - 0.7152) < 0.002 && abs(s.blue - 0.0722) < 0.002)
+        let p = Kelvin.luminanceWeights(of: p3)
+        #expect(abs(p.red - 0.2290) < 0.002 && abs(p.green - 0.6917) < 0.002 && abs(p.blue - 0.0793) < 0.002)
+    }
+
+    // The night stage's white has under half of daylight white's light before any dimming:
+    // the same band as the 55% neutral dim (27%) that smeared, not the 80% (61%) that didn't.
+    @Test func aWarmWhiteIsADimWhite() {
+        #expect(abs(Smear.luminance(.neutral, in: p3) - 1) < 1e-9)
+        #expect(abs(Smear.luminance(Tint(kelvin: 1900), in: p3) - 0.45) < 0.02)
+        #expect(abs(Smear.luminance(Tint(kelvin: 6500, brightness: 0.8), in: p3) - pow(0.8, 2.2)) < 1e-9)
+    }
+
+    @Test func floorGivesUpDimmingBeforeWarmth() {
+        let floor = pow(0.8, 2.2)
+        let sunset = Tint(kelvin: 3400)
+        #expect(Smear.limited(sunset, floor: floor, in: p3) == sunset)
+        let dusk = Smear.limited(Tint(kelvin: 3000, brightness: 0.7), floor: floor, in: p3)
+        #expect(dusk.kelvin == 3000 && dusk.brightness > 0.9 && dusk.brightness < 1)
+        let night = Smear.limited(Tint(kelvin: 1900, brightness: 0.55), floor: floor, in: p3)
+        #expect(night.brightness == 1 && night.kelvin > 2700 && night.kelvin < 2900)  // ≈ 2600 K on the XDR's own profile
+        #expect(abs(Smear.luminance(night, in: p3) - floor) < 1e-3)
+        #expect(Smear.limited(Tint(kelvin: 1200, brightness: 0.3), floor: 0, in: p3) == Tint(kelvin: 1200, brightness: 0.3))
+    }
+
+    // The ladder's and the dial's stops are the two edges of the same limit.
+    @Test func edgesAgreeWithTheLimit() {
+        let floor = 0.5
+        for k in [6500.0, 3400, 2300] {
+            let b = Smear.brightnessFloor(kelvin: k, floor: floor, in: p3)
+            #expect(b < 1)
+            #expect(Smear.limited(Tint(kelvin: k, brightness: b), floor: floor, in: p3) == Tint(kelvin: k, brightness: b))
+            #expect(Smear.limited(Tint(kelvin: k, brightness: b - 0.1), floor: floor, in: p3).brightness == b)
+        }
+        #expect(Smear.brightnessFloor(kelvin: 1500, floor: floor, in: p3) == 1)
+        let warm = Smear.warmest(brightness: 0.9, floor: floor, in: p3)
+        #expect(abs(Smear.luminance(Tint(kelvin: warm, brightness: 0.9), in: p3) - floor) < 1e-3)
+        #expect(Smear.warmest(brightness: 1, floor: 0, in: p3) == Kelvin.range.lowerBound)
+        #expect(Smear.warmest(brightness: 0.5, floor: floor, in: p3) == Kelvin.daylight)
     }
 }
 
@@ -396,7 +440,7 @@ private func date(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
     @Test func autoPicksOverlayOnlyForKnownBrokenChips() {
         #expect(EnginePolicy.resolve(.auto, chip: "Apple M5 Max", osMajor: 26) == .overlay)
         #expect(EnginePolicy.resolve(.auto, chip: "Apple M5 Max", osMajor: 15) == .gamma)
-        #expect(EnginePolicy.resolve(.auto, chip: "Apple M3 Max", osMajor: 27) == .gamma)
+        #expect(EnginePolicy.resolve(.auto, chip: "Apple M2", osMajor: 27) == .gamma)
         #expect(EnginePolicy.resolve(.gamma, chip: "Apple M5 Max", osMajor: 26) == .gamma)
     }
 }

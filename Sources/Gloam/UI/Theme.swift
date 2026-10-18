@@ -36,10 +36,10 @@ extension Color {
 extension StageKind {
     var title: String {
         switch self {
-        case .day: "Daylight"
-        case .sunset: "Sunset"
-        case .windDown: "Wind-down"
-        case .night: "Night"
+        case .day: String(localized: "Daylight", comment: "stage")
+        case .sunset: String(localized: "Sunset", comment: "stage")
+        case .windDown: String(localized: "Wind-down", comment: "stage")
+        case .night: String(localized: "Night", comment: "stage")
         }
     }
 }
@@ -48,19 +48,39 @@ enum Light {
     /// A name for a colour temperature, so the dial speaks in feelings before numbers.
     static func name(_ kelvin: Double) -> String {
         switch kelvin {
-        case 5500...: "Daylight"
-        case 4200..<5500: "Soft white"
-        case 3200..<4200: "Halogen"
-        case 2400..<3200: "Lamplight"
-        case 1700..<2400: "Candlelight"
-        default: "Ember"
+        case 5500...: String(localized: "Daylight", comment: "light colour")
+        case 4200..<5500: String(localized: "Soft white", comment: "light colour")
+        case 3200..<4200: String(localized: "Halogen", comment: "light colour")
+        case 2400..<3200: String(localized: "Lamplight", comment: "light colour")
+        case 1700..<2400: String(localized: "Candlelight", comment: "light colour")
+        default: String(localized: "Ember", comment: "light colour")
         }
     }
 }
 
+/// Numbers in the user's own format ("54%" here, "54 %" in a German region).
 enum Format {
-    static func kelvin(_ k: Double) -> String { "\(Int((k / 50).rounded() * 50))K" }
-    static func percent(_ v: Double) -> String { "\(Int((v * 100).rounded()))%" }
+    static func kelvin(_ k: Double) -> String {
+        "\(((k / 50).rounded() * 50).formatted(.number.grouping(.never)))K"
+    }
+    static func percent(_ v: Double) -> String { v.formatted(.percent.precision(.fractionLength(0))) }
     static func time(_ d: Date?) -> String { d?.formatted(date: .omitted, time: .shortened) ?? "—" }
+}
 
+extension Schedule.Evening {
+    /// Tonight's steps, as one whole sentence (Welcome and Settings). Whole sentences rather than
+    /// joined fragments, so a translation can reorder them. The order is fixed: wind-down and
+    /// night never start before sunset, and come and go together.
+    var plan: String {
+        switch (sunset, windDown, night) {
+        case let (.some, windDown?, night?):
+            String(localized: "Warmer from sunset, dimmer from \(Format.time(windDown)), deepest around \(Format.time(night)).")
+        case let (nil, windDown?, night?):
+            String(localized: "Dimmer from \(Format.time(windDown)), deepest around \(Format.time(night)).")
+        case (.some, _, _):
+            String(localized: "Warmer from sunset.")
+        default:
+            ""
+        }
+    }
 }

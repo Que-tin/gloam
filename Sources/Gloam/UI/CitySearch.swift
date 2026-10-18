@@ -12,6 +12,8 @@ struct CitySearch: View {
     @State private var results: [Place] = []
     @State private var searching = false
     @State private var hovered: Int?
+    /// Why there are no results, when a search ran and found none or failed.
+    @State private var status: String?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -19,7 +21,7 @@ struct CitySearch: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Lamp.ink.opacity(0.5))
-                TextField("City", text: $query, prompt: Text("Search for a city").foregroundStyle(Lamp.ink.opacity(0.4)))
+                TextField("City", text: $query, prompt: Text("Search for a city").foregroundStyle(Lamp.ink.opacity(0.6)))
                     .textFieldStyle(.plain)
                     .foregroundStyle(Lamp.ink)
                     .focused($focused)
@@ -37,7 +39,7 @@ struct CitySearch: View {
                         Text(place.name).foregroundStyle(Lamp.ink.opacity(0.9))
                         Spacer()
                         Text(Geo.describe(place.coordinate)).font(.system(size: 11)).monospacedDigit()
-                            .foregroundStyle(Lamp.ink.opacity(0.45))
+                            .foregroundStyle(Lamp.ink.opacity(0.6))
                     }
                     .padding(.horizontal, 10)
                     .frame(height: 26)
@@ -47,6 +49,10 @@ struct CitySearch: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { hovered = $0 ? i : (hovered == i ? nil : hovered) }
+            }
+            if let status {
+                Text(status).font(.system(size: 11)).foregroundStyle(Lamp.ink.opacity(0.6))
+                    .padding(.horizontal, 10).padding(.top, 2)
             }
         }
         .onAppear { focused = true }
@@ -60,24 +66,34 @@ struct CitySearch: View {
 
     private func search() async {
         let text = query.trimmingCharacters(in: .whitespaces)
-        guard text.count >= 2 else { results = []; return }
+        guard text.count >= 2 else { results = []; status = nil; searching = false; return }
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = text
         request.resultTypes = .address
         searching = true
-        defer { searching = false }
-        let items = (try? await MKLocalSearch(request: request).start())?.mapItems ?? []
-        guard text == query.trimmingCharacters(in: .whitespaces) else { return }  // typed on meanwhile
-        results = items.prefix(5).map { item in
+        let items: [MKMapItem]?
+        do { items = try await MKLocalSearch(request: request).start().mapItems } catch { items = nil }
+        // Typed on meanwhile: the newer search owns the spinner and the results.
+        guard text == query.trimmingCharacters(in: .whitespaces) else { return }
+        searching = false
+        hovered = nil
+        results = (items ?? []).lazy.compactMap { item -> Place? in
             let c = if #available(macOS 26, *) { item.location.coordinate } else { item.placemark.coordinate }
+            // Maps can hand back an invalid (-180, -180) coordinate; it must never become the place.
+            guard CLLocationCoordinate2DIsValid(c) else { return nil }
             return Place(name: item.name ?? text, coordinate: Coordinate(latitude: c.latitude, longitude: c.longitude))
-        }
+        }.prefix(5).map { $0 }
+        // MapKit reports "nothing found" as an error too; offline is the other common cause.
+        status = results.isEmpty
+            ? (items == nil ? String(localized: "No matching city, or no connection") : String(localized: "No matching city")) : nil
     }
 }
 
 enum Geo {
     static func describe(_ c: Coordinate) -> String {
-        String(format: "%.1f°%@ %.1f°%@", abs(c.latitude), c.latitude >= 0 ? "N" : "S",
-               abs(c.longitude), c.longitude >= 0 ? "E" : "W")
+        let degrees = { (v: Double) in abs(v).formatted(.number.precision(.fractionLength(1))) }
+        let ns = c.latitude >= 0 ? String(localized: "N", comment: "north") : String(localized: "S", comment: "south")
+        let ew = c.longitude >= 0 ? String(localized: "E", comment: "east") : String(localized: "W", comment: "west")
+        return String(localized: "\(degrees(c.latitude))°\(ns) \(degrees(c.longitude))°\(ew)", comment: "52.5°N 13.4°E")
     }
 }

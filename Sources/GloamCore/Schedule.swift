@@ -5,8 +5,9 @@
 // - Wind-down (from 3 h before bedtime, the window the 2022 consensus sets a ≤10 lx
 //   melanopic ceiling for) and Night (from 1 h before) also dim, because intensity ×
 //   spectrum is what counts and warmth alone removes only about half.
-// - Neither dims while the sun is still up: dimming a screen in daylight reads as broken and
-//   anyone who wants it can lower brightness by hand. In summer they follow sunset instead.
+// - Neither dims before the sun is setting (the gate eases in from 3° above the horizon):
+//   dimming a screen in daylight reads as broken and anyone who wants it can lower
+//   brightness by hand. In summer they follow sunset instead.
 // Bedtime is a fixed 23:00 (it fits ~60% of adults within an hour; people vary by more than
 // that night to night), never an onboarding question. ("Bedtime" always means the clock time,
 // never a stage.) Everything is back to daylight by wake time.
@@ -86,6 +87,12 @@ public struct Schedule: Codable, Equatable, Sendable {
         }
     }
 
+    /// The darkness cap as a slider, 0 (no dimming) … 1 (all of it, the default), linear in brightness.
+    public var dimmingAllowance: Double {
+        get { (1 - darkest) / (1 - Self.deepest.brightness) }
+        set { darkest = 1 - (0.0...1.0).clamp(newValue) * (1 - Self.deepest.brightness) }
+    }
+
     public init() {}
 
     // MARK: Timing constants
@@ -158,11 +165,9 @@ public struct Schedule: Codable, Equatable, Sendable {
         Tint(kelvin: max(t.kelvin, warmest), brightness: max(t.brightness, darkest))
     }
 
-    /// How much of Gloam's dimming a display with this backlight level (0…1, the brightness
-    /// slider) should keep: all of it from 75%, none at 25% or below, smooth between. When the
-    /// backlight is already low (a dark room under auto-brightness, or by hand) the screen is
-    /// already dim; dimming its signal as well made it too dark, and pushed LCD pixels into the
-    /// dark levels where they respond slowly and smear.
+    /// How much of the smear floor a built-in display at this backlight level (0…1, the
+    /// brightness slider) keeps: all of it from 75%, none at 25% or below, smooth between. The
+    /// trails were seen at a bright backlight and their absolute luminance scales with it.
     public static func backlightFactor(_ level: Double) -> Double {
         smoothstep(min(1, max(0, (level - 0.25) / 0.5)))
     }
@@ -177,7 +182,9 @@ public struct Schedule: Codable, Equatable, Sendable {
     }
 
     /// The next `count` changes after `date`, each at its nominal time (the clock time or
-    /// sunset it is anchored to, not when its ease crosses halfway).
+    /// sunset it is anchored to, not when its ease crosses halfway). Once that time has passed
+    /// but the ease hasn't crossed yet (up to ~20 minutes), the takeover time instead: a change
+    /// "at 22:00" said at 22:10 is wrong, and a hand setting held until then would end at once.
     public func upcoming(after date: Date, _ c: Coordinate, count: Int = 2, calendar: Calendar = .current)
         -> [(kind: StageKind, at: Date)]
     {
@@ -187,7 +194,7 @@ public struct Schedule: Codable, Equatable, Sendable {
             let nominal = next.kind == .day
                 ? evening(around: from, c, calendar: calendar).wake
                 : evening(around: next.at, c, calendar: calendar).start(of: next.kind)
-            result.append((next.kind, nominal ?? next.at))
+            result.append((next.kind, nominal.flatMap { $0 > from ? $0 : nil } ?? next.at))
             from = next.at
         }
         return result
@@ -249,9 +256,10 @@ public struct Schedule: Codable, Equatable, Sendable {
         }
         let bed = before(bedtime, allowSame: true)
         var e = Evening(bedtime: bed, wake: wakeDate)
-        // Sunset of the day the evening begins on: bedtime minus 15 h lands on that day for
-        // any bedtime from 15:00 to 14:59 the next day.
-        let sunset = Sun.riseAndSet(on: bed.addingTimeInterval(-15 * 3600), c, calendar: calendar).set
+        // The evening's sunset: the first one from 15 h before bedtime until wake. Not "the sunset
+        // of that calendar day": in an Icelandic June the sun sets after midnight, and that day's
+        // only sunset is the previous night's, at 00:03.
+        let sunset = Sun.crossing(-0.833, rising: false, in: DateInterval(start: bed.addingTimeInterval(-15 * 3600), end: wakeDate), c)
         if sunsetEnabled { e.sunset = sunset }
         if isRhythmValid {
             // Dimming waits for the sun to go down, so in summer it starts at sunset.

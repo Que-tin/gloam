@@ -43,10 +43,32 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
         close()
         let model = AppModel.shared
         let menu = NSMenu()
-        menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: "").target = self
-        menu.addItem(withTitle: model.enabled ? "Turn Gloam Off" : "Turn Gloam On", action: #selector(toggleEnabled), keyEquivalent: "").target = self
+        menu.addItem(withTitle: String(localized: "Settings…"), action: #selector(openSettings), keyEquivalent: "").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Gloam", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        if model.enabled {
+            menu.addItem(withTitle: String(localized: "Turn Gloam Off"), action: #selector(toggleEnabled), keyEquivalent: "").target = self
+            // The pause people reach for most: each one ends by itself.
+            let pause = NSMenu()
+            pause.addItem(withTitle: String(localized: "For an Hour"), action: #selector(offForAnHour), keyEquivalent: "").target = self
+            pause.addItem(withTitle: String(localized: "Until Morning"), action: #selector(offUntilMorning), keyEquivalent: "").target = self
+            if let app = model.frontmost, let name = app.localizedName,
+               !model.excludedApps.contains(where: { $0.bundleID == app.bundleIdentifier }) {
+                pause.addItem(.separator())
+                pause.addItem(withTitle: String(localized: "While \(name) Is in Front"), action: #selector(excludeFrontmost), keyEquivalent: "").target = self
+            }
+            let item = menu.addItem(withTitle: String(localized: "Turn Off For"), action: nil, keyEquivalent: "")
+            menu.setSubmenu(pause, for: item)
+        } else {
+            let title = model.resumeAt.map { String(localized: "Turn Gloam On (off until \(Format.time($0)))") }
+                ?? String(localized: "Turn Gloam On")
+            menu.addItem(withTitle: title, action: #selector(toggleEnabled), keyEquivalent: "").target = self
+        }
+        if let app = model.frontmost, let name = app.localizedName,
+           model.excludedApps.contains(where: { $0.bundleID == app.bundleIdentifier }) {
+            menu.addItem(withTitle: String(localized: "Stop True Colour for \(name)"), action: #selector(includeFrontmost), keyEquivalent: "").target = self
+        }
+        menu.addItem(.separator())
+        menu.addItem(withTitle: String(localized: "Quit Gloam"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         item.menu = menu
         item.button?.performClick(nil)  // shows the menu attached to the item
         item.menu = nil                 // so the next left-click opens the panel again
@@ -54,12 +76,20 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
 
     @objc private func openSettings() { Windows.showSettings() }
     @objc private func toggleEnabled() { AppModel.shared.enabled.toggle() }
+    @objc private func offForAnHour() { AppModel.shared.turnOff(until: AppModel.shared.now.addingTimeInterval(3600)) }
+    @objc private func offUntilMorning() { AppModel.shared.turnOff(until: AppModel.shared.nextMorning) }
+    @objc private func excludeFrontmost() { AppModel.shared.excludeFrontmost() }
+    @objc private func includeFrontmost() {
+        let id = AppModel.shared.frontmost?.bundleIdentifier
+        AppModel.shared.excludedApps.removeAll { $0.bundleID == id }
+    }
 
     func open() {
         guard panel == nil, let button = item.button, let buttonWindow = button.window else { return }
+        AppModel.shared.refreshNow()
         let panel = LampPanel()
         // The controller sizes the panel to its content, so a notice appearing while it's open
-        // grows it rather than clipping it (windowDidResize keeps the top edge in place).
+        // grows it rather than clipping it (`LampPanel.top` keeps the top edge in place).
         let controller = NSHostingController(rootView: PopoverView(model: .shared))
         controller.sizingOptions = [.preferredContentSize]
         panel.contentViewController = controller
@@ -89,6 +119,8 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     }
 
     func close() {
+        // Nothing open (a right-click): hiding the app would hide whatever is in front.
+        guard panel != nil else { return }
         if let outsideClicks { NSEvent.removeMonitor(outsideClicks) }
         outsideClicks = nil
         item.button?.highlight(false)
@@ -118,8 +150,10 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
             // Cached images: assign only when it changes (this re-runs on every model change).
             let image = GloamGlyph.cached(mode: mode, depth: model.eveningDepth)
             if item.button?.image !== image { item.button?.image = image }
-            item.button?.setAccessibilityLabel(!model.enabled ? "Gloam, off"
-                : mode == .aside ? "Gloam, stepping aside" : "Gloam, \(model.stage.title)")
+            // This re-runs every tick (the depth reads the clock): set the label only when it changes.
+            let label = !model.enabled ? String(localized: "Gloam, off")
+                : mode == .aside ? String(localized: "Gloam, stepping aside") : String(localized: "Gloam, \(model.stage.title)")
+            if item.button?.accessibilityLabel() != label { item.button?.setAccessibilityLabel(label) }
         } onChange: {
             DispatchQueue.main.async { MenuBarPanel.shared.refreshIcon() }
         }

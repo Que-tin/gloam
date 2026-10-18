@@ -2,7 +2,7 @@
 // asks nothing that most people need to answer: sunset comes from the time zone (shown, and
 // changeable here, because "how does it know where I am?" is the first question people ask),
 // and the evening is timed from a fixed 23:00 bedtime that fits most people; anyone it
-// doesn't suit turns Warmth or Night brightness down in the preview, or later in Settings.
+// doesn't suit turns Warmth or Dimming down in the preview, or later in Settings.
 // Everything here is a draft until Start: closing the window first quits Gloam without saving
 // anything, so the next launch lands here again. Nothing tints until Start (Preview aside).
 
@@ -39,21 +39,22 @@ struct WelcomeView: View {
             }
             .frame(maxWidth: .infinity)
 
-            section("Where you are", top: 26) {
+            section(String(localized: "Where you are"), top: 26) {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "location").foregroundStyle(Color.kelvin(2700)).padding(.top, 2)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("\(shownPlace.name) · sunset today at \(Format.time(evening.sunset))")
+                        Text(evening.sunset.map { String(localized: "\(shownPlace.name) · sunset today at \(Format.time($0))") }
+                             ?? String(localized: "\(shownPlace.name) · no sunset today"))
                             .foregroundStyle(Lamp.ink)
                         Text(place == nil
-                             ? "Estimated from your Mac's time zone, and worked out on this Mac. No location access needed."
-                             : "Worked out on this Mac from the city you chose.")
+                             ? String(localized: "Estimated from your Mac's time zone, and worked out on this Mac. No location access needed.")
+                             : String(localized: "Worked out on this Mac from the city you chose."))
                             .font(.system(size: 11))
                             .foregroundStyle(Lamp.ink.opacity(0.6))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
-                    LampPill(title: changingCity ? "Cancel" : "Change") { changingCity.toggle() }
+                    LampPill(title: changingCity ? String(localized: "Cancel") : String(localized: "Change")) { changingCity.toggle() }
                         .fixedSize()
                 }
                 if changingCity {
@@ -65,11 +66,11 @@ struct WelcomeView: View {
                 }
             }
 
-            section("Tonight", top: 20) {
-                Text(plan)
+            section(String(localized: "Tonight"), top: 20) {
+                Text(evening.plan)
                     .foregroundStyle(Lamp.ink.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
-                LampPill(title: previewing ? "Done" : "Preview tonight",
+                LampPill(title: previewing ? String(localized: "Done") : String(localized: "Preview tonight"),
                          symbol: previewing ? "checkmark" : "eye", action: togglePreview)
                     .fixedSize()
                     .padding(.top, 10)
@@ -77,8 +78,8 @@ struct WelcomeView: View {
                 // Settings, live on the real screen while the preview is on.
                 if previewing {
                     VStack(spacing: 8) {
-                        slider("Warmth", $schedule.warmthAllowance, in: 0...1, step: nil)
-                        slider("Brightness", $schedule.darkest, in: Schedule.darkestRange, step: 0.05)
+                        slider(String(localized: "Warmth"), $schedule.warmthAllowance, in: 0...1, step: nil)
+                        slider(String(localized: "Dimming"), $schedule.dimmingAllowance, in: 0...1, step: nil)
                     }
                     .padding(.top, 12)
                 }
@@ -87,12 +88,12 @@ struct WelcomeView: View {
             HStack {
                 Text("Open Gloam at login").foregroundStyle(Lamp.ink.opacity(0.85))
                 Spacer()
-                PowerSwitch(on: $openAtLogin, kelvin: 2700)
+                PowerSwitch(on: $openAtLogin, kelvin: 2700, help: String(localized: "Open Gloam at login"))
                     .accessibilityLabel("Open Gloam at login")
             }
             .padding(.top, 22)
 
-            LampButton(title: "Start", action: start)
+            LampButton(title: String(localized: "Start"), action: start)
                 .keyboardShortcut(.defaultAction)
                 .padding(.top, 14)
 
@@ -109,7 +110,6 @@ struct WelcomeView: View {
         .background(LampSurface(glow: Tint(kelvin: 2700, brightness: 0.8), lit: 1).ignoresSafeArea())
         .environment(\.colorScheme, .dark)
         .tint(Color.kelvin(2700))
-        .onDisappear { model.preview = nil }
         .onChange(of: schedule) { if previewing { showNight() } }
     }
 
@@ -153,23 +153,14 @@ struct WelcomeView: View {
     private func slider(_ title: String, _ value: Binding<Double>, in range: ClosedRange<Double>, step: Double?) -> some View {
         HStack(spacing: 10) {
             Text(title).font(.system(size: 12)).foregroundStyle(Lamp.ink.opacity(0.75)).frame(width: 72, alignment: .leading)
-            if let step { Slider(value: value, in: range, step: step) } else { Slider(value: value, in: range) }
+            // Named for VoiceOver; the visible Text beside it is the label people see.
+            Group {
+                if let step { Slider(value: value, in: range, step: step) { Text(title) } }
+                else { Slider(value: value, in: range) { Text(title) } }
+            }
+            .labelsHidden()
+            .accessibilityValue(value.wrappedValue >= 0.999 ? String(localized: "Full")
+                : value.wrappedValue <= 0.001 ? String(localized: "None") : Format.percent(value.wrappedValue))
         }
     }
-
-    /// Tonight's steps in the order they happen.
-    private var plan: String {
-        let e = evening
-        let steps: [(Date?, String)] = [
-            (e.sunset, "warmer from sunset"),
-            (e.windDown, "dimmer from \(Format.time(e.windDown))"),
-            (e.night, "deepest around \(Format.time(e.night))"),
-        ]
-        let sorted = steps.compactMap { date, text in date.map { ($0, text) } }.sorted { $0.0 < $1.0 }.map(\.1)
-        return sorted.isEmpty ? "" : sorted.joined(separator: ", ").capitalizedFirst + "."
-    }
-}
-
-private extension String {
-    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }

@@ -30,21 +30,21 @@ enum GloamMain {
             menu.addItem(holder)
         }
         submenu("Gloam", [
-            NSMenuItem(title: "Settings…", action: #selector(AppDelegate.showSettings), keyEquivalent: ","),
+            NSMenuItem(title: String(localized: "Settings…"), action: #selector(AppDelegate.showSettings), keyEquivalent: ","),
             .separator(),
-            NSMenuItem(title: "Quit Gloam", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
+            NSMenuItem(title: String(localized: "Quit Gloam"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
         ])
-        submenu("Edit", [
-            NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"),
-            NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z"),
+        submenu(String(localized: "Edit"), [
+            NSMenuItem(title: String(localized: "Undo"), action: Selector(("undo:")), keyEquivalent: "z"),
+            NSMenuItem(title: String(localized: "Redo"), action: Selector(("redo:")), keyEquivalent: "Z"),
             .separator(),
-            NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"),
-            NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"),
-            NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
-            NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
+            NSMenuItem(title: String(localized: "Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x"),
+            NSMenuItem(title: String(localized: "Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c"),
+            NSMenuItem(title: String(localized: "Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
+            NSMenuItem(title: String(localized: "Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
         ])
-        submenu("Window", [
-            NSMenuItem(title: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"),
+        submenu(String(localized: "Window"), [
+            NSMenuItem(title: String(localized: "Close"), action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"),
         ])
         return menu
     }
@@ -52,12 +52,40 @@ enum GloamMain {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showSettings() { Windows.showSettings() }
+    private var signals: [DispatchSourceSignal] = []
+
+    /// Other running copies. The bundled app looks only for itself, by identifier: matching by
+    /// name made it quit for a running showcase or snapshot copy (whose arguments it can't see),
+    /// or any unrelated app called Gloam. A `swift run` build has no identifier, so it looks by
+    /// name and finds the bundled app; showcase runs never touch the screen and may coexist.
+    private static func otherCopies() -> [NSRunningApplication] {
+        let me = ProcessInfo.processInfo.processIdentifier
+        let byID = Bundle.main.bundleIdentifier.map(NSRunningApplication.runningApplications(withBundleIdentifier:)) ?? []
+        let byName = Debug.isShowcase || Bundle.main.bundleIdentifier != nil ? [] : NSWorkspace.shared.runningApplications.filter {
+            $0.executableURL?.lastPathComponent == "Gloam"
+        }
+        return (byID + byName).filter { $0.processIdentifier != me }
+            .reduce(into: []) { all, app in if !all.contains(app) { all.append(app) } }
+    }
+
+    /// `kill`, `pkill` and Ctrl-C quit like ⌘Q, so the backlight is restored: unlike a gamma
+    /// table, a dimmed backlight outlives the process. A main thread too stuck to quit gets five
+    /// seconds, then the process exits anyway (the next launch restores what was saved).
+    private func quitOnSignals() {
+        for number in [SIGTERM, SIGINT] {
+            signal(number, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
+            source.setEventHandler {
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 5) { exit(1) }
+            }
+            source.resume()
+            signals.append(source)
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let others = Bundle.main.bundleIdentifier.map {
-            NSRunningApplication.runningApplications(withBundleIdentifier: $0)
-                .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
-        } ?? []
+        let others = Self.otherCopies()
         // `Gloam --uninstall`: forget everything (login item, settings) for a clean slate.
         if CommandLine.arguments.contains("--uninstall") {
             guard let id = Bundle.main.bundleIdentifier else {
@@ -84,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Also covers `swift run`, where there is no Info.plist to say LSUIElement.
         NSApp.setActivationPolicy(.accessory)
+        if !Debug.isShowcase { quitOnSignals() }  // showcase runs are killed by their watchdog
         Debug.applyLaunchArguments()
         // The menu-bar icon arrives with Start: until then Welcome is the whole app.
         if AppModel.shared.hasOnboarded || Debug.isShowcase { MenuBarPanel.shared.install() } else { Windows.showWelcome() }
@@ -105,19 +134,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 /// The Settings and Welcome windows, created on demand and reused.
 enum Windows {
-    private static var settings: NSWindow?
+    fileprivate static var settings: NSWindow?
     fileprivate static var welcome: NSWindow?
 
     static func showSettings() {
         AppModel.shared.refreshLoginStatus()
-        settings = settings ?? make(SettingsView(model: .shared), title: "Gloam Settings")
+        settings = settings ?? make(SettingsView(model: .shared), title: String(localized: "Gloam Settings"))
+        settings!.delegate = settingsCloser
         present(settings!)
+    }
+
+    /// Settings is let go on close: kept, its view tree stayed alive and observing the model
+    /// all day for a window opened once.
+    private static let settingsCloser = SettingsCloser()
+
+    private final class SettingsCloser: NSObject, NSWindowDelegate {
+        func windowWillClose(_ notification: Notification) {
+            DispatchQueue.main.async { Windows.settings = nil }
+        }
     }
 
     /// Closing the window before Start quits without saving (the next launch shows Welcome
     /// again); Start saves, then shows the menu-bar icon with its popover open beneath it.
     static func showWelcome() {
-        welcome = welcome ?? make(WelcomeView(model: .shared) { welcome?.close() }, title: "Welcome to Gloam")
+        welcome = welcome ?? make(WelcomeView(model: .shared) { welcome?.close() }, title: String(localized: "Welcome to Gloam"))
         welcome!.delegate = welcomeCloser
         present(welcome!)
     }
@@ -149,7 +189,7 @@ enum Windows {
     private static func make(_ view: some View, title: String) -> NSWindow {
         let controller = NSHostingController(rootView: view)
         controller.sizingOptions = [.preferredContentSize]  // windows follow their content (Welcome's preview sliders)
-        let window = NSWindow(contentViewController: controller)
+        let window = TopAnchoredWindow(contentViewController: controller)
         window.title = title
         window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
@@ -158,8 +198,17 @@ enum Windows {
         window.backgroundColor = NSColor(Lamp.surface)
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
-        window.center()
         return window
+    }
+
+    /// Grows and shrinks from its top edge, as a sheet of paper would. AppKit keeps the bottom
+    /// edge, so Welcome's city results and preview sliders made the title bar jump as you typed.
+    private final class TopAnchoredWindow: NSWindow {
+        override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+            var frame = frameRect
+            if isVisible, frame.origin == self.frame.origin { frame.origin.y = self.frame.maxY - frame.height }
+            super.setFrame(frame, display: flag)
+        }
     }
 
     static var anyVisible: Bool { [settings, welcome].contains { $0?.isVisible == true } }
@@ -172,6 +221,13 @@ enum Windows {
     /// the background (login, Finder while busy), which left Welcome hidden behind other
     /// windows; ordering front regardless keeps the window visible either way.
     private static func present(_ window: NSWindow) {
+        // Sized before centring: SwiftUI reports its size late, and a window centred while
+        // still tiny grew from that point and opened towards the bottom right.
+        if !window.isVisible, let view = window.contentViewController?.view {
+            view.layoutSubtreeIfNeeded()
+            window.setContentSize(view.fittingSize)
+            window.center()
+        }
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
@@ -184,6 +240,9 @@ enum Windows {
 ///   --onboarded, --off   start as if set up / switched off
 ///   --showcase [welcome]  show the popover (or the welcome view) in an ordinary window
 ///   --snapshot PATH   render the showcase to PATH and quit (never touches the screen)
+///   --floor F         built-in smear floor as a signal fraction (default 0.8; 0 = none), to
+///                     calibrate it: scroll light-on-dark text and move the dial and ladder
+///   --exit-after S    quit normally after S seconds (restoring the screen), for scripted checks
 enum Debug {
     #if DEBUG
     static let isSnapshot = CommandLine.arguments.contains("--snapshot")
@@ -209,13 +268,20 @@ enum Debug {
         }
         if args.contains("--onboarded") { AppModel.shared.hasOnboarded = true }
         if args.contains("--off") { AppModel.shared.enabled = false }
+        if let floor = value("--floor").flatMap(Double.init) {
+            DisplayController.smearFloor = pow((0.0...1.0).clamp(floor), Kelvin.displayGamma)
+            AppModel.shared.update(fade: 0)
+        }
+        if let seconds = value("--exit-after").flatMap(Double.init) {
+            Task { try? await Task.sleep(for: .seconds(seconds)); NSApp.terminate(nil) }
+        }
         if let dir = value("--capture") { capture(into: dir); return }
         guard args.contains("--showcase") else { return }
         let welcome = value("--showcase") == "welcome"
         if let path = value("--snapshot") {
             // Rendered off-screen: snapshot runs never flash a window on the developer's screen.
             Task {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .seconds(2.5))  // past the 2 s launch fade
                 snapshot(showcaseView(welcome: welcome), to: path)
                 exit(0)
             }
@@ -247,7 +313,7 @@ enum Debug {
             Windows.showSettings()
             try? await Task.sleep(for: .seconds(1.5))
             for window in Windows.all {
-                shoot(window, window.title == "Gloam Settings" ? "settings" : "welcome")
+                shoot(window, window === Windows.settings ? "settings" : "welcome")
             }
             exit(0)  // skip the termination handshake; nothing to save in a capture run
         }

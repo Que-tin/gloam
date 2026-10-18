@@ -7,7 +7,7 @@ public enum Command: Equatable, Sendable {
     case toggle, on, off, open
 
     public init?(url: URL) {
-        guard url.scheme == "gloam" else { return nil }
+        guard url.scheme?.lowercased() == "gloam" else { return nil }
         switch url.host()?.lowercased() {
         case "toggle": self = .toggle
         case "on": self = .on

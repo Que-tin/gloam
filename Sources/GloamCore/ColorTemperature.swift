@@ -19,9 +19,11 @@ public struct Tint: Equatable, Sendable, Codable {
     /// 0…1 multiplier on the output signal; 1 is untouched.
     public var brightness: Double
 
+    /// NaN means "no change" (daylight, full brightness): clamping it to the lower bound would
+    /// mean ember red on a black screen.
     public init(kelvin: Double, brightness: Double = 1) {
-        self.kelvin = Kelvin.range.clamp(kelvin)
-        self.brightness = (0.0...1.0).clamp(brightness)
+        self.kelvin = kelvin.isNaN ? Kelvin.daylight : Kelvin.range.clamp(kelvin)
+        self.brightness = brightness.isNaN ? 1 : (0.0...1.0).clamp(brightness)
     }
 
     public static let neutral = Tint(kelvin: Kelvin.daylight, brightness: 1)
@@ -31,7 +33,7 @@ public struct Tint: Equatable, Sendable, Codable {
     /// Interpolates in mireds (1e6/K), where equal steps look equally large; a straight Kelvin
     /// lerp lingers near daylight and then rushes through the warm end.
     public static func mix(_ a: Tint, _ b: Tint, _ t: Double) -> Tint {
-        if t <= 0 { return a }
+        guard t > 0 else { return a }  // NaN included
         if t >= 1 { return b }
         let mired = Kelvin.mired(a.kelvin) + (Kelvin.mired(b.kelvin) - Kelvin.mired(a.kelvin)) * t
         return Tint(kelvin: 1e6 / mired, brightness: a.brightness + (b.brightness - a.brightness) * t)
@@ -58,6 +60,8 @@ public typealias LinearRGB = @Sendable (XYZ) -> RGB
 public enum Kelvin {
     public static let daylight = 6500.0
     public static let range = 1000.0...6500.0
+    /// The display's transfer curve: a gamma table multiplies encoded values, light scales as value^2.2.
+    public static let displayGamma = 2.2
 
     public static func mired(_ kelvin: Double) -> Double { 1e6 / kelvin }
 
@@ -75,7 +79,7 @@ public enum Kelvin {
     /// Gains in display-encoded space (what a gamma table multiplies), scaled by brightness.
     public static func displayGain(_ tint: Tint, in space: LinearRGB = sRGB) -> RGB {
         let lin = linearGain(tint.kelvin, in: space)
-        let encode = { (v: Double) in pow(v, 1 / 2.2) * min(1, max(0, tint.brightness)) }
+        let encode = { (v: Double) in pow(v, 1 / displayGamma) * min(1, max(0, tint.brightness)) }
         return RGB(encode(lin.red), encode(lin.green), encode(lin.blue))
     }
 
@@ -98,19 +102,33 @@ public enum Kelvin {
     /// primaries because asking ColorSync to convert XYZ straight to the display clips at 1,
     /// and the red of every warm white lies above 1 at Y = 1: the tint came out far too weak.
     public static func linearRGB(red: XYZ, green: XYZ, blue: XYZ) -> LinearRGB? {
-        let (a, b, c) = (red.x, green.x, blue.x)
-        let (d, e, f) = (red.y, green.y, blue.y)
-        let (g, h, i) = (red.z, green.z, blue.z)
-        let det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
-        guard abs(det) > 1e-9, det.isFinite else { return nil }
-        let m = [(e * i - f * h), -(b * i - c * h), (b * f - c * e),
-                 -(d * i - f * g), (a * i - c * g), -(a * f - c * d),
-                 (d * h - e * g), -(a * h - b * g), (a * e - b * d)].map { $0 / det }
+        guard let m = inverted([red.x, green.x, blue.x, red.y, green.y, blue.y, red.z, green.z, blue.z]) else { return nil }
         return { v in
             RGB(m[0] * v.x + m[1] * v.y + m[2] * v.z,
                 m[3] * v.x + m[4] * v.y + m[5] * v.z,
                 m[6] * v.x + m[7] * v.y + m[8] * v.z)
         }
+    }
+
+    /// The share of white's light each channel carries in this space (sRGB: 0.21, 0.72, 0.07):
+    /// the Y row of its RGB → XYZ matrix, recovered by inverting the XYZ → RGB conversion.
+    public static func luminanceWeights(of space: LinearRGB) -> RGB {
+        let fallback = RGB(0.2126, 0.7152, 0.0722)
+        let x = space(XYZ(x: 1, y: 0, z: 0)), y = space(XYZ(x: 0, y: 1, z: 0)), z = space(XYZ(x: 0, y: 0, z: 1))
+        guard let m = inverted([x.red, y.red, z.red, x.green, y.green, z.green, x.blue, y.blue, z.blue]) else { return fallback }
+        let sum = m[3] + m[4] + m[5]
+        guard sum > 0, sum.isFinite else { return fallback }
+        return RGB(m[3] / sum, m[4] / sum, m[5] / sum)
+    }
+
+    /// Inverse of a row-major 3×3 matrix; nil when it has none.
+    static func inverted(_ m: [Double]) -> [Double]? {
+        let (a, b, c, d, e, f, g, h, i) = (m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8])
+        let det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+        guard abs(det) > 1e-9, det.isFinite else { return nil }
+        return [(e * i - f * h), -(b * i - c * h), (b * f - c * e),
+                -(d * i - f * g), (a * i - c * g), -(a * f - c * d),
+                (d * h - e * g), -(a * h - b * g), (a * e - b * d)].map { $0 / det }
     }
 
     /// Linear sRGB (IEC 61966-2-1): the UI's colours, the overlay, and any display whose

@@ -47,7 +47,7 @@ public struct Place: Equatable, Sendable, Codable {
         guard let sign = s.first, sign == "+" || sign == "-" else { return nil }
         let digits = Array(s.dropFirst())
         guard digits.count == degreeDigits + 2 || digits.count == degreeDigits + 4,
-              digits.allSatisfy(\.isNumber) else { return nil }
+              digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
         func num(_ r: Range<Int>) -> Double { Double(String(digits[r]))! }
         var value = num(0..<degreeDigits) + num(degreeDigits..<degreeDigits + 2) / 60
         if digits.count == degreeDigits + 4 { value += num(degreeDigits + 2..<degreeDigits + 4) / 3600 }

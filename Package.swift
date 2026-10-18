@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Gloam",
+    defaultLocalization: "en",
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "Gloam", targets: ["Gloam"]),
