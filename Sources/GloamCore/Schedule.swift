@@ -8,8 +8,10 @@
 // - Neither dims before the sun is setting (the gate eases in from 3° above the horizon):
 //   dimming a screen in daylight reads as broken and anyone who wants it can lower
 //   brightness by hand. In summer they follow sunset instead.
-// Bedtime is a fixed 23:00 (it fits ~60% of adults within an hour; people vary by more than
-// that night to night), never an onboarding question. ("Bedtime" always means the clock time,
+// Bedtime defaults to 23:00 (it fits ~60% of adults within an hour) and wake to 07:00; both
+// can be moved in Settings, never asked in onboarding. They are held to a night-time sleep
+// (`bedtimes`, `wakes`), which also keeps at least 8 h awake, so wind-down always fits after
+// waking and "never before sunset" stays meaningful. ("Bedtime" always means the clock time,
 // never a stage.) Everything is back to daylight by wake time.
 //
 // The stages are fixed, evidence-based values. The personal settings are limits: never warmer
@@ -23,7 +25,7 @@
 
 import Foundation
 
-public struct ClockTime: Codable, Equatable, Sendable {
+public struct ClockTime: Codable, Hashable, Sendable {
     public var hour: Int
     public var minute: Int
 
@@ -34,6 +36,36 @@ public struct ClockTime: Codable, Equatable, Sendable {
 
     public init(minutesOfDay m: Int) { self.init(0, m) }
     public var minutesOfDay: Int { hour * 60 + minute }
+
+    /// Rounded to the settings' quarter hour and held inside `window` (minutes of the day, may
+    /// wrap past midnight); outside it, the nearer end.
+    public func held(to window: (from: Int, to: Int)) -> ClockTime {
+        let step = Schedule.timeStep
+        let m = (minutesOfDay + step / 2) / step * step % 1440
+        let into = (m - window.from + 1440) % 1440, length = (window.to - window.from + 1440) % 1440
+        if into <= length { return ClockTime(minutesOfDay: m) }
+        let pastEnd = into - length, beforeStart = 1440 - into
+        return ClockTime(minutesOfDay: pastEnd <= beforeStart ? window.to : window.from)
+    }
+
+    /// The settable time a point in time lands on when dragged along one night: `window` starts
+    /// on `day` (the night's evening for bedtime, its morning for wake). Clamped along that
+    /// timeline, so past either end it stays at that end; `held(to:)` picks the end nearer around
+    /// the clock, which flipped a far drag to the opposite end.
+    public static func along(_ window: (from: Int, to: Int), startingOn day: Date, at date: Date,
+                             calendar: Calendar = .current) -> ClockTime? {
+        guard let start = calendar.date(bySettingHour: window.from / 60, minute: window.from % 60, second: 0, of: day)
+        else { return nil }
+        let length = Double((window.to - window.from + 1440) % 1440), step = Double(Schedule.timeStep)
+        let minutes = (min(length, max(0, date.timeIntervalSince(start) / 60)) / step).rounded() * step
+        return ClockTime(minutesOfDay: window.from + Int(minutes))
+    }
+
+    /// Every settable time in `window`, in order (the Settings pickers).
+    public static func all(in window: (from: Int, to: Int)) -> [ClockTime] {
+        let length = (window.to - window.from + 1440) % 1440
+        return stride(from: 0, through: length, by: Schedule.timeStep).map { ClockTime(minutesOfDay: window.from + $0) }
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -65,6 +97,12 @@ public enum StageKind: Sendable {
 public struct Schedule: Codable, Equatable, Sendable {
     public var wake = ClockTime(7, 0)
     public var bedtime = ClockTime(23, 0)
+    /// The settable times, as minutes of the day (bedtime wraps past midnight): what Settings
+    /// offers and what a saved schedule is held to. Any pair from these leaves at least 8 h awake
+    /// (20:00 bed, 12:00 wake) and at most 16 h asleep. Set directly (tests), anything goes.
+    public static let bedtimes = (from: 20 * 60, to: 3 * 60), wakes = (from: 4 * 60, to: 12 * 60)
+    /// Settings step through the times in quarter hours.
+    public static let timeStep = 15
     public var sunsetEnabled = true
     public let sunset = Stage(kelvin: 3400, brightness: 1)
     public let windDown = Stage(kelvin: 2700, brightness: 0.7)
@@ -105,8 +143,8 @@ public struct Schedule: Codable, Equatable, Sendable {
     /// After waking, ignore the sun for this long so a dark winter morning stays bright.
     static let morning = 300.0
     /// Sleep longer than this can't be a real rhythm; wind-down and night then stay off rather
-    /// than dimming the whole day. (Bedtime and wake are fixed defaults today; this guards the
-    /// logic for any other values.)
+    /// than dimming the whole day. (The settable ranges never get there; this guards the logic
+    /// for values set directly, as tests do.)
     static let maxSleep = 16 * 60
 
     // MARK: Evaluation
@@ -185,19 +223,40 @@ public struct Schedule: Codable, Equatable, Sendable {
     /// sunset it is anchored to, not when its ease crosses halfway). Once that time has passed
     /// but the ease hasn't crossed yet (up to ~20 minutes), the takeover time instead: a change
     /// "at 22:00" said at 22:10 is wrong, and a hand setting held until then would end at once.
+    /// The sun can also move a change hours from its nominal time (a dark winter morning that
+    /// outlasts the hold after wake brings the sunset tint back at 09:30, and day with sunrise;
+    /// a polar summer's day comes with the sun): a nominal time more than 3 h after the takeover,
+    /// or one that would put the list out of order, gives way to the takeover time.
     public func upcoming(after date: Date, _ c: Coordinate, count: Int = 2, calendar: Calendar = .current)
         -> [(kind: StageKind, at: Date)]
     {
-        var result: [(kind: StageKind, at: Date)] = []
+        var changes: [(kind: StageKind, at: Date)] = []  // one more than asked, to check order against
         var from = date
-        while result.count < count, let next = nextStage(after: from, c, calendar: calendar) {
+        while changes.count <= count, let next = nextStage(after: from, c, calendar: calendar) {
+            changes.append(next)
+            from = next.at
+        }
+        var result: [(kind: StageKind, at: Date)] = []
+        for (i, next) in changes.prefix(count).enumerated() {
+            let previous = result.last?.at ?? date, from = i == 0 ? date : changes[i - 1].at
+            let following = i + 1 < changes.count ? changes[i + 1].at : .distantFuture
             let nominal = next.kind == .day
                 ? evening(around: from, c, calendar: calendar).wake
                 : evening(around: next.at, c, calendar: calendar).start(of: next.kind)
-            result.append((next.kind, nominal.flatMap { $0 > from ? $0 : nil } ?? next.at))
-            from = next.at
+            let usable = nominal.flatMap {
+                $0 > previous && $0 < following && $0.timeIntervalSince(next.at) < 3 * 3600 ? $0 : nil
+            }
+            result.append((next.kind, usable ?? next.at))
         }
         return result
+    }
+
+    /// When "until morning" ends: the next hand-back to day within a day and a bit (pressed by
+    /// day, that is tomorrow's), else the coming wake (polar day, where nothing ever changes).
+    public func nextMorning(after date: Date, _ c: Coordinate, calendar: Calendar = .current) -> Date {
+        upcoming(after: date, c, count: 4, calendar: calendar)
+            .first { $0.kind == .day && $0.at.timeIntervalSince(date) <= 30 * 3600 }?.at
+            ?? evening(around: date, c, calendar: calendar).wake
     }
 
     /// The stage that dominates at `date`.
@@ -230,6 +289,15 @@ public struct Schedule: Codable, Equatable, Sendable {
         public var night: Date?
         public var bedtime: Date
         public var wake: Date
+
+        /// What the Settings graph shows: from a little before the evening starts until after
+        /// wake, never more than a day, so no clock hour appears twice (a polar winter's
+        /// "sunset" can be at noon).
+        public var span: ClosedRange<Date> {
+            let first = [sunset, windDown, bedtime].compactMap { $0 }.min()!
+            let start = max(first.addingTimeInterval(-75 * 60), wake.addingTimeInterval(-(23 * 3600 + 15 * 60)))
+            return start...wake.addingTimeInterval(45 * 60)
+        }
 
         /// Nominal start of a stage (the time the user set, or sunset); day starts at wake.
         public func start(of kind: StageKind) -> Date? {
@@ -279,7 +347,17 @@ public struct Schedule: Codable, Equatable, Sendable {
 
     // MARK: Helpers
 
+    /// Minutes past midnight on the wall clock. The hour repeated when the clocks go back stands
+    /// still at the moment they went back: the stages are by wall clock, and a night under way
+    /// would otherwise go back an hour and ease in a second time.
     private func minutes(_ date: Date, _ calendar: Calendar) -> Double {
+        var date = date
+        let zone = calendar.timeZone, earlier = date.addingTimeInterval(-7200)
+        let back = zone.secondsFromGMT(for: earlier) - zone.secondsFromGMT(for: date)
+        if back > 0, let change = zone.nextDaylightSavingTimeTransition(after: earlier),
+           change <= date, date < change.addingTimeInterval(Double(back)) {
+            date = change.addingTimeInterval(-1)
+        }
         let p = calendar.dateComponents([.hour, .minute, .second], from: date)
         return Double(p.hour! * 60 + p.minute!) + Double(p.second!) / 60
     }
@@ -296,21 +374,24 @@ public struct Schedule: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        // Only the limits are settings. Bedtime, wake and the stages are fixed; anything an older
-        // build saved for them is deliberately ignored so it can't linger invisibly. (Bedtime
-        // and wake stay variables so tests can exercise other rhythms.)
+        // The limits, bedtime and wake are settings; the stages are fixed, and anything an older
+        // build saved for them is deliberately ignored so it can't linger invisibly.
         let d = Schedule()
         warmest = Self.warmestRange.clamp(try c.decodeIfPresent(Double.self, forKey: .warmest) ?? d.warmest)
         darkest = Self.darkestRange.clamp(try c.decodeIfPresent(Double.self, forKey: .darkest) ?? d.darkest)
+        bedtime = (try c.decodeIfPresent(ClockTime.self, forKey: .bedtime) ?? d.bedtime).held(to: Self.bedtimes)
+        wake = (try c.decodeIfPresent(ClockTime.self, forKey: .wake) ?? d.wake).held(to: Self.wakes)
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(warmest, forKey: .warmest)
         try c.encode(darkest, forKey: .darkest)
+        try c.encode(bedtime, forKey: .bedtime)
+        try c.encode(wake, forKey: .wake)
     }
 
-    private enum CodingKeys: String, CodingKey { case warmest, darkest }
+    private enum CodingKeys: String, CodingKey { case warmest, darkest, bedtime, wake }
 }
 
 extension ClosedRange where Bound == Double {

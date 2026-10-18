@@ -51,21 +51,22 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
             let pause = NSMenu()
             pause.addItem(withTitle: String(localized: "For an Hour"), action: #selector(offForAnHour), keyEquivalent: "").target = self
             pause.addItem(withTitle: String(localized: "Until Morning"), action: #selector(offUntilMorning), keyEquivalent: "").target = self
-            if let app = model.frontmost, let name = app.localizedName,
-               !model.excludedApps.contains(where: { $0.bundleID == app.bundleIdentifier }) {
-                pause.addItem(.separator())
-                pause.addItem(withTitle: String(localized: "While \(name) Is in Front"), action: #selector(excludeFrontmost), keyEquivalent: "").target = self
-            }
-            let item = menu.addItem(withTitle: String(localized: "Turn Off For"), action: nil, keyEquivalent: "")
+            let item = menu.addItem(withTitle: String(localized: "Turn Off Temporarily"), action: nil, keyEquivalent: "")
             menu.setSubmenu(pause, for: item)
         } else {
             let title = model.resumeAt.map { String(localized: "Turn Gloam On (off until \(Format.time($0)))") }
                 ?? String(localized: "Turn Gloam On")
             menu.addItem(withTitle: title, action: #selector(toggleEnabled), keyEquivalent: "").target = self
         }
-        if let app = model.frontmost, let name = app.localizedName,
-           model.excludedApps.contains(where: { $0.bundleID == app.bundleIdentifier }) {
-            menu.addItem(withTitle: String(localized: "Stop True Colour for \(name)"), action: #selector(includeFrontmost), keyEquivalent: "").target = self
+        // An app exception is permanent (Settings › Apps in true colour), so it sits apart from
+        // the timed offs, which all end by themselves.
+        if let app = model.frontmost, let name = app.localizedName {
+            menu.addItem(.separator())
+            if model.excludedApps.contains(where: { $0.bundleID == app.bundleIdentifier }) {
+                menu.addItem(withTitle: String(localized: "Stop True Colour for \(name)"), action: #selector(includeFrontmost), keyEquivalent: "").target = self
+            } else {
+                menu.addItem(withTitle: String(localized: "True Colour for \(name)"), action: #selector(excludeFrontmost), keyEquivalent: "").target = self
+            }
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: String(localized: "Quit Gloam"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
@@ -113,6 +114,8 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
         button.highlight(true)
         self.panel = panel
+        // Capture runs film while the developer keeps working: their clicks must not close it.
+        guard !Debug.isCapture else { return }
         outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             self?.close()
         }
@@ -137,8 +140,9 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     #endif
 
     func windowDidResignKey(_ notification: Notification) {
-        // Menus (the gear) and dialogs opened from the panel keep it; anything else closes it.
-        guard let panel, NSApp.keyWindow?.parent != panel, !(NSApp.keyWindow is LampPanel) else { return }
+        // Menus and dialogs opened from the panel keep it; anything else closes it. Capture runs
+        // aren't the active app, so focus wanders and would close the panel mid-film.
+        guard !Debug.isCapture, let panel, NSApp.keyWindow?.parent != panel, !(NSApp.keyWindow is LampPanel) else { return }
         if NSApp.modalWindow == nil, panel.attachedSheet == nil { close() }
     }
 
@@ -151,9 +155,14 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
             let image = GloamGlyph.cached(mode: mode, depth: model.eveningDepth)
             if item.button?.image !== image { item.button?.image = image }
             // This re-runs every tick (the depth reads the clock): set the label only when it changes.
-            let label = !model.enabled ? String(localized: "Gloam, off")
-                : mode == .aside ? String(localized: "Gloam, stepping aside") : String(localized: "Gloam, \(model.stage.title)")
+            // A timed off says when it ends, here too: the glyph alone looks like any other off.
+            let label = !model.enabled
+                ? model.resumeAt.map { String(localized: "Gloam, off until \(Format.time($0))") } ?? String(localized: "Gloam, off")
+                : model.excludedFrontmost.map { String(localized: "Gloam, true colour for \($0.name)") }
+                    ?? String(localized: "Gloam, \(model.stage.title)")
             if item.button?.accessibilityLabel() != label { item.button?.setAccessibilityLabel(label) }
+            let tip = !model.enabled ? model.resumeAt.map { String(localized: "Gloam is off until \(Format.time($0))") } : nil
+            if item.button?.toolTip != tip { item.button?.toolTip = tip }
         } onChange: {
             DispatchQueue.main.async { MenuBarPanel.shared.refreshIcon() }
         }

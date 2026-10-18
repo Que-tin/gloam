@@ -34,12 +34,6 @@ public enum Smear {
         return Tint(kelvin: warmest(brightness: 1, floor: floor, in: space), brightness: 1)
     }
 
-    /// The lowest brightness at this warmth that stays on the floor; 1 when even that is too dim.
-    public static func brightnessFloor(kelvin: Double, floor: Double, in space: LinearRGB = Kelvin.sRGB) -> Double {
-        let full = luminance(Tint(kelvin: kelvin), in: space)
-        return full > floor ? pow(floor / full, 1 / Kelvin.displayGamma) : 1
-    }
-
     /// The warmest temperature that stays on the floor at this brightness; daylight when none does.
     public static func warmest(brightness: Double, floor: Double, in space: LinearRGB = Kelvin.sRGB) -> Double {
         func fits(_ mired: Double) -> Bool { luminance(Tint(kelvin: 1e6 / mired, brightness: brightness), in: space) >= floor }

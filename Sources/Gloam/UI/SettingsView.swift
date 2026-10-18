@@ -22,7 +22,9 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .frame(width: 500, height: 790)  // fits every section with one display and no app exceptions
+        // Fits every section with one display and no app exceptions; on a short screen (older
+        // 13" Macs) the window stops at the screen and the form scrolls.
+        .frame(width: 500, height: min(1000, (NSScreen.main?.visibleFrame.height ?? 900) - 60))
         .background(LampSurface(glow: Tint(kelvin: 2700, brightness: 0.6), lit: 0.6).ignoresSafeArea())
         .environment(\.colorScheme, .dark)
         .tint(Color.kelvin(2700))
@@ -35,61 +37,46 @@ struct SettingsView: View {
     }
 
     /// Caps rather than numbers per stage: automatic runs as designed until it would cross one.
-    /// Both read the same way, None … Full, and Full (the right end) is the default. Dimming
-    /// rather than "Night brightness": the cap limits how far Gloam goes, the word the popover's
-    /// ladder uses too.
+    /// Set in the graph, named in the legend as the warmest and dimmest the evening may get (by
+    /// default the night stage itself), in the units of the popover's dial and ladder.
     private var evening: some View {
         Section {
-            // Like Welcome's "Tonight": what the evening will do, and a way to see it on the
-            // real screen while setting the limits, by day too.
-            HStack(alignment: .firstTextBaseline) {
-                Text(model.schedule.evening(around: model.now, model.place.coordinate).plan)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            // Tonight as a graph, which is also where the limits and the clock times are set
+            // (`EveningGraph`); the line below names the limits and shows the night on the real
+            // screen, by day too.
+            EveningGraph(schedule: $model.schedule, place: model.place.coordinate, now: model.now,
+                         onEditing: previewNight)
+            HStack(spacing: 14) {
+                // In the graph's own units: warmth by name (its left axis), dimming in percent
+                // as the popover's ladder counts it (its right axis).
+                LegendKey(title: String(localized: "Warmest"), value: Light.name(model.schedule.warmest),
+                          spoken: Format.percent(model.schedule.warmthAllowance),
+                          color: Color.kelvin(2400), allowance: $model.schedule.warmthAllowance)
+                LegendKey(title: String(localized: "Dimmest"), value: Format.percent(Light.dimming(model.schedule.darkest)),
+                          spoken: Format.percent(Light.dimming(model.schedule.darkest)),
+                          color: Color(white: 0.82), allowance: $model.schedule.dimmingAllowance)
                 Spacer()
                 Button(previewing ? String(localized: "Done") : String(localized: "Preview Tonight")) {
                     previewing.toggle()
                     previewNight(false)
                 }
             }
-            LabeledContent("Warmth") {
-                HStack {
-                    Slider(value: $model.schedule.warmthAllowance, in: 0...1, onEditingChanged: previewNight).frame(width: 150)
-                        .accessibilityLabel("Warmth").accessibilityValue(warmthText)
-                    allowanceLabel(warmthText)
-                }
+            // Wind-down starts 3 h and night 1 h before bedtime; daylight is back by wake. Also
+            // draggable in the graph; the pickers stay for exact times and VoiceOver.
+            Picker("Bedtime", selection: $model.schedule.bedtime) {
+                ForEach(ClockTime.all(in: Schedule.bedtimes), id: \.self) { Text(Format.time($0)).tag($0) }
             }
-            LabeledContent("Dimming") {
-                HStack {
-                    Slider(value: $model.schedule.dimmingAllowance, in: 0...1, onEditingChanged: previewNight).frame(width: 150)
-                        .accessibilityLabel("Dimming").accessibilityValue(dimmingText)
-                    allowanceLabel(dimmingText)
-                }
+            Picker("Wake up", selection: $model.schedule.wake) {
+                ForEach(ClockTime.all(in: Schedule.wakes), id: \.self) { Text(Format.time($0)).tag($0) }
             }
             if model.roomLight.isAvailable {
-                Toggle("Auto dimming", isOn: $model.autoDimming)
+                Toggle("Adapt to room light", isOn: $model.autoDimming)  // "Auto dimming" read as all of it
             }
         } header: {
             Text("Evening")
         }
         .onChange(of: model.schedule) { if model.preview != nil { model.preview = night } }
-        .onDisappear { if previewing { model.preview = nil } }
-    }
-
-    private var warmthText: String {
-        allowance(model.schedule.warmthAllowance) { Light.name(model.schedule.warmest) }  // names, like the dial
-    }
-    private var dimmingText: String {
-        allowance(model.schedule.dimmingAllowance) { Format.percent(model.schedule.dimmingAllowance) }
-    }
-
-    private func allowance(_ a: Double, _ value: () -> String) -> String {
-        a >= 0.999 ? String(localized: "Full") : a <= 0.001 ? String(localized: "None") : value()
-    }
-
-    private func allowanceLabel(_ text: String) -> some View {
-        Text(text)
-            .monospacedDigit().foregroundStyle(.secondary).frame(width: 84, alignment: .trailing)
+        .onDisappear { model.preview = nil }  // whatever started it, a preview ends with Settings
     }
 
     /// While a limit is dragged, or while "Preview Tonight" is on, the screen shows the night it
@@ -107,7 +94,7 @@ struct SettingsView: View {
                 get: { model.customPlace == nil },
                 set: { model.customPlace = $0 ? nil : model.place })
             ) {
-                Text("Automatic").tag(true)
+                Text("From time zone").tag(true)
                 Text("Choose a city").tag(false)
             }
             LabeledContent("Place", value: String(localized: "\(model.place.name) · \(Geo.describe(model.place.coordinate))"))
@@ -145,7 +132,7 @@ struct SettingsView: View {
             }
             Picker(selection: $model.engine) {
                 Text("Automatic").tag(Engine.auto)
-                Text("Gamma (true colour)").tag(Engine.gamma)
+                Text("Gamma (best quality)").tag(Engine.gamma)  // "true colour" means an app exception elsewhere
                 Text("Overlay (compatible)").tag(Engine.overlay)
             } label: {
                 Text("Method")
@@ -199,5 +186,45 @@ struct SettingsView: View {
         panel.allowsMultipleSelection = true
         guard panel.runModal() == .OK else { return }
         panel.urls.forEach(model.exclude(appAt:))
+    }
+}
+
+/// A graph curve's key and its limit. The lines are set by dragging; this is the same setting
+/// for the keyboard (focus it, then the arrow keys) and VoiceOver (swipe up or down).
+private struct LegendKey: View {
+    let title: String
+    let value: String
+    /// What VoiceOver adds to the name, so a step that keeps the same name still sounds like one.
+    let spoken: String
+    let color: Color
+    @Binding var allowance: Double
+    @FocusState private var focused: Bool
+    @State private var ring = false  // keyboard focus only: it also takes focus as Settings opens
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(title)
+            Text(value).foregroundStyle(.secondary).monospacedDigit()
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 6).strokeBorder(color.opacity(ring ? 0.8 : 0)))
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onChange(of: focused) { _, now in ring = now && Lamp.focusFromKeyboard }
+        .onMoveCommand { direction in
+            ring = true
+            switch direction {
+            case .right, .up: allowance += 0.05
+            case .left, .down: allowance -= 0.05
+            @unknown default: break
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(value == spoken ? value : "\(value), \(spoken)")
+        .accessibilityAdjustableAction { direction in allowance += direction == .increment ? 0.05 : -0.05 }
+        .help("Drag its dashed line in the graph, or focus here and use the arrow keys")
     }
 }

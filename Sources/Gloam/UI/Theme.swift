@@ -36,7 +36,7 @@ extension Color {
 extension StageKind {
     var title: String {
         switch self {
-        case .day: String(localized: "Daylight", comment: "stage")
+        case .day: String(localized: "Day", comment: "stage (\"Daylight\" is a light colour on the dial)")
         case .sunset: String(localized: "Sunset", comment: "stage")
         case .windDown: String(localized: "Wind-down", comment: "stage")
         case .night: String(localized: "Night", comment: "stage")
@@ -56,6 +56,27 @@ enum Light {
         default: String(localized: "Ember", comment: "light colour")
         }
     }
+
+    /// Warmth as a position, 0 (daylight) … 1 (ember), even in mired, where equal steps are
+    /// equal visible steps: the popover's dial and the evening graph share this scale.
+    static func warmth(_ kelvin: Double) -> Double {
+        let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(Stage.kelvinRange.lowerBound))
+        return min(1, max(0, (Kelvin.mired(kelvin) - cool) / (warm - cool)))
+    }
+
+    static func kelvin(warmth w: Double) -> Double {
+        let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(Stage.kelvinRange.lowerBound))
+        return 1e6 / (cool + (warm - cool) * min(1, max(0, w)))
+    }
+
+    /// Dimming as a position, 0 (full brightness) … 1 (the deepest there is), as the ladder shows it.
+    static func dimming(_ brightness: Double) -> Double {
+        min(1, max(0, (1 - brightness) / (1 - Stage.brightnessRange.lowerBound)))
+    }
+
+    static func brightness(dimming d: Double) -> Double {
+        1 - min(1, max(0, d)) * (1 - Stage.brightnessRange.lowerBound)
+    }
 }
 
 /// Numbers in the user's own format ("54%" here, "54 %" in a German region).
@@ -65,6 +86,14 @@ enum Format {
     }
     static func percent(_ v: Double) -> String { v.formatted(.percent.precision(.fractionLength(0))) }
     static func time(_ d: Date?) -> String { d?.formatted(date: .omitted, time: .shortened) ?? "—" }
+    /// A clock time (bedtime, wake) in the user's 12/24-hour style.
+    static func time(_ t: ClockTime) -> String {
+        // On a fixed day without a clock change: on a spring-forward day 02:30 doesn't exist and
+        // would read as 03:30.
+        let calendar = Calendar.current
+        let day = calendar.date(from: DateComponents(year: 2001, month: 1, day: 1))!
+        return time(calendar.date(bySettingHour: t.hour, minute: t.minute, second: 0, of: day))
+    }
 }
 
 extension Schedule.Evening {

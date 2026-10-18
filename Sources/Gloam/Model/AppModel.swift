@@ -32,6 +32,13 @@ final class AppModel {
     var schedule: Schedule {
         didSet {
             saveSoon()
+            if schedule.bedtime != oldValue.bedtime || schedule.wake != oldValue.wake {
+                clockedAt = nil  // the stages moved, and a hand setting's end with them
+                if manual != nil {
+                    refreshClock()
+                    manualUntil = nextStage?.at ?? schedule.evening(around: now, place.coordinate).wake
+                }
+            }
             if preview == nil { update(fade: 0.35) }
         }
     }
@@ -92,8 +99,12 @@ final class AppModel {
 
     private init() {
         let engine: Engine = Self.load("engine") ?? .auto
-        enabled = Self.load("enabled") ?? true
-        resumeAt = Self.load("resumeAt")
+        // A timed off that ended while Gloam was quit: on from the start, quietly (assigned
+        // here, before init completes, so no didSet announces or saves it).
+        let resume: Date? = Self.load("resumeAt")
+        let expired = resume.map { $0 <= Date() } ?? false
+        enabled = expired || (Self.load("enabled") ?? true)
+        resumeAt = expired ? nil : resume
         schedule = Self.load("schedule") ?? Schedule()
         customPlace = Self.load("place")
         self.engine = engine
@@ -200,16 +211,20 @@ final class AppModel {
     /// Checked by the clock tick, so it can come back up to a minute late while idle.
     private(set) var resumeAt: Date? { didSet { save(resumeAt, "resumeAt") } }
 
+    /// A tint within a step of either popover control (a dial nudge is ~14 mired) of what
+    /// automatic asks for: "Auto" would reset nothing.
+    func matchesAutomatic(_ tint: Tint) -> Bool {
+        let auto = automatic
+        return abs(Kelvin.mired(tint.kelvin) - Kelvin.mired(auto.kelvin)) < 7 && abs(tint.brightness - auto.brightness) < 0.02
+    }
+
     func turnOff(until date: Date) {
         enabled = false
         resumeAt = date
     }
 
-    /// When "Until Morning" ends: when the evening hands back to day, else the next wake.
-    var nextMorning: Date {
-        schedule.upcoming(after: now, place.coordinate, count: 4).first { $0.kind == .day }?.at
-            ?? schedule.evening(around: now.addingTimeInterval(12 * 3600), place.coordinate).wake
-    }
+    /// When "Until Morning" ends (`Schedule.nextMorning`).
+    var nextMorning: Date { schedule.nextMorning(after: now, place.coordinate) }
 
     func run(_ command: Command) {
         switch command {
@@ -220,7 +235,7 @@ final class AppModel {
         }
     }
 
-    /// True colour for the app you were just using, from the gear menu.
+    /// True colour for the app you were just using, from the menu-bar item's right-click menu.
     func excludeFrontmost() {
         guard let url = frontmost?.bundleURL else { return }
         exclude(appAt: url)
@@ -258,6 +273,9 @@ final class AppModel {
         let hadRoom = roomLux != nil
         readRoom()
         if manual != nil, let until = manualUntil, now >= until { manual = nil }
+        // Brought back to what automatic asks for, a hand setting is automatic again (the
+        // popover shows the tint asked for, before limits, so its knobs don't move).
+        if let manual, matchesAutomatic(manual) { self.manual = nil }
         if !enabled, let resume = resumeAt, now >= resume { enabled = true }
         display.keepAlive()
         guard !display.isFading else { return }

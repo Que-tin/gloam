@@ -70,6 +70,12 @@ struct WelcomeView: View {
                 Text(evening.plan)
                     .foregroundStyle(Lamp.ink.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
+                // Where "deepest around 22:00" comes from, and that it can move.
+                Text("Timed from a \(Format.time(schedule.bedtime)) bedtime; change it any time in Settings.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Lamp.ink.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
                 LampPill(title: previewing ? String(localized: "Done") : String(localized: "Preview tonight"),
                          symbol: previewing ? "checkmark" : "eye", action: togglePreview)
                     .fixedSize()
@@ -78,8 +84,9 @@ struct WelcomeView: View {
                 // Settings, live on the real screen while the preview is on.
                 if previewing {
                     VStack(spacing: 8) {
-                        slider(String(localized: "Warmth"), $schedule.warmthAllowance, in: 0...1, step: nil)
-                        slider(String(localized: "Dimming"), $schedule.dimmingAllowance, in: 0...1, step: nil)
+                        // Values as Settings shows them, so the two places speak alike.
+                        slider(String(localized: "Warmest"), Light.name(schedule.warmest), $schedule.warmthAllowance)
+                        slider(String(localized: "Dimmest"), Format.percent(Light.dimming(schedule.darkest)), $schedule.dimmingAllowance)
                     }
                     .padding(.top, 12)
                 }
@@ -97,7 +104,7 @@ struct WelcomeView: View {
                 .keyboardShortcut(.defaultAction)
                 .padding(.top, 14)
 
-            Text("Gloam lives in the menu bar. Click its icon any time; right-click for Settings.")
+            Text("Gloam lives in the menu bar. Click its icon any time; right-click for more.")
                 .font(.caption)
                 .foregroundStyle(Lamp.ink.opacity(0.6))
                 .frame(maxWidth: .infinity)
@@ -150,17 +157,15 @@ struct WelcomeView: View {
         model.preview = previewing ? schedule.limited(schedule.night.tint) : nil
     }
 
-    private func slider(_ title: String, _ value: Binding<Double>, in range: ClosedRange<Double>, step: Double?) -> some View {
+    private func slider(_ title: String, _ shown: String, _ value: Binding<Double>) -> some View {
         HStack(spacing: 10) {
             Text(title).font(.system(size: 12)).foregroundStyle(Lamp.ink.opacity(0.75)).frame(width: 72, alignment: .leading)
             // Named for VoiceOver; the visible Text beside it is the label people see.
-            Group {
-                if let step { Slider(value: value, in: range, step: step) { Text(title) } }
-                else { Slider(value: value, in: range) { Text(title) } }
-            }
-            .labelsHidden()
-            .accessibilityValue(value.wrappedValue >= 0.999 ? String(localized: "Full")
-                : value.wrappedValue <= 0.001 ? String(localized: "None") : Format.percent(value.wrappedValue))
+            Slider(value: value, in: 0...1) { Text(title) }
+                .labelsHidden()
+                .accessibilityValue(shown)
+            Text(shown).font(.system(size: 12)).monospacedDigit().foregroundStyle(Lamp.ink.opacity(0.6))
+                .frame(width: 84, alignment: .trailing)
         }
     }
 }

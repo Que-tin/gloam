@@ -24,7 +24,7 @@ doi:10.1371/journal.pbio.3001571; reaffirmed in CIE TN 015:2023), measured at th
 | Sleep environment | ≤ 1 lx |
 
 Individual sensitivity varies more than 50-fold (Phillips et al. 2019, *PNAS*
-doi:10.1073/pnas.1901824116), which is why Warmth and Night brightness (Settings, and Welcome's
+doi:10.1073/pnas.1901824116), which is why Warmth and Dimming (Settings, and Welcome's
 preview) cap the automatic tint without replacing it.
 
 ## How much light a screen gives off
@@ -89,8 +89,7 @@ are clock-anchored, but with two rules that keep the product light:
 
 - **No setup question.** An onboarding question taxes everyone, while settings are changed by
   few. A 23:00 default fits ~60% of adults within an hour (Withings, 117k adults: mean bedtime
-  23:30, SD 65 min). Late sleepers raise Night brightness (it caps how deep the evening goes; it
-  does not move it later).
+  23:30, SD 65 min); the rest move bedtime and wake in Settings, within a night-time sleep.
 - **No dimming in daylight.** Wind-down and Night fade in only as the sun sets (from 3° above to
   3° below the horizon). A fixed 20:00 wind-down would otherwise dim the screen in daylight on
   3½–5½ months a year at 52°N (depending on where in the time zone), which reads as broken.
@@ -170,7 +169,7 @@ neutral threshold. That the same luminance predicts warm smearing is the model's
 by the physics and by iPad Pro XDR users finding the scrolling smear "more prominent when Night
 Shift is on"; a floor on green's own drive would put the cap near 3000–3200 K instead.
 
-## Auto dimming (optional input)
+## Adapting to room light (optional input)
 
 **Room light** (read through a private macOS interface; no reading means no change): with a
 MacBook's lid open, the ambient light sensor eases the dimming in a bright room: all of it at

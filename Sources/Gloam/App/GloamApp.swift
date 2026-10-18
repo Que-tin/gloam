@@ -150,6 +150,8 @@ enum Windows {
 
     private final class SettingsCloser: NSObject, NSWindowDelegate {
         func windowWillClose(_ notification: Notification) {
+            // A preview (Preview Tonight, or a limit mid-drag) never outlives the window.
+            AppModel.shared.preview = nil
             DispatchQueue.main.async { Windows.settings = nil }
         }
     }
@@ -236,6 +238,7 @@ enum Windows {
 
 /// Debug-build launch flags for screenshots and UI work; inert in release builds.
 ///   --capture DIR     photograph the real popover, Welcome and Settings windows, then quit
+///   --film DIR        frames of the real popover switching off and on again, then quit
 ///   --at HH:MM        run the app's clock at that time of day
 ///   --onboarded, --off   start as if set up / switched off
 ///   --showcase [welcome]  show the popover (or the welcome view) in an ordinary window
@@ -246,7 +249,7 @@ enum Windows {
 enum Debug {
     #if DEBUG
     static let isSnapshot = CommandLine.arguments.contains("--snapshot")
-    static let isCapture = CommandLine.arguments.contains("--capture")
+    static let isCapture = CommandLine.arguments.contains("--capture") || CommandLine.arguments.contains("--film")
     /// Showcase and capture runs never tint the real screen.
     static let isShowcase = CommandLine.arguments.contains("--showcase") || isSnapshot || isCapture
     #else
@@ -276,6 +279,7 @@ enum Debug {
             Task { try? await Task.sleep(for: .seconds(seconds)); NSApp.terminate(nil) }
         }
         if let dir = value("--capture") { capture(into: dir); return }
+        if let dir = value("--film") { film(into: dir); return }
         guard args.contains("--showcase") else { return }
         let welcome = value("--showcase") == "welcome"
         if let path = value("--snapshot") {
@@ -316,6 +320,37 @@ enum Debug {
                 shoot(window, window === Windows.settings ? "settings" : "welcome")
             }
             exit(0)  // skip the termination handshake; nothing to save in a capture run
+        }
+    }
+
+    /// Frames of the real popover while Gloam is switched off and on again, as the switch does
+    /// it, with a hand setting on first (its footer goes with the switch): animation work is
+    /// checked frame by frame instead of by eye. Frames are ~40 ms apart, numbered in order.
+    private static func film(into dir: String) {
+        Task {
+            MenuBarPanel.shared.open()
+            try? await Task.sleep(for: .seconds(1.5))
+            let model = AppModel.shared
+            model.hasOnboarded = true
+            model.manual = Tint(kelvin: 2400, brightness: 0.8)
+            try? await Task.sleep(for: .seconds(1.5))
+            var frame = 0
+            @MainActor func roll(_ seconds: Double) async {
+                let end = Date().addingTimeInterval(seconds)
+                while Date() < end, let panel = MenuBarPanel.shared.panelWindow {
+                    if let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(panel.windowNumber), [.bestResolution]) {
+                        try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?
+                            .write(to: URL(fileURLWithPath: dir).appendingPathComponent(String(format: "frame-%03d.png", frame)))
+                    }
+                    frame += 1
+                    try? await Task.sleep(for: .milliseconds(40))
+                }
+            }
+            model.enabled = false
+            await roll(2.2)
+            model.enabled = true
+            await roll(1.6)
+            exit(0)
         }
     }
 

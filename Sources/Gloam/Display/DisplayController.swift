@@ -106,8 +106,8 @@ final class DisplayController {
     /// the backlight's. Changed only by the debug `--floor` flag, to calibrate it on screen.
     static var smearFloor = pow(0.8, Kelvin.displayGamma)
 
-    /// What the main display shows after its light floor and smear floor: what the popover's
-    /// ladder and orb describe. Stored, and set only when it changes: the popover reads it many
+    /// What the main display shows after its light floor and smear floor, live through fades:
+    /// the colour of the popover's orb glow. Stored, and set only when it changes: the popover reads it many
     /// times a redraw, and a computed value redrew it on every unrelated change.
     private(set) var effective = Tint.neutral
     /// The main display, kept from the last display change: `CGMainDisplayID` and
@@ -123,16 +123,6 @@ final class DisplayController {
     var mainIsBuiltin: Bool { isBuiltin(main) }
     var mainColourSpace: LinearRGB { engine.colourSpace(main) }
 
-    /// The lowest brightness the main display shows at this warmth, and the warmest it goes at
-    /// this brightness: the two edges the popover's ladder and dial stop at.
-    func brightnessFloor(kelvin: Double) -> Double {
-        if let dim = backlight(main) { return pow(dim.lowestFraction, 1 / Kelvin.displayGamma) }
-        return Smear.brightnessFloor(kelvin: kelvin, floor: smearFloor(for: main), in: mainColourSpace)
-    }
-    func warmestKelvin(brightness: Double) -> Double {
-        Smear.warmest(brightness: backlight(main) == nil ? brightness : 1, floor: smearFloor(for: main), in: mainColourSpace)
-    }
-
     /// The backlight dimming in force for a display. None for a monitor that stopped taking
     /// writes before it was dimmed: its evening falls back to the signal rather than not happening.
     private func backlight(_ id: CGDirectDisplayID) -> BacklightDim? {
@@ -147,6 +137,13 @@ final class DisplayController {
         if display.isBuiltin { return Self.smearFloor * (share[id] ?? 1) }
         return smearGuarded(display.uuid) ? Self.smearFloor : 0
     }
+
+    /// What the main display would show for `tint`, after its light and smear floors.
+    func onMain(_ tint: Tint) -> Tint { adjusted(tint, for: main) }
+
+    /// The main display can't go as dim as `tint` asks (its light floor, or the smear floor
+    /// raising brightness): the popover says so, since its ladder shows what was asked.
+    func dimLimits(_ tint: Tint) -> Bool { onMain(tint).brightness > tint.brightness + 0.01 }
 
     private func refreshEffective() {
         let e = adjusted(shown, for: main)
@@ -203,7 +200,7 @@ final class DisplayController {
     }
 
     /// Re-reads the backlights now: the popover is opening, and in the day the last reading may
-    /// be a minute old (the dial's warm end and the smear notice depend on it).
+    /// be a minute old (the smear notice and the orb's glow depend on it).
     func refreshBacklights() { pollBacklights() }
 
     /// Reasserts the tint only when something overwrote it (macOS on some ColorSync events, or

@@ -90,14 +90,17 @@ struct PowerSwitch: View {
     let kelvin: Double
     /// Hover text: what clicking does. Welcome's login switch passes its own.
     var help: String?
+    /// What the knob shows: follows `on` one beat later, in its own animation. Wrapping the toggle
+    /// in withAnimation animated everything it changes (words morphed through each other, the
+    /// popover's content slid inside a panel that resizes at once), and an animation keyed to
+    /// `on` here still caught the panel's resize and dropped the switch in from above.
+    @State private var shown: Bool?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let c = Color.kelvin(kelvin)
-        // Only the knob animates: wrapping the toggle in withAnimation also animated everything
-        // it changes elsewhere (a notice or the footer going), inside a panel that resizes at
-        // once, so the whole popover jumped.
-        Button { on.toggle() } label: {
+        let on = shown ?? self.on
+        Button { self.on.toggle() } label: {
             ZStack(alignment: on ? .trailing : .leading) {
                 Capsule().fill(Lamp.well)
                     .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
@@ -114,15 +117,18 @@ struct PowerSwitch: View {
                 .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
                 .padding(3)
             }
-            .animation(reduceMotion ? nil : .snappy, value: on)
             .frame(width: 40, height: 24)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(help ?? (on ? String(localized: "Turn Gloam off") : String(localized: "Turn Gloam on")))
+        // Words follow the real state at once; only the knob's picture lags a beat.
+        .help(help ?? (self.on ? String(localized: "Turn Gloam off") : String(localized: "Turn Gloam on")))
         .accessibilityLabel("Gloam")
-        .accessibilityValue(on ? String(localized: "On") : String(localized: "Off"))
+        .accessibilityValue(self.on ? String(localized: "On") : String(localized: "Off"))
         .accessibilityAddTraits(.isToggle)
+        .onChange(of: self.on) { _, now in
+            DispatchQueue.main.async { withAnimation(reduceMotion ? nil : .snappy) { shown = now } }
+        }
     }
 }
 
@@ -143,9 +149,9 @@ struct LampDial: View {
     let orbCaption: String
     /// When set, the orb is a quiet power button (Gloam is off) instead of a readout.
     var onPower: (() -> Void)?
-    /// False when turning the ring would change nothing (off, stepping aside, no warmth left
-    /// at this brightness): no drag, no cursor, no detents. A drag the binding ignored used
-    /// to buzz the trackpad on every event.
+    /// False when turning the ring would change nothing (an app in front has true colour): no
+    /// drag, no cursor, no detents. A drag the binding ignored used to buzz the trackpad on
+    /// every event.
     var editable = true
     /// Spoken by VoiceOver: "Warmth for Wind-down".
     let stageName: String
@@ -380,16 +386,10 @@ struct LampDial: View {
                                          startRadius: r * 0.8, endRadius: r))
             Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .clear, glow.opacity(0.05 + 0.35 * core)],
                                                  startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
-            // Crossfaded in place: swapping the whole face for a button cut the lamp's own
-            // light-up and decay short.
-            Image(systemName: "power")
-                .font(.system(size: 22, weight: .light))
-                .foregroundStyle(Lamp.ink.opacity(0.4))
-                .opacity(onPower == nil ? 0 : 1)
+            // Off, it reads 100 % and a click turns Gloam on. (A power icon or an "off" swapped in
+            // here broke up the lamp's own decay; the reading fading in place is the motion.)
             readoutText(r: r, ink: ink, etched: etched)
-                .opacity(onPower == nil ? 1 : 0)
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: onPower == nil)
         .compositingGroup()
         .shadow(color: glow.opacity(0.8 * b), radius: 14)
         .shadow(color: glow.opacity(0.5 * b * bloom), radius: 40)
@@ -407,6 +407,8 @@ struct LampDial: View {
     }
 
     private func readoutText(r: CGFloat, ink: Color, etched: Bool) -> some View {
+            // Every change of reading fades the old out and the new in (`swapFade`); a morphing
+            // numericText overprinted digits ("100 %" into "20 %") halfway.
             VStack(spacing: 2) {
                 orbHeadline
                     .tracking(-1)
@@ -415,7 +417,6 @@ struct LampDial: View {
                     // or jump.
                     .minimumScaleFactor(0.5)
                     .frame(maxWidth: r * 1.7)
-                    .contentTransition(.numericText())
                 if !orbCaption.isEmpty {
                     Text(orbCaption)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
@@ -429,14 +430,58 @@ struct LampDial: View {
             .foregroundStyle(ink.opacity(core > 0.5 ? 0.92 : 0.75))
             .blendMode(etched ? .multiply : .normal)
             .offset(y: 2)
+            .swapFade("\(orbTitle) \(orbCaption)")
     }
+}
+
+/// Replaces content when `key` changes by fading the old out, then the new in: a crossfade of
+/// two words overprints them halfway. Changes in quick succession (a drag) swap instantly, so
+/// the reading keeps up instead of stacking fades. Reduce Motion: always instant.
+struct SwapFade: ViewModifier {
+    let key: String
+    /// When the key last changed, kept outside SwiftUI's state so the body can tell, for the
+    /// very change it renders, whether it came quickly after the previous one. (State updated
+    /// in onChange arrives one change late.)
+    private final class Pace {
+        var key: String?, last = Date.distantPast, rapid = false
+        func note(_ new: String) -> Bool {
+            guard let key, key != new else {
+                // Settled again: any redraw after a pause re-arms the fade, so the reading on
+                // screen leaves with a fade too, not with the instant swap of the last drag.
+                if Date().timeIntervalSince(last) > 0.4 { rapid = false }
+                key = new
+                return rapid
+            }
+            rapid = Date().timeIntervalSince(last) < 0.4
+            (self.key, last) = (new, Date())
+            return rapid
+        }
+    }
+    @State private var pace = Pace()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        let rapid = pace.note(key)
+        return ZStack {
+            content
+                .id(key)
+                .transition(reduceMotion || rapid ? .identity : .asymmetric(
+                    insertion: .opacity.animation(.easeOut(duration: 0.2).delay(0.15)),
+                    removal: .opacity.animation(.easeIn(duration: 0.15))))
+        }
+        .animation(reduceMotion || rapid ? nil : .default, value: key)
+    }
+}
+
+extension View {
+    func swapFade(_ key: String) -> some View { modifier(SwapFade(key: key)) }
 }
 
 // MARK: - Dimming ladder
 
-/// Cells rising like a volume wedge, 0 (full brightness) … 1 (as dim as this screen goes);
+/// Cells rising like a volume wedge, 0 (full brightness) … 1 (the deepest dimming there is);
 /// each lit cell glows as bright as the screen it stands for, so the further the ladder goes
-/// the dimmer its own light. Each cell is 5%, so the lit cells always match the number.
+/// the dimmer its own light. Each cell is 5%: the lit cells match the number to half a cell.
 /// "Dimming" rather than "brightness": what the control does is take light away, and the
 /// screen's own brightness is a different setting.
 struct DimmingLadder: View {
@@ -516,7 +561,8 @@ struct DimmingLadder: View {
 
     private func set(cells: Int) {
         let n = min(Self.cells, max(0, cells))
-        guard n != litCells else { return }
+        // Scrolling reaches here even while disabled (an AppKit view catches it): no detent then.
+        guard isEnabled, n != litCells else { return }
         Lamp.detent()
         dimming = Double(n) / Double(Self.cells)
     }

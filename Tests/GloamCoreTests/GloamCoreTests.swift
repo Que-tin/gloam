@@ -300,8 +300,8 @@ private let p3: LinearRGB = { c in
     @Test func decodingIsTolerant() throws {
         let json = #"{"bedtime":{"hour":1,"minute":30},"night":{"kelvin":0},"darkest":0.8,"warmest":99999}"#
         let s = try JSONDecoder().decode(Schedule.self, from: Data(json.utf8))
-        // Older builds saved bedtime and stage values; they are no longer settings and are ignored.
-        #expect(s.bedtime == Schedule().bedtime && s.night == Schedule().night)
+        // Bedtime is a setting again; stage values from older builds are not, and are ignored.
+        #expect(s.bedtime == ClockTime(1, 30) && s.night == Schedule().night)
         #expect(s.darkest == 0.8 && s.warmest == Kelvin.daylight)
         let back = try JSONDecoder().decode(Schedule.self, from: JSONEncoder().encode(s))
         #expect(back == s)
@@ -378,16 +378,9 @@ private let p3: LinearRGB = { c in
         #expect(Smear.limited(Tint(kelvin: 1200, brightness: 0.3), floor: 0, in: p3) == Tint(kelvin: 1200, brightness: 0.3))
     }
 
-    // The ladder's and the dial's stops are the two edges of the same limit.
-    @Test func edgesAgreeWithTheLimit() {
+    // `warmest` is where the limit eases warmth to when full brightness is too dim.
+    @Test func warmestSitsOnTheFloor() {
         let floor = 0.5
-        for k in [6500.0, 3400, 2300] {
-            let b = Smear.brightnessFloor(kelvin: k, floor: floor, in: p3)
-            #expect(b < 1)
-            #expect(Smear.limited(Tint(kelvin: k, brightness: b), floor: floor, in: p3) == Tint(kelvin: k, brightness: b))
-            #expect(Smear.limited(Tint(kelvin: k, brightness: b - 0.1), floor: floor, in: p3).brightness == b)
-        }
-        #expect(Smear.brightnessFloor(kelvin: 1500, floor: floor, in: p3) == 1)
         let warm = Smear.warmest(brightness: 0.9, floor: floor, in: p3)
         #expect(abs(Smear.luminance(Tint(kelvin: warm, brightness: 0.9), in: p3) - floor) < 1e-3)
         #expect(Smear.warmest(brightness: 1, floor: 0, in: p3) == Kelvin.range.lowerBound)
