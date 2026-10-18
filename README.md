@@ -11,7 +11,6 @@
 
 <p align="center">
   <img src="docs/screenshots/popover-2115.png" alt="Gloam during wind-down" width="300">
-  <img src="docs/screenshots/popover-2330.png" alt="Gloam at night" width="300">
 </p>
 
 <details>
@@ -67,7 +66,8 @@ Everything works from the keyboard and with VoiceOver.
 ## Install
 
 Download `Gloam.zip` from [Releases](https://github.com/Que-tin/gloam/releases), open it and
-move `Gloam.app` to Applications. Builds aren't notarized yet, so macOS blocks the first launch:
+move `Gloam.app` to Applications. Builds aren't notarized (that needs a paid Apple developer
+account), so macOS blocks the first launch:
 open Gloam once, then **System Settings › Privacy & Security**, scroll down and click **Open
 Anyway**. (On macOS 14 you can right-click Gloam.app and choose **Open** instead.) If neither
 appears, run `xattr -dr com.apple.quarantine /Applications/Gloam.app` in Terminal.
@@ -136,7 +136,7 @@ claim to improve sleep or treat any condition.
 
 ## Known issues
 
-- **Not notarized yet**, so the first launch needs **Open Anyway** (see Install).
+- **Not notarized**, so the first launch needs **Open Anyway** (see Install).
 - **External monitors:** hardware brightness over DDC/CI is verified on one monitor so far. Hubs,
   docks, DisplayLink adapters, TVs and some picture modes don't answer; those screens are dimmed
   in software instead.
