@@ -35,12 +35,20 @@ public struct BacklightDim: Equatable, Codable, Sendable {
     /// The display's own step (a DDC monitor's 1/100): its rounded read-back of a write is the
     /// write, not an outside move. 0 for displays macOS controls.
     public var step = 0.0
+    /// The light floor in force: `floorLight` by default, eased towards `deepestFloorLight` when
+    /// the user's Dimmest setting goes past the recommended night (their consent to a dimmer
+    /// screen). Set by the controller on every change; not saved (a relaunch sets it again).
+    public var lightFloor = Self.floorLight
 
     /// Light is never taken below this fraction of the display's maximum (about 40 cd/m² on a
     /// 500-nit panel: comfortable for sustained smartphone reading in low room light, Na & Suk
     /// 2015; evening viewers preferred 21–75 cd/m² under 13–62 lx, Zhou et al. 2021).
     /// See docs/science.md.
     public static let floorLight = 0.08
+    /// How low the floor goes at the deepest Dimmest setting (~15 cd/m² on a 500-nit panel):
+    /// below the comfortable range, which is why only an explicit setting past the recommended
+    /// night reaches it.
+    public static let deepestFloorLight = 0.03
     /// Readings this close to what was written are Gloam's own write, not an outside move
     /// (relative, because a key step near the bottom of the range moves the light very little).
     public func same(_ a: Double, _ b: Double) -> Bool { abs(a - b) <= max(0.004, step, 0.03 * max(a, b)) }
@@ -68,17 +76,17 @@ public struct BacklightDim: Equatable, Codable, Sendable {
             baseline = max(baseline, light)
         } else if atFloor {
             baseline = light / fraction  // fraction > 0: the curve wanted less than the floor
-            heldFloor = light < Self.floorLight ? light : nil
+            heldFloor = light < lightFloor ? light : nil
         } else {
             baseline = w > 0 ? baseline * light / w : fraction > 0 ? light / fraction : light
-            heldFloor = light < Self.floorLight ? light : nil
+            heldFloor = light < lightFloor ? light : nil
         }
         baselineLevel = nil
         written = light
     }
 
     /// The light floor, moved to where the user put the light themselves.
-    private var floor: Double { heldFloor ?? Self.floorLight }
+    private var floor: Double { heldFloor ?? lightFloor }
 
     /// The light to write for `fraction` (1 = undimmed, 0.27 = about a quarter of the light),
     /// or nil when the backlight already shows it. `fraction` 1 restores the baseline and
@@ -101,6 +109,9 @@ public struct BacklightDim: Equatable, Codable, Sendable {
         self.fraction = done ? 1 : fraction
         if done { heldFloor = nil }
     }
+
+    // Saved for crash recovery without `lightFloor`, which follows the settings, not the panel.
+    private enum CodingKeys: String, CodingKey { case baseline, written, fraction, baselineLevel, heldFloor, step }
 
     /// The lowest fraction this display can be dimmed to before the light floor holds it.
     public var lowestFraction: Double {

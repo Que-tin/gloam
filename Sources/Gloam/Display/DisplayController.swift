@@ -49,6 +49,22 @@ final class DisplayController {
     /// External displays (by UUID) held to the smear floor at the user's request. Their backlight
     /// can't be read, so for them the floor doesn't ease. Built-in displays are always held.
     @ObservationIgnored var smearGuarded: (String) -> Bool = { _ in false } { didSet { push() } }
+    /// How far the user's settings go past the recommended night (`Schedule.pastRecommended`):
+    /// their consent to what deeper costs. Warmth eases the smear floor away (none at ember),
+    /// dimming eases the backlight's light floor down to `BacklightDim.deepestFloorLight`.
+    var consent: (warmth: Double, dimming: Double) = (0, 0) {
+        didSet {
+            guard consent != oldValue else { return }
+            for (id, var dim) in dims {
+                dim.lightFloor = lightFloor
+                store(dim, for: id)
+            }
+            push()
+        }
+    }
+    private var lightFloor: Double {
+        BacklightDim.floorLight + (BacklightDim.deepestFloorLight - BacklightDim.floorLight) * consent.dimming
+    }
     /// Each built-in display's share of the smear floor (`Schedule.backlightFactor`) from its
     /// slider; read with the backlight poll, not per fade frame, and eased over about half a
     /// second when it moves while tinted. Missing means all of it.
@@ -139,11 +155,26 @@ final class DisplayController {
         return !dim.isDimming && monitors[id]?.isFailing == true ? nil : dim
     }
 
+    /// The smear floor in force: all of it on a built-in (eased by the user's slider, `share`) or
+    /// a monitor that opted in, less as Warmest goes past the recommended night (`consent`).
     private func smearFloor(for id: CGDirectDisplayID) -> Double {
         guard let display = displays.first(where: { $0.id == id }) else { return 0 }
-        if display.isBuiltin { return Self.smearFloor * (share[id] ?? 1) }
-        return smearGuarded(display.uuid) ? Self.smearFloor : 0
+        let accepted = 1 - consent.warmth
+        if display.isBuiltin { return Self.smearFloor * (share[id] ?? 1) * accepted }
+        return smearGuarded(display.uuid) ? Self.smearFloor * accepted : 0
     }
+
+    /// The main display's own level now (the user's, before Gloam's dimming) against its level by
+    /// day, at most 1: what brightness keys or auto-brightness took away this evening, which the
+    /// blue-light reading counts too. By day (nothing tinted) or without a backlight it's 1.
+    var lightSinceDay: Double {
+        guard !shown.isNeutral, let dim = backlight(main),
+              let uuid = displays.first(where: { $0.id == main })?.uuid, let day = dayLight[uuid], day > 0 else { return 1 }
+        return min(1, max(0, dim.baseline / day))
+    }
+    /// Each display's light by day: read only while nothing is tinted, so neither the evening's
+    /// key presses nor a released dimming move the reference. By UUID, across display changes.
+    @ObservationIgnored private var dayLight: [String: Double] = [:]
 
     /// What the main display would show for `tint`, after its light and smear floors.
     func onMain(_ tint: Tint) -> Tint { adjusted(tint, for: main) }
@@ -156,6 +187,10 @@ final class DisplayController {
         guard let (level, light) = undimmed[id], light > 0 else { return nil }
         return min(1, max(0, level * pow(dim.baseline / light, 1 / Kelvin.displayGamma)))
     }
+
+    /// Some tinted display is dimmed by its signal (no backlight or DDC control): there, dimming
+    /// past the recommended night can make scrolled text trail and gradients band.
+    var dimsBySignal: Bool { displays.contains { strength($0.uuid) > 0 && backlight($0.id) == nil } }
 
     /// The deepest the main display goes, as a signal brightness: its backlight's light floor
     /// (relative to the level the user set), else the signal floor. The popover's ladder ends
@@ -469,6 +504,7 @@ final class DisplayController {
             left.step = step
             dim = left
         }
+        dim.lightFloor = lightFloor
         store(dim, for: id)
     }
 
@@ -576,6 +612,7 @@ final class DisplayController {
                 levelReadAt[id] = Date()
                 let level = Backlight.level(id)
                 if let level, let light { undimmed[id] = (level, light) }
+                if shown.isNeutral, let light, let uuid = display.uuid as String? { dayLight[uuid] = light }
                 levelShare[id] = level.map(Schedule.backlightFactor)
             }
             if let factor = levelShare[id] { next[id] = factor }

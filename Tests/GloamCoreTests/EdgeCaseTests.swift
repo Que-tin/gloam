@@ -60,7 +60,7 @@ import Testing
 @Suite struct AllowanceTests {
     @Test func dimmingAllowanceRoundTrips() {
         var s = Schedule()
-        #expect(abs(s.dimmingAllowance - 1) < 1e-9)
+        #expect(abs(s.dimmingAllowance - 0.45 / 0.7) < 1e-9)  // the recommended night: 64 %
         for a in [0.0, 0.25, 0.5, 1] {
             s.dimmingAllowance = a
             #expect(abs(s.dimmingAllowance - a) < 1e-9)
@@ -68,6 +68,6 @@ import Testing
         s.dimmingAllowance = 0
         #expect(s.darkest == 1)
         s.dimmingAllowance = 7
-        #expect(s.darkest == Schedule.darkestRange.lowerBound)
+        #expect(abs(s.darkest - Schedule.darkestRange.lowerBound) < 1e-9)
     }
 }

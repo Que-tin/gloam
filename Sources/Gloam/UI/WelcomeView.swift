@@ -85,8 +85,8 @@ struct WelcomeView: View {
                 if previewing {
                     VStack(spacing: 8) {
                         // Values as Settings shows them, so the two places speak alike.
-                        slider(String(localized: "Warmest"), Light.name(schedule.warmest), $schedule.warmthAllowance)
-                        slider(String(localized: "Dimmest"), Format.percent(Light.dimming(schedule.darkest)), $schedule.dimmingAllowance)
+                        slider(String(localized: "Warmest"), Light.name(schedule.warmest), $schedule.warmthAllowance, max: Schedule().warmthAllowance)
+                        slider(String(localized: "Dimmest"), Format.percent(Light.dimming(schedule.darkest)), $schedule.dimmingAllowance, max: Schedule().dimmingAllowance)
                     }
                     .padding(.top, 12)
                 }
@@ -157,11 +157,12 @@ struct WelcomeView: View {
         model.preview = previewing ? schedule.limitedNight : nil
     }
 
-    private func slider(_ title: String, _ shown: String, _ value: Binding<Double>) -> some View {
+    private func slider(_ title: String, _ shown: String, _ value: Binding<Double>, max: Double) -> some View {
         HStack(spacing: 10) {
             Text(title).font(.system(size: 12)).foregroundStyle(Lamp.ink.opacity(0.75)).frame(width: 72, alignment: .leading)
             // Named for VoiceOver; the visible Text beside it is the label people see.
-            Slider(value: value, in: 0...1) { Text(title) }
+            // Up to the recommended night only: deeper is a Settings choice, beside its warning.
+            Slider(value: value, in: 0...max) { Text(title) }
                 .labelsHidden()
                 .accessibilityValue(shown)
             Text(shown).font(.system(size: 12)).monospacedDigit().foregroundStyle(Lamp.ink.opacity(0.6))

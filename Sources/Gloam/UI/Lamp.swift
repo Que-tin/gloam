@@ -295,7 +295,7 @@ struct LampDial: View {
             if !caption.isEmpty { LampLabel(text: caption) }
         }
         .fixedSize()
-        .help("\(Format.kelvin(kelvin)). Changing it holds until the next stage.")
+        .help("\(Format.kelvin(kelvin)). Changing it holds until the next sunset, bedtime, sunrise or wake-up.")
     }
 
     /// Flattened into one layer: 49 capsules redrawn every frame of a fade or drag.
@@ -555,7 +555,7 @@ struct DimmingLadder: View {
             }
         }
         .onScrollWheel { delta in set(cells: litCells + (delta > 0 ? 1 : -1)) }
-        .help("Drag, click or scroll to set dimming")
+        .help("How far Gloam dims below your own brightness: 0 % leaves your screen as you set it, 100 % is as dim as it goes. Drag, click or scroll.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Dimming")
         .accessibilityValue(Format.percent(dimming))

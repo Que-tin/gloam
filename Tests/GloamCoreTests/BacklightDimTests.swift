@@ -178,4 +178,26 @@ import Testing
         let back = try JSONDecoder().decode(BacklightDim.self, from: JSONEncoder().encode(d))
         #expect(back == d)
     }
+
+    // Past the recommended night the floor eases: the same ask goes deeper, and the lowest
+    // fraction follows (the popover's ladder ends there).
+    @Test func aLowerFloorGoesDeeper() {
+        var d = BacklightDim(baseline: 0.5)
+        #expect(Self.push(&d, 0.1) == BacklightDim.floorLight)   // 0.05 asked, 0.08 holds
+        d.lightFloor = BacklightDim.deepestFloorLight
+        #expect(abs(Self.push(&d, 0.1)! - 0.05) < 1e-9)         // now reached
+        #expect(abs(d.lowestFraction - 0.06) < 1e-9)
+    }
+
+    // The floor follows the settings, not the panel: never saved, and states saved before it
+    // existed still load.
+    @Test func lightFloorIsNotSaved() throws {
+        var d = BacklightDim(baseline: 0.5)
+        d.lightFloor = 0.03
+        Self.push(&d, 0.5)
+        let back = try JSONDecoder().decode(BacklightDim.self, from: JSONEncoder().encode(d))
+        #expect(back.lightFloor == BacklightDim.floorLight && back.written == d.written)
+        let old = #"{"baseline":0.5,"written":0.25,"fraction":0.5,"step":0}"#
+        #expect(try JSONDecoder().decode(BacklightDim.self, from: Data(old.utf8)).written == 0.25)
+    }
 }

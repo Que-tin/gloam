@@ -139,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum HandOver { case bundle(URL), launchServices }
     private var handingOver: HandOver?
 
-    private func forward(_ urls: [URL], then done: @escaping () -> Void) {
+    private func forward(_ urls: [URL], then done: @escaping @MainActor @Sendable () -> Void) {
         switch handingOver {
         case .bundle(let app)?:
             NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: .init()) { _, _ in
@@ -184,7 +184,7 @@ enum Windows {
 
     private final class SettingsCloser: NSObject, NSWindowDelegate {
         func windowWillClose(_ notification: Notification) {
-            // A preview (Preview tonight, or a limit mid-drag) never outlives the window.
+            // "Preview tonight" never outlives the window.
             AppModel.shared.preview = nil
             DispatchQueue.main.async { Windows.settings = nil }
         }
@@ -221,7 +221,7 @@ enum Windows {
     #endif
 
     /// Lamp-styled chrome: the dark surface runs full-bleed under a transparent title bar, so
-    /// there's no grey system strip above the panel.
+    /// there's no grey system strip above the panel (Settings adds one only once it scrolls).
     private static func make(_ view: some View, title: String) -> NSWindow {
         let controller = NSHostingController(rootView: view)
         controller.sizingOptions = [.preferredContentSize]  // windows follow their content (Welcome's preview sliders)

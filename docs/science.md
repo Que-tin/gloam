@@ -25,7 +25,7 @@ doi:10.1371/journal.pbio.3001571; also published as the workshop report CIE TN 0
 
 Individual sensitivity varies more than 50-fold (Phillips et al. 2019, *PNAS*
 doi:10.1073/pnas.1901824116), which is why Warmest and Dimmest (Settings, and Welcome's
-preview) cap the automatic tint without replacing it.
+preview) set where the night goes: lighter for those it suits, deeper for the sensitive.
 
 ## How much light a screen gives off
 
@@ -106,9 +106,13 @@ are clock-anchored, but with two rules that keep the product light:
 (sRGB figures, as above. On a built-in screen with a bright backlight the smear floor below
 caps Night's warmth, leaving it nearer 10%.)
 
-Night stops at 55% rather than going deeper, because a first evening that suddenly goes very
-dark reads as a broken display. People who want more can dim further by hand in the popover;
-the Settings limit only makes the evening lighter.
+Night stops at 55% by default rather than going deeper, because a first evening that suddenly
+goes very dark reads as a broken display. Settings can take it to ember (1200 K) and 30 % for
+sensitive people in dark rooms: about 4× less melanopic light from the screen each way. Below
+~5 lx the dose-response is extrapolated, and in a lit room (homes average ~18 melanopic lux
+before bed, Cain et al. 2020, *J. Pineal Res.*) the room outweighs it. Past the default the user
+consents: the smear floor and the 8 % light floor ease off towards the ends (no smear floor at
+ember, 3 % light at 30 %), and a note names the cost.
 
 Morning light should be bright: after waking Gloam ignores the sun for five hours (easing back
 in afterwards), so a dark winter morning isn't left filtered.
@@ -129,7 +133,7 @@ Transitions interpolate in mireds (10⁶/K), where equal steps look equally larg
 
 Where the brightness keys work (the built-in panel, Apple displays) Gloam dims the backlight
 itself through the same call, as a fraction of the level it finds, never below 8 % of the
-panel's maximum: about 40 cd/m² on a 500-nit screen, within what is comfortable for sustained
+panel's maximum (easing to 3 % only past the recommended night, by choice): about 40 cd/m² on a 500-nit screen, within what is comfortable for sustained
 smartphone reading in low room light (Na & Suk 2015, *Opt. Express* 23:16912) and inside the
 21–75 cd/m² evening viewers preferred under 13–62 lx room light (Zhou et al. 2021, *Appl. Sci.*
 11:4108; Gloam's dark-room case lies below that range, where the optimum trends lower). A key press or auto-brightness moving the backlight is adopted, not fought: the
@@ -146,9 +150,8 @@ channel, on their own 0–100 scale; the rest by signal, never below 30 %.
 
 Observed on a mini-LED laptop panel with the slider at 100 %, scrolling white-on-black text:
 heavy trails with the whole signal scaled to 55 %, none at 80 %. Both slow parts of the panel
-are slowest around black: the liquid crystal (Notebookcheck measures ~41–43 ms black→white and
-grey 50→80 % on current MacBook Pro panels, 67–80 ms on M2/M3, approximate because of PWM;
-the slower dark-grey transitions aren't measured) and the
+are slowest around black: the liquid crystal (Notebookcheck: ~41–43 ms on current MacBook Pro
+panels, 67–80 ms on M2/M3, PWM-approximate; dark-grey transitions unmeasured) and the
 mini-LED zones. Apple calls "a slight blur or color change while
 scrolling against black backgrounds" normal behaviour of the dimming zones on the iPad Pro's
 XDR display, the same mini-LED design (support.apple.com/HT212527). To the panel a warm tint is
@@ -165,12 +168,13 @@ Relative to daylight white at the same slider position:
 So the floor is on the luminance of the tinted white (`Smear`; 61 % = 0.8^2.2, in the display's
 own colour space), giving up dimming before warmth: of all tints at one luminance the warmest
 has the least melanopic light. On a backlight-dimmed display the signal stays at full drive,
-so the floor only caps warmth, and only while the slider is high (all of it from 75 %, where
-the panel reaches about 2800 K; none at 25 % or below). It follows the slider the user
-set, not Gloam's own dimming below it, so the warmth control's range doesn't move while the
-evening dims. Whether a lower backlight shows fainter trails at all is unmeasured (the trail
-dims with the white around it): the easing with the slider is an assumption, to be tested at a
-slider of ~40 % and ~20 % with the same 55 %/80 % signal check. Monitors dimmed by signal get the full floor when switched on
+so the floor only caps warmth. It eases with the slider the user set (not Gloam's dimming):
+none up to 50 %, all of it from 85 %. Measured on the same panel at the Night stage with no
+floor and Gloam's backlight dimming in effect: no trails at a slider of 20–50 %, faint at 60 %,
+stronger at 80 %, heavy at 100 %. (Contrast alone predicts no change, the backlight scales a
+trail with the white around it; at low absolute luminance the trail evidently drops below what
+the eye resolves.) Gloam doesn't lower the backlight to buy warmth: that fights the user's own
+brightness. Monitors dimmed by signal get the full floor when switched on
 per display in Settings: macOS says nothing about their panels. Measured: one panel, one
 neutral threshold. That the same luminance predicts warm smearing is the model's claim, backed
 by the physics and by iPad Pro XDR users finding the scrolling smear "more prominent when Night

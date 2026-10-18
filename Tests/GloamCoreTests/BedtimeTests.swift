@@ -51,4 +51,37 @@ import Testing
         #expect(clock(e.wake) == DateComponents(day: 11, hour: 9, minute: 0))
         #expect(s.stage(at: cal.date(from: DateComponents(year: 2026, month: 12, day: 10, hour: 23, minute: 0))!, berlin, calendar: cal) == .windDown)
     }
+
+    // A hand setting lasts to the next big boundary: sunset, bedtime, sunrise or wake.
+    @Test func manualHoldsToTheNextBoundary() {
+        let s = Schedule(), cal = berlinCalendar
+        func at(_ m: Int, _ d: Int, _ h: Int, _ min: Int = 0) -> Date {
+            cal.date(from: DateComponents(year: 2026, month: m, day: d, hour: h, minute: min))!
+        }
+        func clock(_ d: Date) -> DateComponents { cal.dateComponents([.day, .hour, .minute], from: d) }
+        // Winter evening, after sunset: until bedtime.
+        #expect(clock(s.manualHold(after: at(12, 10, 21), berlin, calendar: cal)) == DateComponents(day: 10, hour: 23, minute: 0))
+        // After bedtime: until wake (sunrise comes later in winter).
+        #expect(clock(s.manualHold(after: at(12, 10, 23, 30), berlin, calendar: cal)) == DateComponents(day: 11, hour: 7, minute: 0))
+        // Summer, light before wake: not until wake but on to the evening (sunset 21:3x).
+        let summer = s.manualHold(after: at(6, 21, 5, 30), berlin, calendar: cal)
+        #expect(cal.component(.day, from: summer) == 21 && cal.component(.hour, from: summer) == 21)
+        // Winter day, after wake and sunrise: until sunset.
+        let day = s.manualHold(after: at(12, 10, 11), berlin, calendar: cal)
+        #expect(cal.component(.hour, from: day) == 15)
+    }
+
+    // How far past the recommended night: 0 at it or lighter, 1 at ember / 30 %.
+    @Test func pastRecommended() {
+        var s = Schedule()
+        #expect(s.pastRecommended == (0, 0))
+        s.warmest = 3000
+        s.darkest = 0.8
+        #expect(s.pastRecommended == (0, 0))
+        s.warmest = 1200
+        s.darkest = 0.3
+        #expect(abs(s.pastRecommended.warmth - 1) < 1e-9 && abs(s.pastRecommended.dimming - 1) < 1e-9)
+        s.darkest = 0.425
+        #expect(abs(s.pastRecommended.dimming - 0.5) < 1e-9)
+    }
 }

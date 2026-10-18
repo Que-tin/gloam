@@ -245,7 +245,7 @@ private let p3: LinearRGB = { c in
     @Test func limitsOnlyBiteWhereCrossed() {
         var s = Schedule()
         let night = at(3, 0, month: 3), windDown = at(21, 15, month: 3)
-        #expect(tint(s, night) == s.night.tint)  // defaults change nothing
+        #expect(tint(s, night) == s.night.tint)  // the defaults are the recommended night
         s.darkest = 0.7
         s.warmest = 2700
         #expect(tint(s, night) == Tint(kelvin: 2700, brightness: 0.7))
@@ -254,21 +254,31 @@ private let p3: LinearRGB = { c in
         #expect(s.darkest == Schedule.darkestRange.lowerBound)
     }
 
+    // Past the recommended night the settings take the night deeper; earlier stages stay put.
+    @Test func deeperThanRecommendedTakesTheNightThere() {
+        var s = Schedule()
+        s.warmest = 1200
+        s.darkest = 0.3
+        #expect(tint(s, at(1, 0)) == Tint(kelvin: 1200, brightness: 0.3))
+        #expect(tint(s, at(21, 30, month: 3)) == s.windDown.tint)  // wind-down untouched
+    }
+
     @Test func warmthAllowanceMapsTheCapBothWays() {
         var s = Schedule()
-        #expect(abs(s.warmthAllowance - 1) < 1e-9)  // default = all of it
+        #expect(abs(s.warmthAllowance - 0.548) < 0.001)  // the recommended 1900 K, a little past half
         s.warmthAllowance = 0
         #expect(abs(s.warmest - Kelvin.daylight) < 1e-6)
         s.warmthAllowance = 0.5
         #expect(abs(s.warmthAllowance - 0.5) < 1e-9)
         s.warmthAllowance = 2
-        #expect(abs(s.warmest - s.night.kelvin) < 1e-6)
+        #expect(abs(s.warmest - Stage.kelvinRange.lowerBound) < 1e-6)  // clamped to ember
     }
 
     @Test func lowBacklightEasesTheSmearFloor() {
-        #expect(Schedule.backlightFactor(1) == 1 && Schedule.backlightFactor(0.75) == 1)
-        #expect(Schedule.backlightFactor(0.25) == 0 && Schedule.backlightFactor(0) == 0)
-        #expect(abs(Schedule.backlightFactor(0.5) - 0.5) < 1e-9)
+        // The measured panel: clean up to 50 %, faint at 60 %, stronger at 80 %.
+        #expect(Schedule.backlightFactor(1) == 1 && Schedule.backlightFactor(0.85) == 1)
+        #expect(Schedule.backlightFactor(0.5) == 0 && Schedule.backlightFactor(0.2) == 0)
+        #expect(Schedule.backlightFactor(0.6) > 0 && Schedule.backlightFactor(0.6) < Schedule.backlightFactor(0.8))
     }
 
     @Test func roomLightEasesDimmingOnlyInABrightRoom() {
@@ -283,8 +293,9 @@ private let p3: LinearRGB = { c in
     @Test func decodingIsTolerant() throws {
         let json = #"{"bedtime":{"hour":1,"minute":30},"night":{"kelvin":0},"darkest":0.8,"warmest":99999}"#
         let s = try JSONDecoder().decode(Schedule.self, from: Data(json.utf8))
-        // Bedtime is a setting; stage values saved by older builds are not, and are ignored.
-        #expect(s.bedtime == ClockTime(1, 30) && s.night == Schedule().night)
+        // Bedtime is a setting; stage values saved by older builds are not, and are ignored: the
+        // night follows the Warmest and Dimmest settings.
+        #expect(s.bedtime == ClockTime(1, 30) && s.night == Stage(kelvin: Kelvin.daylight, brightness: 0.8))
         #expect(s.darkest == 0.8 && s.warmest == Kelvin.daylight)
         let back = try JSONDecoder().decode(Schedule.self, from: JSONEncoder().encode(s))
         #expect(back == s)

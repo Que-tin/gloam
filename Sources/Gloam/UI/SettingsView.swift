@@ -10,6 +10,8 @@ struct SettingsView: View {
     @Bindable var model: AppModel
     /// "Preview tonight" is on: the screen shows the night the limits allow until "Done".
     @State private var previewing = false
+    /// The form has scrolled under the title bar (`ScrollWatcher`).
+    @State private var scrolled = false
     /// "Choose a city…" picked, no city found yet.
     @State private var choosingCity = false
 
@@ -28,6 +30,18 @@ struct SettingsView: View {
         // laptop screen; on a short screen (older 13" Macs) it stops at the screen.
         .frame(width: 500, height: min(620, (NSScreen.main?.visibleFrame.height ?? 900) - 60))
         .background(LampSurface(glow: Tint(kelvin: 2700, brightness: 0.6), lit: 0.6).ignoresSafeArea())
+        // The title bar is see-through until the form scrolls under the window buttons; then a
+        // strip of the surface's colour comes in behind them (a permanent strip looked heavy).
+        .background(ScrollWatcher { now in if now != scrolled { scrolled = now } })
+        .overlay(alignment: .top) {
+            Rectangle().fill(Lamp.surface)
+                .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.07)).frame(height: 0.5) }
+                .frame(height: 0)
+                .ignoresSafeArea(.container, edges: .top)
+                .opacity(scrolled ? 1 : 0)
+                .animation(.easeOut(duration: 0.15), value: scrolled)
+                .allowsHitTesting(false)
+        }
         .environment(\.colorScheme, .dark)
         .tint(Color.kelvin(2700))
     }
@@ -46,19 +60,27 @@ struct SettingsView: View {
             // Tonight as a graph, which is also where the limits and the clock times are set
             // (`EveningGraph`); the line below names the limits and shows the night on the real
             // screen, by day too.
-            EveningGraph(schedule: $model.schedule, place: model.place.coordinate, wake: model.eveningWake,
-                         onEditing: previewNight)
+            EveningGraph(schedule: $model.schedule, place: model.place.coordinate, wake: model.eveningWake)
             HStack(spacing: 14) {
                 // In the graph's own units: warmth by name and Kelvin (its left axis), dimming in
                 // percent of the schedule's fixed scale (its right axis; the popover's ladder counts to
                 // as dim as the screen goes instead).
                 LegendKey(title: String(localized: "Warmest"), value: "\(Light.name(model.schedule.warmest)) · \(Format.kelvin(model.schedule.warmest))",
                           spoken: Format.percent(model.schedule.warmthAllowance),
-                          color: Color.kelvin(2400), allowance: $model.schedule.warmthAllowance)
+                          color: Color.kelvin(2400), allowance: $model.schedule.warmthAllowance,
+                          recommended: Schedule().warmthAllowance)
                 LegendKey(title: String(localized: "Dimmest"), value: Format.percent(Light.dimming(model.schedule.darkest)),
                           spoken: Format.percent(Light.dimming(model.schedule.darkest)),
-                          color: Color(white: 0.82), allowance: $model.schedule.dimmingAllowance)
+                          color: Color(white: 0.82), allowance: $model.schedule.dimmingAllowance,
+                          recommended: Schedule().dimmingAllowance)
                 Spacer(minLength: 0)
+            }
+            // Past the recommended night, a word on what it costs; nothing before.
+            if let note = deeperNote {
+                Label(note, systemImage: "info.circle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             // Bedtime and wake are set in the graph only: its markers, by drag, keyboard or VoiceOver.
             if model.roomLight.isAvailable {
@@ -82,7 +104,7 @@ struct SettingsView: View {
                 LampPill(title: previewing ? String(localized: "Done") : String(localized: "Preview tonight"),
                          symbol: previewing ? "checkmark" : "eye") {
                     previewing.toggle()
-                    previewNight(false)
+                    previewNight()
                 }
                 .fixedSize()
             }
@@ -90,16 +112,33 @@ struct SettingsView: View {
         .onChange(of: model.schedule) { if model.preview != nil { model.preview = night } }
     }
 
-    /// While a limit is dragged, or while "Preview tonight" is on, the screen shows the night it
-    /// allows, so it's never set blind (by day, or while a hand setting is on). A drag alone
-    /// leaves the screen alone while Gloam is off; asking for the preview shows it anyway.
-    private func previewNight(_ editing: Bool) {
-        model.preview = previewing || (editing && model.enabled) ? night : nil
+    /// While "Preview tonight" is on, the screen shows the night the limits allow, so they're
+    /// never set blind (by day, while a hand setting is on, even while Gloam is off). Only the
+    /// button starts it: a preview that also jumped in mid-drag of a limit was confusing.
+    private func previewNight() {
+        model.preview = previewing ? night : nil
+    }
+
+    /// What going past the recommended night costs, said once a limit goes there: there the
+    /// safety floors ease off with it (`Schedule.pastRecommended`), so every step does something.
+    private var deeperNote: String? {
+        let (s, r) = (model.schedule, Schedule.recommendedNight)
+        var notes: [String] = []
+        if Kelvin.mired(s.warmest) > Kelvin.mired(r.kelvin) + 1 {
+            // Tentative on purpose: what happens depends on the screen, which Gloam can't know.
+            notes.append(String(localized: "Warmer than recommended: colours may begin to fade, and moving text may smear."))
+        }
+        if s.darkest < r.brightness - 0.002 {
+            notes.append(model.display.dimsBySignal
+                ? String(localized: "Dimmer than recommended: text may get harder to read, and moving text may smear.")
+                : String(localized: "Dimmer than recommended: text may get harder to read."))
+        }
+        return notes.isEmpty ? nil : notes.joined(separator: "\n")
     }
 
     private var isDefault: Bool {
         let (s, d) = (model.schedule, Schedule())
-        // Within a hair: a dragged limit lands on its end through floating-point arithmetic.
+        // Within a hair: a dragged limit snaps onto it through floating-point arithmetic.
         return abs(Kelvin.mired(s.warmest) - Kelvin.mired(d.warmest)) < 0.5 && abs(s.darkest - d.darkest) < 0.002
             && s.bedtime == d.bedtime && s.wake == d.wake
     }
@@ -230,8 +269,16 @@ private struct LegendKey: View {
     let spoken: String
     let color: Color
     @Binding var allowance: Double
+    /// The recommended night on this scale: a step landing within half a step of it lands on it
+    /// (the 5 % grid misses it, and the way back must not need Reset).
+    let recommended: Double
     @FocusState private var focused: Bool
     @State private var ring = false  // keyboard focus only: it also takes focus as Settings opens
+
+    private func nudge(_ step: Double) {
+        let next = allowance + step
+        allowance = abs(next - recommended) < 0.025 ? recommended : next
+    }
 
     var body: some View {
         HStack(spacing: 5) {
@@ -250,17 +297,68 @@ private struct LegendKey: View {
         .onMoveCommand { direction in
             ring = true
             switch direction {
-            case .right, .up: allowance += 0.05
-            case .left, .down: allowance -= 0.05
+            case .right, .up: nudge(0.05)
+            case .left, .down: nudge(-0.05)
             @unknown default: break
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue(value == spoken ? value : "\(value), \(spoken)")
-        .accessibilityAdjustableAction { direction in allowance += direction == .increment ? 0.05 : -0.05 }
+        .accessibilityAdjustableAction { direction in nudge(direction == .increment ? 0.05 : -0.05) }
         .help("Drag its dashed line in the graph, or focus here and use the arrow keys")
     }
 }
 
 private enum LocationChoice { case timeZone, city, choose }
+
+/// Reports whether the window's form has scrolled from the top. SwiftUI on macOS 14 has no
+/// scroll-offset callback, so it watches the form's NSScrollView, found from the window: a
+/// watcher placed inside a form row made the form open scrolled.
+private struct ScrollWatcher: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> NSView { Watcher(onChange: onChange) }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    final class Watcher: NSView {
+        let onChange: (Bool) -> Void
+        nonisolated(unsafe) private var token: NSObjectProtocol?
+
+        init(onChange: @escaping (Bool) -> Void) {
+            self.onChange = onChange
+            super.init(frame: .zero)
+        }
+        required init?(coder: NSCoder) { nil }
+
+        deinit { if let token { NotificationCenter.default.removeObserver(token) } }
+
+        private static func firstScrollView(in view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            for sub in view.subviews { if let found = firstScrollView(in: sub) { return found } }
+            return nil
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let token { NotificationCenter.default.removeObserver(token) }
+            token = nil
+            // A beat later: the form's scroll view may not be in the window yet.
+            DispatchQueue.main.async { [weak self] in self?.attach() }
+        }
+
+        private func attach() {
+            guard token == nil, let root = window?.contentView, let scroll = Self.firstScrollView(in: root) else { return }
+            scroll.contentView.postsBoundsChangedNotifications = true
+            let report: @MainActor @Sendable () -> Void = { [weak self, weak scroll] in
+                guard let self, let scroll else { return }
+                self.onChange(scroll.contentView.bounds.origin.y + scroll.contentInsets.top > 2)
+            }
+            report()
+            token = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
+                                                           object: scroll.contentView, queue: .main) { _ in
+                MainActor.assumeIsolated(report)
+            }
+        }
+    }
+}

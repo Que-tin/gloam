@@ -18,9 +18,6 @@ struct EveningGraph: View {
     /// The wake that ends the evening to show (`AppModel.eveningWake`): changes once a day, so
     /// the chart isn't redrawn on every clock tick the way passing "now" did.
     let wake: Date
-    /// A limit's drag began or ended: Settings shows the night on screen while one is held.
-    /// (Moving a clock time changes when, not how deep, so it previews nothing.)
-    var onEditing: (Bool) -> Void = { _ in }
 
     private enum Handle { case bedtime, wake, warmth, dimming }
     @State private var dragging: Handle?
@@ -59,9 +56,13 @@ struct EveningGraph: View {
 
     private var warmthCap: Double { Light.warmth(schedule.warmest) }
     private var dimmingCap: Double { Light.dimming(schedule.darkest) }
-    /// How far each cap can go: the night stage, which is where the schedule itself stops.
+    /// How far each limit can go: the whole scale (ember, 30 %), past the recommended night.
     private var warmthRange: ClosedRange<Double> { 0...Light.warmth(Schedule.warmestRange.lowerBound) }
     private var dimmingRange: ClosedRange<Double> { 0...Light.dimming(Schedule.darkestRange.lowerBound) }
+    /// Where the recommended night sits on each scale: marked faintly once a limit moves off it,
+    /// so the way back is one drag.
+    private static let recommended = (warmth: Light.warmth(Schedule.recommendedNight.kelvin),
+                                      dimming: Light.dimming(Schedule.recommendedNight.brightness))
 
     var body: some View {
         let e = evening
@@ -109,6 +110,16 @@ struct EveningGraph: View {
                 .foregroundStyle(Self.warm).symbolSize(dragging == .warmth ? 90 : 55)
             PointMark(x: .value("Time", span.upperBound), y: .value("Dimming limit", dimmingCap))
                 .foregroundStyle(Self.dim).symbolSize(dragging == .dimming ? 90 : 55)
+            if abs(warmthCap - Self.recommended.warmth) > 0.005 {
+                PointMark(x: .value("Time", span.lowerBound), y: .value("Recommended", Self.recommended.warmth))
+                    .foregroundStyle(Self.warm.opacity(0.35)).symbolSize(30)
+                    .annotation(position: .trailing, spacing: 4) { recommendedLabel }
+            }
+            if abs(dimmingCap - Self.recommended.dimming) > 0.005 {
+                // Unlabelled on this side: the wake line sits near the edge and the word ran into it.
+                PointMark(x: .value("Time", span.upperBound), y: .value("Recommended", Self.recommended.dimming))
+                    .foregroundStyle(Self.dim.opacity(0.35)).symbolSize(30)
+            }
             PointMark(x: .value("Bedtime", e.bedtime), y: .value("Top", 1.0))
                 .foregroundStyle(.white.opacity(0.85)).symbolSize(dragging == .bedtime ? 90 : 55)
             PointMark(x: .value("Wake", e.wake), y: .value("Top", 1.0))
@@ -119,7 +130,7 @@ struct EveningGraph: View {
         .chartXAxis {
             AxisMarks(values: .stride(by: .hour, count: 2)) { _ in
                 AxisGridLine().foregroundStyle(.white.opacity(0.1))
-                AxisValueLabel(format: .dateTime.hour()).foregroundStyle(Color.white.opacity(0.5))
+                AxisValueLabel(format: .dateTime.hour(), collisionResolution: .disabled).foregroundStyle(Color.white.opacity(0.5))
             }
         }
         .chartYAxis {
@@ -143,6 +154,13 @@ struct EveningGraph: View {
                     .foregroundStyle(Self.dim.opacity(0.8))
             }
         }
+        // Each side named, in its curve's colour: bare percentages next to Kelvin read ambiguous.
+        .chartYAxisLabel(position: .leading, alignment: .top) {
+            Text("Warmth").font(.system(size: 10, weight: .medium)).foregroundStyle(Self.warm.opacity(0.8))
+        }
+        .chartYAxisLabel(position: .trailing, alignment: .top) {
+            Text("Dimming").font(.system(size: 10, weight: .medium)).foregroundStyle(Self.dim.opacity(0.8))
+        }
         .chartOverlay { proxy in
             GeometryReader { geo in
                 Rectangle().fill(.clear).contentShape(Rectangle())
@@ -156,7 +174,7 @@ struct EveningGraph: View {
         }
         .frame(height: 190)
         .padding(.top, 14)  // room for the markers' labels
-        .help("Drag bedtime, wake up, or a dashed limit. Keyboard: ←/→ move, ↑/↓ switch bedtime and wake.")
+        // No hover help: the grips and cursor say what drags, and a tooltip popped over the curves.
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
@@ -170,8 +188,7 @@ struct EveningGraph: View {
             @unknown default: break
             }
         }
-        // Settings closed mid-drag: nothing left held, and no preview set again on the way out.
-        .onDisappear { (dragging, heldSpan, heldAnchor) = (nil, nil, nil) }
+        .onDisappear(perform: endDrag)  // Settings closed mid-drag: nothing left held
         // VoiceOver: the plan, then bedtime and wake as adjustable steps (the graph is their only
         // control; the limits are adjustable in the legend).
         .accessibilityElement(children: .contain)
@@ -195,6 +212,10 @@ struct EveningGraph: View {
         let all = ClockTime.all(in: window)
         guard let i = all.firstIndex(of: schedule[keyPath: path]) else { return }
         schedule[keyPath: path] = all[min(all.count - 1, max(0, i + steps))]
+    }
+
+    private var recommendedLabel: some View {
+        Text("Recommended").font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
     }
 
     private func marker(_ title: String, _ date: Date) -> some View {
@@ -232,18 +253,14 @@ struct EveningGraph: View {
         return near.filter { $0.1 < 10 }.min { $0.1 < $1.1 }?.0
     }
 
-    /// A dragged limit in steps of 1 % of the scale, landing exactly on the range's ends (so the
-    /// deepest setting is the default itself, not a hair off it).
-    private static func step(_ v: Double, in range: ClosedRange<Double>) -> Double {
+    /// A dragged limit in steps of 1 % of the scale, landing exactly on the range's end and on the
+    /// recommended value when within a step (so dragging back to it is the default itself).
+    private static func step(_ v: Double, in range: ClosedRange<Double>, snap: Double) -> Double {
         let r = range.clamp((v * 100).rounded() / 100)
-        return abs(r - range.upperBound) < 0.01 ? range.upperBound : r
+        return abs(r - snap) < 0.01 ? snap : abs(r - range.upperBound) < 0.01 ? range.upperBound : r
     }
 
-    private func endDrag() {
-        guard let was = dragging else { return }
-        (dragging, heldSpan, heldAnchor) = (nil, nil, nil)
-        if was == .warmth || was == .dimming { onEditing(false) }
-    }
+    private func endDrag() { (dragging, heldSpan, heldAnchor) = (nil, nil, nil) }
 
     private func drag(_ proxy: ChartProxy, _ geo: GeometryProxy) -> some Gesture {
         DragGesture(minimumDistance: 0)
@@ -259,7 +276,6 @@ struct EveningGraph: View {
                         .flatMap { cal.date(bySettingHour: 13, minute: 0, second: 0, of: $0) }
                     heldSpan = span
                     dragging = h
-                    if h == .warmth || h == .dimming { onEditing(true) }
                 }
                 let x = g.location.x - plot.minX, y = g.location.y - plot.minY
                 switch dragging {
@@ -281,11 +297,11 @@ struct EveningGraph: View {
                     guard let v: Double = proxy.value(atY: y) else { return }
                     // Steps of 1 % of the scale, set only when one is crossed: a drag sends ~120
                     // events a second, and each new value redrew Settings and the chart.
-                    let w = Self.step(v, in: warmthRange)
+                    let w = Self.step(v, in: warmthRange, snap: Self.recommended.warmth)
                     if abs(Light.warmth(schedule.warmest) - w) > 0.001 { schedule.warmest = Light.kelvin(warmth: w) }
                 case .dimming:
                     guard let v: Double = proxy.value(atY: y) else { return }
-                    let d = Self.step(v, in: dimmingRange)
+                    let d = Self.step(v, in: dimmingRange, snap: Self.recommended.dimming)
                     if abs(Light.dimming(schedule.darkest) - d) > 0.001 { schedule.darkest = Light.brightness(dimming: d) }
                 case nil: break
                 }

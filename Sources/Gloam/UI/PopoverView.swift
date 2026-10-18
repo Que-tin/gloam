@@ -1,7 +1,7 @@
 // The menu-bar window: a lamp. The orb glows with what the screen really shows and says how
 // much blue light reaches you once it gets there. The dial and ladder show the warmth and
 // dimming asked for, so they move with the automatic easing; moving them takes over by hand
-// until the next stage begins (limits for every night live in Settings). "Auto" hands back.
+// until the next sunset, bedtime, sunrise or wake (Settings sets every night). "Auto" hands back.
 //
 // Both controls run from nothing to as far as this screen goes: the dial to the warmest it
 // shows without smearing scrolled text, the ladder to its light floor. Every step does
@@ -27,8 +27,10 @@ struct PopoverView: View {
     /// to 5% (the estimate is good to about that). Said as what's left ("20%") rather than what's
     /// saved ("−80%"). The destination rather than every step of a fade, so a switch reads as one
     /// change of number, faded, instead of twenty.
+    /// Counted against the screen as it was by day (`lightSinceDay`), so turning the brightness
+    /// down in the evening lowers it too, while by day it still reads 100 %.
     private var blueShare: Double {
-        Melanopic.relative(model.display.onMain(model.target), in: model.display.mainColourSpace)
+        Melanopic.relative(model.display.onMain(model.target), in: model.display.mainColourSpace) * model.display.lightSinceDay
     }
     private var bluePercent: Int { Int((blueShare * 20).rounded()) * 5 }
     /// The orb's number. Under 5 % it says so ("<5 %"): a plain "5 %" suggested more could be

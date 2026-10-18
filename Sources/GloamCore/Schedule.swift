@@ -14,9 +14,9 @@
 // waking and "never before sunset" stays meaningful. ("Bedtime" always means the clock time,
 // never a stage.) Everything is back to daylight by wake time.
 //
-// The stages are fixed, evidence-based values. The personal settings are limits: never warmer
-// than `warmest`, never darker than `darkest`. A limit leaves automatic alone until it would be
-// crossed, so "not so dark at night" never means taking over by hand. (Per-stage values and
+// The stages are fixed, evidence-based values. The personal settings, `warmest` and `darkest`,
+// are where the night goes (by default the recommended night); no earlier stage goes past them,
+// so "not so dark at night" never means taking over by hand, and "deeper" is the same setting. (Per-stage values and
 // global strengths were both tried and cut: they made "back to automatic" unclear.) Optionally
 // room light, where a sensor can see it, eases the dimming in a bright room (`roomFactor`).
 //
@@ -105,29 +105,41 @@ public struct Schedule: Codable, Equatable, Sendable {
     public static let timeStep = 15
     public let sunset = Stage(kelvin: 3400, brightness: 1)
     public let windDown = Stage(kelvin: 2700, brightness: 0.7)
-    public let night = Self.deepest
-    private static let deepest = Stage(kelvin: 1900, brightness: 0.55)
-    /// Limits: the automatic tint never goes warmer or darker. At the low end of their ranges
-    /// (the deepest stage itself) they change nothing.
-    public var warmest = deepest.kelvin { didSet { warmest = Self.warmestRange.clamp(warmest) } }
-    public var darkest = deepest.brightness { didSet { darkest = Self.darkestRange.clamp(darkest) } }
-    public static let warmestRange = deepest.kelvin...Kelvin.daylight
-    public static let darkestRange = deepest.brightness...1.0
+    /// The night the evidence recommends (docs/science.md), and the default of the settings.
+    public static let recommendedNight = Stage(kelvin: 1900, brightness: 0.55)
+    /// Night goes to the Warmest and Dimmest settings, and no earlier stage goes past them: one
+    /// rule, so "automatic" stays clear. Lighter than recommended they hold the evening back;
+    /// deeper (to ember, to 30 %) is for sensitive people in dark rooms, past a warning.
+    public var night: Stage { Stage(kelvin: warmest, brightness: darkest) }
+    public var warmest = recommendedNight.kelvin { didSet { warmest = Self.warmestRange.clamp(warmest) } }
+    public var darkest = recommendedNight.brightness { didSet { darkest = Self.darkestRange.clamp(darkest) } }
+    public static let warmestRange = Stage.kelvinRange
+    public static let darkestRange = Stage.brightnessRange
 
-    /// The warmth cap as a slider, 0 (no warming) … 1 (all of it, the default): "Warmth" reads
-    /// more naturally than a Kelvin cap. Mired-even, like the popover's dial.
-    public var warmthAllowance: Double {
-        get { (Kelvin.mired(warmest) - Kelvin.mired(Kelvin.daylight)) / (Kelvin.mired(Self.deepest.kelvin) - Kelvin.mired(Kelvin.daylight)) }
-        set {
-            let a = (0.0...1.0).clamp(newValue)
-            warmest = 1e6 / (Kelvin.mired(Kelvin.daylight) + a * (Kelvin.mired(Self.deepest.kelvin) - Kelvin.mired(Kelvin.daylight)))
-        }
+    /// How far past the recommended night the settings go, 0 (at it or lighter) … 1 (ember,
+    /// 30 %), each linear on its own scale (warmth in mired). Past it is the user's consent to
+    /// what deeper costs: the smear floor and the backlight's light floor ease off with it, so
+    /// the setting does what it says instead of stopping where the recommended night would.
+    public var pastRecommended: (warmth: Double, dimming: Double) {
+        let r = Self.recommendedNight
+        let warmth = (Kelvin.mired(warmest) - Kelvin.mired(r.kelvin)) / (Self.mired.warm - Kelvin.mired(r.kelvin))
+        let dimming = (r.brightness - darkest) / (r.brightness - Stage.brightnessRange.lowerBound)
+        return ((0.0...1.0).clamp(warmth), (0.0...1.0).clamp(dimming))
     }
 
-    /// The darkness cap as a slider, 0 (no dimming) … 1 (all of it, the default), linear in brightness.
+    /// Warmest as a slider, 0 (daylight) … 1 (ember), mired-even like the popover's dial; the
+    /// recommended night sits a little past half.
+    public var warmthAllowance: Double {
+        get { (Kelvin.mired(warmest) - Self.mired.cool) / (Self.mired.warm - Self.mired.cool) }
+        set { warmest = 1e6 / (Self.mired.cool + (0.0...1.0).clamp(newValue) * (Self.mired.warm - Self.mired.cool)) }
+    }
+    private static let mired = (cool: Kelvin.mired(Stage.kelvinRange.upperBound), warm: Kelvin.mired(Stage.kelvinRange.lowerBound))
+
+    /// Dimmest as a slider, 0 (full brightness) … 1 (30 %, the deepest there is), linear in
+    /// brightness; the recommended night is 64 %.
     public var dimmingAllowance: Double {
-        get { (1 - darkest) / (1 - Self.deepest.brightness) }
-        set { darkest = 1 - (0.0...1.0).clamp(newValue) * (1 - Self.deepest.brightness) }
+        get { (1 - darkest) / (1 - Stage.brightnessRange.lowerBound) }
+        set { darkest = 1 - (0.0...1.0).clamp(newValue) * (1 - Stage.brightnessRange.lowerBound) }
     }
 
     public init() {}
@@ -200,15 +212,15 @@ public struct Schedule: Codable, Equatable, Sendable {
         Tint(kelvin: max(t.kelvin, warmest), brightness: max(t.brightness, darkest))
     }
 
-    /// The night stage as the limits allow it: what a preview of tonight shows.
-    public var limitedNight: Tint { limited(night.tint) }
+    /// Tonight's night: what a preview of tonight shows.
+    public var limitedNight: Tint { night.tint }
 
     /// How much of the smear floor a built-in display at this backlight level (0…1, the
-    /// brightness slider) keeps: all of it from 75%, none at 25% or below, smooth between. The
-    /// trails were seen at a bright backlight; that they fade at a low one is an untested
-    /// assumption (the trail dims with the white around it), see docs/science.md.
+    /// brightness slider) keeps: none up to 50%, all of it from 85%, smooth between. Measured on
+    /// one mini-LED panel at the Night stage with no floor: no trails at 20–50 %, faint at 60 %,
+    /// stronger at 80 %, heavy at 100 % (docs/science.md).
     public static func backlightFactor(_ level: Double) -> Double {
-        smoothstep(min(1, max(0, (level - 0.25) / 0.5)))
+        smoothstep(min(1, max(0, (level - 0.5) / 0.35)))
     }
 
     /// How much of the scheduled dimming to keep for the room's light: all of it in a dim room
@@ -257,6 +269,32 @@ public struct Schedule: Codable, Equatable, Sendable {
     public func nextMorning(after date: Date, _ c: Coordinate, calendar: Calendar = .current) -> Date {
         upcoming(after: date, c, count: 4, calendar: calendar)
             .first { $0.kind == .day && $0.at.timeIntervalSince(date) <= 30 * 3600 }?.at
+            ?? evening(around: date, c, calendar: calendar).wake
+    }
+
+    /// How long a hand setting holds: to the next big boundary of the day, sunset, bedtime,
+    /// sunrise or wake, whichever comes first, so a tweak lasts the part of the day it was made
+    /// in (the next stage change was often under an hour away). Between sunrise and wake it is
+    /// already light: it holds on to the evening (sunset or bedtime) instead.
+    public func manualHold(after date: Date, _ c: Coordinate, calendar: Calendar = .current) -> Date {
+        enum Kind { case sunset, sunrise, bedtime, wake }
+        var anchors: [(at: Date, kind: Kind)] = []
+        let window = DateInterval(start: date.addingTimeInterval(-24 * 3600), end: date.addingTimeInterval(36 * 3600))
+        for (rising, kind) in [(false, Kind.sunset), (true, .sunrise)] {
+            var from = window.start
+            while from < window.end, let t = Sun.crossing(-0.833, rising: rising, in: DateInterval(start: from, end: window.end), c) {
+                anchors.append((t, kind))
+                from = t.addingTimeInterval(3600)
+            }
+        }
+        var night = evening(around: window.start, c, calendar: calendar)
+        while night.bedtime < window.end {
+            anchors += [(night.bedtime, .bedtime), (night.wake, .wake)]
+            night = evening(around: night.wake.addingTimeInterval(60), c, calendar: calendar)
+        }
+        anchors.sort { $0.at < $1.at }
+        let lightAlready = anchors.last { $0.at <= date }?.kind == .sunrise
+        return anchors.first { $0.at > date.addingTimeInterval(60) && !(lightAlready && $0.kind == .wake) }?.at
             ?? evening(around: date, c, calendar: calendar).wake
     }
 

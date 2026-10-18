@@ -36,6 +36,7 @@ final class AppModel {
     var schedule: Schedule {
         didSet {
             saveSoon()
+            display.consent = schedule.pastRecommended  // past the recommended night, the floors ease
             if schedule.bedtime != oldValue.bedtime || schedule.wake != oldValue.wake { stagesMoved() }
             if preview == nil { update(fade: 0.35) }
         }
@@ -57,9 +58,9 @@ final class AppModel {
             update(fade: 1)
         }
     }
-    /// A hand setting from the popover. It holds until the next change the popover names
-    /// ("Manual until 22:00"), then automatic takes over again, so a tweak never quietly
-    /// becomes the new every-night. Where nothing changes (polar day), until the next wake.
+    /// A hand setting from the popover. It holds to the next sunset, bedtime, sunrise or wake
+    /// ("Manual until 23:00"), then automatic takes over again, so a tweak never quietly
+    /// becomes the new every-night.
     var manual: Tint? {
         didSet {
             if manual != nil && oldValue == nil { holdManualUntilNextChange() }
@@ -325,6 +326,7 @@ final class AppModel {
         let strengths = displayStrength, guarded = smearGuarded
         display.strength = { strengths[$0] ?? 1 }
         display.smearGuarded = { guarded.contains($0) }
+        display.consent = schedule.pastRecommended
     }
 
     func update(fade: Double) {
@@ -349,10 +351,10 @@ final class AppModel {
         if !enabled, let resume = resumeAt, now >= resume { enabled = true }
     }
 
-    /// A hand setting holds until the next change the popover names, or the next wake.
+    /// A hand setting holds to the next sunset, bedtime, sunrise or wake (`Schedule.manualHold`).
     private func holdManualUntilNextChange() {
         refreshClock()
-        manualUntil = nextStage?.at ?? schedule.evening(around: now, place.coordinate).wake
+        manualUntil = schedule.manualHold(after: now, place.coordinate)
     }
 
     /// Bedtime, wake, the place or the time zone changed: the stages move, and a running hand

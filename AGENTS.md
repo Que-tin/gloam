@@ -44,9 +44,9 @@ swift run Gloam --film DIR             # popover frames while switching off and 
 - Onboarding asks nothing; Welcome is a draft until Start (closing it first quits, unsaved; the
   menu-bar icon appears with Start). Bedtime and wake are clock times, never stages, set only in
   Settings (bedtime 20:00–03:00, wake 04:00–12:00, quarter hours: a night-time sleep, ≥ 8 h awake);
-  dimming never starts before sunset. Stages are fixed; only the Warmest and Dimmest caps are
-  settings. The popover's dial and ladder override until the next stage (per-stage values and
-  global strengths were tried and cut: "back to automatic" got unclear).
+  dimming never starts before sunset. Stages are fixed; only Warmest and Dimmest (where Night goes)
+  are settings. The popover's dial and ladder override until the next sunset, bedtime, sunrise or
+  wake (per-stage values and global strengths were cut: "back to automatic" got unclear).
 - Popover controls run to as far as the screen goes (`warmestOnMain`, `darkestOnMain`), every step
   doing something, no notices. Their ends move only with the user's brightness: the smear floor's
   share is held while Gloam dims (an end that moved with Gloam's dimming made the knob wander).
@@ -56,8 +56,8 @@ swift run Gloam --film DIR             # popover frames while switching off and 
   (`BacklightDim`): key presses and auto-brightness are adopted, never fought; quitting (or, after a
   crash, the next launch) restores. The rest: signal, never below 30%.
 - A built-in LCD never draws a white under `DisplayController.smearFloor` of daylight white's light,
-  scaled by the user's slider (all from 75 %, none ≤ 25 %; light-on-dark text smears below it, and a
-  warm tint is a dim white): dimming goes first, then warmth.
+  scaled by the user's slider (all from 85 %, none ≤ 50 %, measured): dimming goes first, then warmth. Past
+  the recommended night the user consents: this floor and the 8 % light floor ease off (`consent`).
   Monitors opt in (`smearGuarded`): macOS reports nothing about their panels.
 - Every window is ours and AppKit-hosted: the popover is a borderless panel, not `MenuBarExtra`
   (unstylable, can't be opened or captured); Settings isn't a SwiftUI `Settings` scene. Dark. One
