@@ -238,17 +238,14 @@ private struct SettingsButton: View {
     @State private var hovering = false
 
     var body: some View {
-        Button { Windows.showSettings() } label: {
-            ZStack {
-                Circle().fill(.white.opacity(hovering ? 0.09 : 0.05))
-                Circle().strokeBorder(.white.opacity(0.1))
-                Image(systemName: "gearshape").font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Lamp.ink.opacity(0.75))
-            }
-            .frame(width: 26, height: 26)
-            .contentShape(Circle())
+        ZStack {
+            Circle().fill(.white.opacity(hovering ? 0.09 : 0.05))
+            Circle().strokeBorder(.white.opacity(0.1))
+            Image(systemName: "gearshape").font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Lamp.ink.opacity(0.75))
         }
-        .buttonStyle(.plain)
+        .frame(width: 26, height: 26)
+        .lampPress(Circle()) { Windows.showSettings() }
         .onHover { hovering = $0 }
         .help("Settings")
         .accessibilityLabel("Settings")

@@ -100,27 +100,24 @@ struct PowerSwitch: View {
     var body: some View {
         let c = Color.kelvin(kelvin)
         let on = shown ?? self.on
-        Button { self.on.toggle() } label: {
-            ZStack(alignment: on ? .trailing : .leading) {
-                Capsule().fill(Lamp.well)
-                    .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
-                    .overlay(Capsule().fill(c.opacity(on ? 0.16 : 0)))
-                ZStack {
-                    Circle().fill(LinearGradient(colors: [Color(rgb: 0x3A3532), Color(rgb: 0x1C1918)],
-                                                 startPoint: .top, endPoint: .bottom))
-                    Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
-                    Circle().fill(on ? c : Color(rgb: 0x3A3330)).frame(width: 5, height: 5)
-                        .shadow(color: on ? c : .clear, radius: 2.5)
-                        .shadow(color: on ? c.opacity(0.8) : .clear, radius: 6)
-                }
-                .frame(width: 18, height: 18)
-                .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
-                .padding(3)
+        ZStack(alignment: on ? .trailing : .leading) {
+            Capsule().fill(Lamp.well)
+                .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+                .overlay(Capsule().fill(c.opacity(on ? 0.16 : 0)))
+            ZStack {
+                Circle().fill(LinearGradient(colors: [Color(rgb: 0x3A3532), Color(rgb: 0x1C1918)],
+                                             startPoint: .top, endPoint: .bottom))
+                Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                Circle().fill(on ? c : Color(rgb: 0x3A3330)).frame(width: 5, height: 5)
+                    .shadow(color: on ? c : .clear, radius: 2.5)
+                    .shadow(color: on ? c.opacity(0.8) : .clear, radius: 6)
             }
-            .frame(width: 40, height: 24)
-            .contentShape(Capsule())
+            .frame(width: 18, height: 18)
+            .shadow(color: .black.opacity(0.6), radius: 2, y: 1)
+            .padding(3)
         }
-        .buttonStyle(.plain)
+        .frame(width: 40, height: 24)
+        .lampPress(Capsule()) { self.on.toggle() }
         // Words follow the real state at once; only the knob's picture lags a beat.
         .help(help ?? (self.on ? String(localized: "Turn Gloam off") : String(localized: "Turn Gloam on")))
         .accessibilityLabel("Gloam")
@@ -582,19 +579,16 @@ struct LampPill: View {
     @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)) }
-                Text(title).font(Lamp.label).tracking(0.9).textCase(.uppercase)
-            }
-            .foregroundStyle(Lamp.ink.opacity(hovering ? 0.95 : 0.75))
-            .padding(.horizontal, 10)
-            .frame(height: 26)
-            .background(Capsule().fill(.white.opacity(hovering ? 0.08 : 0.045)))
-            .overlay(Capsule().strokeBorder(.white.opacity(0.1)))
-            .contentShape(Capsule())
+        HStack(spacing: 5) {
+            if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)) }
+            Text(title).font(Lamp.label).tracking(0.9).textCase(.uppercase)
         }
-        .buttonStyle(.plain)
+        .foregroundStyle(Lamp.ink.opacity(hovering ? 0.95 : 0.75))
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .background(Capsule().fill(.white.opacity(hovering ? 0.08 : 0.045)))
+        .overlay(Capsule().strokeBorder(.white.opacity(0.1)))
+        .lampPress(Capsule(), action: action)
         .onHover { hovering = $0 }
     }
 }
@@ -639,14 +633,12 @@ struct LampNotice: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             if let (title, perform) = action {
-                Button(action: perform) {
-                    Text(title).font(Lamp.label).tracking(1).textCase(.uppercase)
-                        .foregroundStyle(Color(rgb: 0xFFB070))
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(Capsule().fill(Lamp.amber.opacity(0.16)))
-                        .fixedSize()
-                }
-                .buttonStyle(.plain)
+                Text(title).font(Lamp.label).tracking(1).textCase(.uppercase)
+                    .foregroundStyle(Color(rgb: 0xFFB070))
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(Capsule().fill(Lamp.amber.opacity(0.16)))
+                    .fixedSize()
+                    .lampPress(Capsule(), action: perform)
             }
         }
         .padding(.horizontal, 10)
@@ -657,7 +649,40 @@ struct LampNotice: View {
     }
 }
 
+/// A lamp part as a button that Tab always reaches. A SwiftUI `Button` gets keyboard focus only
+/// when the Mac's Keyboard navigation setting is on, which left the popover's switch and gear out
+/// of reach while the dial and ladder (focusable views) were not. Space or Return presses it; the
+/// ring shows for keyboard focus only, like the dial's.
+private struct LampPress<S: Shape>: ViewModifier {
+    let shape: S
+    let action: () -> Void
+    @FocusState private var focused: Bool
+    @State private var ring = false
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(shape)
+            .onTapGesture(perform: action)
+            .overlay(shape.stroke(Lamp.ink.opacity(ring ? 0.8 : 0), lineWidth: 1.5).padding(-3))
+            .focusable()
+            .focused($focused)
+            .focusEffectDisabled()
+            .onChange(of: focused) { _, now in ring = now && Lamp.focusFromKeyboard }
+            .onKeyPress(keys: [.space, .return]) { _ in
+                action()
+                return .handled
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
+    }
+}
+
 extension View {
+    func lampPress(_ shape: some Shape, action: @escaping () -> Void) -> some View {
+        modifier(LampPress(shape: shape, action: action))
+    }
+
     /// Vertical scroll-wheel / two-finger swipe over a control, as a step up or down.
     /// Skipped in debug snapshots, where AppKit-backed views can't be rendered.
     @ViewBuilder func onScrollWheel(_ handler: @escaping (CGFloat) -> Void) -> some View {
