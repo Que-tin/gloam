@@ -1,0 +1,45 @@
+name: Release
+
+# Pushing a tag like v0.9.1 releases that commit: test, build, sign the update for Sparkle, publish.
+# Plain versions only: a v1.0.0-rc1 would become 1.0.0 too, reach every installed copy and hide
+# the real 1.0.0 from them. Needs the repository secret SPARKLE_PRIVATE_KEY (CONTRIBUTING.md).
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: xcode-27  # see ci.yml
+    env:
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ github.ref_name }}  # build-app.sh drops the "v"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false  # the build runs with no write token on disk
+      - name: Test
+        run: swift test
+      - name: Build app and disk image
+        run: ./scripts/build-app.sh
+      - name: Sign the update
+        # Installed copies read releases/latest/download/appcast.xml; it lists this release's image
+        # with its EdDSA signature, which Sparkle checks against SUPublicEDKey before installing.
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          mkdir -p .build/release
+          cp .build/Gloam.dmg .build/release/
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast \
+            --ed-key-file - --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/" \
+            .build/release
+      - name: Publish
+        # gh uploads to a draft and publishes last, so no installed copy sees a release without
+        # its appcast.xml.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" .build/release/Gloam.dmg .build/release/appcast.xml \
+            --repo "$GITHUB_REPOSITORY" --title "Gloam ${TAG#v}" --generate-notes

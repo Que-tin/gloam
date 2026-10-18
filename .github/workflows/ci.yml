@@ -10,17 +10,16 @@ permissions:
 
 jobs:
   test:
-    runs-on: macos-26
+    # Xcode 27, as Gloam is built locally: the macos-26 image tops out at Xcode 26.6, whose
+    # compiler (Swift 6.3) crashes on the UI code.
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
       - name: Test
         run: swift test
-      - name: Build app bundle
-        # Zipped with ditto: uploading the bundle directory would drop its exec bits.
-        run: |
-          ./scripts/build-app.sh
-          ditto -c -k --keepParent .build/Gloam.app .build/Gloam.zip
+      - name: Build app and disk image
+        run: ./scripts/build-app.sh
       - uses: actions/upload-artifact@v4
         with:
           name: Gloam
-          path: .build/Gloam.zip
+          path: .build/Gloam.dmg
