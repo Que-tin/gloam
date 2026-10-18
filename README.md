@@ -153,3 +153,6 @@ welcome.
 ## License
 
 [MIT](LICENSE)
+
+The MIT License covers the code. The Gloam name, icon and wordmark are not part of it: forks are
+welcome, but please give yours its own name and icon.
