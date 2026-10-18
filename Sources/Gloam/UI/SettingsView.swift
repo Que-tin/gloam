@@ -10,6 +10,8 @@ struct SettingsView: View {
     @Bindable var model: AppModel
     /// "Preview tonight" is on: the screen shows the night the limits allow until "Done".
     @State private var previewing = false
+    /// "Choose a city…" picked, no city found yet.
+    @State private var choosingCity = false
 
     var body: some View {
         Form {
@@ -22,9 +24,9 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        // Fits every section with one display and no app exceptions; on a short screen (older
-        // 13" Macs) the window stops at the screen and the form scrolls.
-        .frame(width: 500, height: min(1000, (NSScreen.main?.visibleFrame.height ?? 900) - 60))
+        // Shorter than everything, by choice: the form scrolls rather than the window filling a
+        // laptop screen; on a short screen (older 13" Macs) it stops at the screen.
+        .frame(width: 500, height: min(620, (NSScreen.main?.visibleFrame.height ?? 900) - 60))
         .background(LampSurface(glow: Tint(kelvin: 2700, brightness: 0.6), lit: 0.6).ignoresSafeArea())
         .environment(\.colorScheme, .dark)
         .tint(Color.kelvin(2700))
@@ -44,62 +46,92 @@ struct SettingsView: View {
             // Tonight as a graph, which is also where the limits and the clock times are set
             // (`EveningGraph`); the line below names the limits and shows the night on the real
             // screen, by day too.
-            EveningGraph(schedule: $model.schedule, place: model.place.coordinate, now: model.now,
+            EveningGraph(schedule: $model.schedule, place: model.place.coordinate, wake: model.eveningWake,
                          onEditing: previewNight)
             HStack(spacing: 14) {
-                // In the graph's own units: warmth by name (its left axis), dimming in percent
-                // as the popover's ladder counts it (its right axis).
-                LegendKey(title: String(localized: "Warmest"), value: Light.name(model.schedule.warmest),
+                // In the graph's own units: warmth by name and Kelvin (its left axis), dimming in
+                // percent of the schedule's fixed scale (its right axis; the popover's ladder counts to
+                // as dim as the screen goes instead).
+                LegendKey(title: String(localized: "Warmest"), value: "\(Light.name(model.schedule.warmest)) · \(Format.kelvin(model.schedule.warmest))",
                           spoken: Format.percent(model.schedule.warmthAllowance),
                           color: Color.kelvin(2400), allowance: $model.schedule.warmthAllowance)
                 LegendKey(title: String(localized: "Dimmest"), value: Format.percent(Light.dimming(model.schedule.darkest)),
                           spoken: Format.percent(Light.dimming(model.schedule.darkest)),
                           color: Color(white: 0.82), allowance: $model.schedule.dimmingAllowance)
-                Spacer()
-                Button(previewing ? String(localized: "Done") : String(localized: "Preview Tonight")) {
-                    previewing.toggle()
-                    previewNight(false)
-                }
+                Spacer(minLength: 0)
             }
-            // Wind-down starts 3 h and night 1 h before bedtime; daylight is back by wake. Also
-            // draggable in the graph; the pickers stay for exact times and VoiceOver.
-            Picker("Bedtime", selection: $model.schedule.bedtime) {
-                ForEach(ClockTime.all(in: Schedule.bedtimes), id: \.self) { Text(Format.time($0)).tag($0) }
-            }
-            Picker("Wake up", selection: $model.schedule.wake) {
-                ForEach(ClockTime.all(in: Schedule.wakes), id: \.self) { Text(Format.time($0)).tag($0) }
-            }
+            // Bedtime and wake are set in the graph only: its markers, by drag, keyboard or VoiceOver.
             if model.roomLight.isAvailable {
                 Toggle("Adapt to room light", isOn: $model.autoDimming)  // "Auto dimming" read as all of it
             }
         } header: {
-            Text("Evening")
+            // The lamp's pill, as in Welcome: a system button looked foreign beside the graph,
+            // and up here it leaves the legend its width.
+            HStack {
+                Text("Evening")
+                Spacer()
+                // Everything the graph sets, back to the evidence-based defaults; only offered
+                // when something differs.
+                if !isDefault {
+                    LampPill(title: String(localized: "Reset"), symbol: "arrow.counterclockwise") {
+                        model.schedule = Schedule()
+                    }
+                    .fixedSize()
+                    .help(String(localized: "Bedtime \(Format.time(Schedule().bedtime)), wake up \(Format.time(Schedule().wake)), and the full evening"))
+                }
+                LampPill(title: previewing ? String(localized: "Done") : String(localized: "Preview tonight"),
+                         symbol: previewing ? "checkmark" : "eye") {
+                    previewing.toggle()
+                    previewNight(false)
+                }
+                .fixedSize()
+            }
         }
         .onChange(of: model.schedule) { if model.preview != nil { model.preview = night } }
-        .onDisappear { model.preview = nil }  // whatever started it, a preview ends with Settings
     }
 
-    /// While a limit is dragged, or while "Preview Tonight" is on, the screen shows the night it
+    /// While a limit is dragged, or while "Preview tonight" is on, the screen shows the night it
     /// allows, so it's never set blind (by day, or while a hand setting is on). A drag alone
     /// leaves the screen alone while Gloam is off; asking for the preview shows it anyway.
     private func previewNight(_ editing: Bool) {
         model.preview = previewing || (editing && model.enabled) ? night : nil
     }
 
-    private var night: Tint { model.schedule.limited(model.schedule.night.tint) }
+    private var isDefault: Bool {
+        let (s, d) = (model.schedule, Schedule())
+        // Within a hair: a dragged limit lands on its end through floating-point arithmetic.
+        return abs(Kelvin.mired(s.warmest) - Kelvin.mired(d.warmest)) < 0.5 && abs(s.darkest - d.darkest) < 0.002
+            && s.bedtime == d.bedtime && s.wake == d.wake
+    }
+
+    private var night: Tint { model.schedule.limitedNight }
 
     private var location: some View {
         Section {
+            // One row: where sunset is worked out for, and how. (A separate read-only "Place"
+            // row looked like a second setting.)
+            // "Choose a city…" opens the search and changes nothing until a city is picked; the
+            // pick closes it again. A chosen city carries its coordinates, so two of the same name
+            // can be told apart.
             Picker("Location", selection: Binding(
-                get: { model.customPlace == nil },
-                set: { model.customPlace = $0 ? nil : model.place })
+                get: { choosingCity ? LocationChoice.choose : model.customPlace == nil ? .timeZone : .city },
+                set: { choice in
+                    choosingCity = choice == .choose
+                    if choice == .timeZone { model.customPlace = nil }
+                })
             ) {
-                Text("From time zone").tag(true)
-                Text("Choose a city").tag(false)
+                Text("\(model.timeZonePlace.name), from time zone").tag(LocationChoice.timeZone)
+                if let city = model.customPlace {
+                    Text("\(city.name) · \(Geo.describe(city.coordinate))").tag(LocationChoice.city)
+                }
+                Text(model.customPlace == nil ? String(localized: "Choose a city…") : String(localized: "Choose another city…"))
+                    .tag(LocationChoice.choose)
             }
-            LabeledContent("Place", value: String(localized: "\(model.place.name) · \(Geo.describe(model.place.coordinate))"))
-            if model.customPlace != nil {
-                CitySearch { model.customPlace = $0 }
+            if choosingCity {
+                CitySearch { picked in
+                    model.customPlace = picked
+                    choosingCity = false
+                }
             }
         } header: {
             Text("Sunset")
@@ -161,7 +193,7 @@ struct SettingsView: View {
                 if model.excludedApps.isEmpty { Text("No apps yet").foregroundStyle(.secondary) }
             }
         } header: {
-            Text("Apps in true colour")
+            Text("Apps that pause Gloam")
         }
     }
 
@@ -207,6 +239,8 @@ private struct LegendKey: View {
             Text(title)
             Text(value).foregroundStyle(.secondary).monospacedDigit()
         }
+        .lineLimit(1)
+        .fixedSize()
         .padding(.horizontal, 6).padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: 6).strokeBorder(color.opacity(ring ? 0.8 : 0)))
         .focusable()
@@ -228,3 +262,5 @@ private struct LegendKey: View {
         .help("Drag its dashed line in the graph, or focus here and use the arrow keys")
     }
 }
+
+private enum LocationChoice { case timeZone, city, choose }

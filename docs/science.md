@@ -15,7 +15,7 @@ It is the best single predictor of melatonin suppression across lab studies (Gim
 al. 2022, *Lighting Res. Technol.*).
 
 **Consensus thresholds** (Brown et al. 2022, *PLOS Biology* 20(3):e3001571,
-doi:10.1371/journal.pbio.3001571; reaffirmed in CIE TN 015:2023), measured at the eye:
+doi:10.1371/journal.pbio.3001571; also published as the workshop report CIE TN 015:2023, advisory, not a CIE position), measured at the eye:
 
 | When | Melanopic EDI |
 |---|---|
@@ -24,7 +24,7 @@ doi:10.1371/journal.pbio.3001571; reaffirmed in CIE TN 015:2023), measured at th
 | Sleep environment | ≤ 1 lx |
 
 Individual sensitivity varies more than 50-fold (Phillips et al. 2019, *PNAS*
-doi:10.1073/pnas.1901824116), which is why Warmth and Dimming (Settings, and Welcome's
+doi:10.1073/pnas.1901824116), which is why Warmest and Dimmest (Settings, and Welcome's
 preview) cap the automatic tint without replacing it.
 
 ## How much light a screen gives off
@@ -36,8 +36,9 @@ monitor at 60 cm and 200 cd/m² delivers roughly 85 lx melanopic EDI, a 14″ la
 ## Brightness beats colour
 
 - **Schöllhorn et al. 2023**, *Communications Biology* 6:228 (doi:10.1038/s42003-023-04598-4):
-  colour-matched screens differing only in melanopic output (~5 vs ~150 lx) changed sleep
-  latency, melatonin and its timing dose-dependently. Dose = intensity × spectrum.
+  colour-matched screens differing only in melanopic output (about 2–3× within each of four
+  intensity levels spanning ~5–150 lx) changed sleep latency, melatonin and its timing
+  log-linearly with melanopic dose, with no threshold. Dose = intensity × spectrum.
 - **Nagare et al. 2019**, *Lighting Res. Technol.*: a built-in night mode at unchanged brightness did not
   significantly reduce melatonin suppression; the authors conclude brightness must drop too.
 - **Duraccio et al. 2021**, *Sleep Health*: no measurable sleep difference from a built-in night mode alone
@@ -103,10 +104,11 @@ are clock-anchored, but with two rules that keep the product light:
 | Morning | back to daylight by wake time (20 min ease) | 6500 K, 100% | 100% |
 
 (sRGB figures, as above. On a built-in screen with a bright backlight the smear floor below
-caps Night's warmth, leaving it nearer 7–9%.)
+caps Night's warmth, leaving it nearer 10%.)
 
 Night stops at 55% rather than going deeper, because a first evening that suddenly goes very
-dark reads as a broken display. People who want more can lower it.
+dark reads as a broken display. People who want more can dim further by hand in the popover;
+the Settings limit only makes the evening lighter.
 
 Morning light should be bright: after waking Gloam ignores the sun for five hours (easing back
 in afterwards), so a dark winter morning isn't left filtered.
@@ -130,7 +132,7 @@ itself through the same call, as a fraction of the level it finds, never below 8
 panel's maximum: about 40 cd/m² on a 500-nit screen, within what is comfortable for sustained
 smartphone reading in low room light (Na & Suk 2015, *Opt. Express* 23:16912) and inside the
 21–75 cd/m² evening viewers preferred under 13–62 lx room light (Zhou et al. 2021, *Appl. Sci.*
-11:4108). A key press or auto-brightness moving the backlight is adopted, not fought: the
+11:4108; Gloam's dark-room case lies below that range, where the optimum trends lower). A key press or auto-brightness moving the backlight is adopted, not fought: the
 fraction then applies to the new level, and the morning restores the level moved to
 (`BacklightDim`). Why not the signal: a dimmed signal leaves the backlight at full power,
 crushes shadows below ~30 %, pushes the liquid crystal into its slow dark range (below), and
@@ -144,7 +146,9 @@ channel, on their own 0–100 scale; the rest by signal, never below 30 %.
 
 Observed on a mini-LED laptop panel with the slider at 100 %, scrolling white-on-black text:
 heavy trails with the whole signal scaled to 55 %, none at 80 %. Both slow parts of the panel
-are slowest around black: the liquid crystal (40–60 ms transitions, Notebookcheck) and the
+are slowest around black: the liquid crystal (Notebookcheck measures ~41–43 ms black→white and
+grey 50→80 % on current MacBook Pro panels, 67–80 ms on M2/M3, approximate because of PWM;
+the slower dark-grey transitions aren't measured) and the
 mini-LED zones. Apple calls "a slight blur or color change while
 scrolling against black backgrounds" normal behaviour of the dimming zones on the iPad Pro's
 XDR display, the same mini-LED design (support.apple.com/HT212527). To the panel a warm tint is
@@ -162,8 +166,11 @@ So the floor is on the luminance of the tinted white (`Smear`; 61 % = 0.8^2.2, i
 own colour space), giving up dimming before warmth: of all tints at one luminance the warmest
 has the least melanopic light. On a backlight-dimmed display the signal stays at full drive,
 so the floor only caps warmth, and only while the slider is high (all of it from 75 %, where
-the panel reaches about 2600–2800 K; none at 25 % or below), which the evening's own backlight
-dimming usually takes care of. Monitors dimmed by signal get the full floor when switched on
+the panel reaches about 2800 K; none at 25 % or below). It follows the slider the user
+set, not Gloam's own dimming below it, so the warmth control's range doesn't move while the
+evening dims. Whether a lower backlight shows fainter trails at all is unmeasured (the trail
+dims with the white around it): the easing with the slider is an assumption, to be tested at a
+slider of ~40 % and ~20 % with the same 55 %/80 % signal check. Monitors dimmed by signal get the full floor when switched on
 per display in Settings: macOS says nothing about their panels. Measured: one panel, one
 neutral threshold. That the same luminance predicts warm smearing is the model's claim, backed
 by the physics and by iPad Pro XDR users finding the scrolling smear "more prominent when Night

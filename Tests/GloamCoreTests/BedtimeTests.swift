@@ -5,13 +5,6 @@ import Foundation
 import Testing
 @testable import GloamCore
 
-private let berlin = Coordinate(latitude: 52.52, longitude: 13.40)
-private var berlinCalendar: Calendar {
-    var c = Calendar(identifier: .gregorian)
-    c.timeZone = TimeZone(identifier: "Europe/Berlin")!
-    return c
-}
-
 @Suite struct BedtimeTests {
     @Test func heldToTheWindowInQuarterHours() {
         let bed = Schedule.bedtimes
@@ -23,7 +16,7 @@ private var berlinCalendar: Calendar {
         #expect(ClockTime(23, 55).held(to: bed) == ClockTime(0, 0))   // rounds across midnight
     }
 
-    @Test func pickerTimes() {
+    @Test func settableTimes() {
         let beds = ClockTime.all(in: Schedule.bedtimes), wakes = ClockTime.all(in: Schedule.wakes)
         #expect(beds.count == 29 && beds.first == ClockTime(20, 0) && beds.last == ClockTime(3, 0))
         #expect(wakes.count == 33 && wakes.first == ClockTime(4, 0) && wakes.last == ClockTime(12, 0))
@@ -42,20 +35,6 @@ private var berlinCalendar: Calendar {
         #expect(ClockTime.along(Schedule.wakes, startingOn: morning, at: at(10, 21, 0), calendar: cal) == ClockTime(4, 0))   // was 12:00
         #expect(ClockTime.along(Schedule.wakes, startingOn: morning, at: at(11, 13, 30), calendar: cal) == ClockTime(12, 0))
         #expect(ClockTime.along(Schedule.wakes, startingOn: morning, at: at(11, 7, 20), calendar: cal) == ClockTime(7, 15))
-    }
-
-    @Test func savedAndRestored() throws {
-        var s = Schedule()
-        s.bedtime = ClockTime(0, 30)
-        s.wake = ClockTime(8, 15)
-        let back = try JSONDecoder().decode(Schedule.self, from: JSONEncoder().encode(s))
-        #expect(back.bedtime == ClockTime(0, 30) && back.wake == ClockTime(8, 15))
-        // Saved by a build without them: the defaults.
-        let old = try JSONDecoder().decode(Schedule.self, from: Data(#"{"warmest":1900,"darkest":0.55}"#.utf8))
-        #expect(old.bedtime == ClockTime(23, 0) && old.wake == ClockTime(7, 0))
-        // Hand-edited out of range: held.
-        let odd = try JSONDecoder().decode(Schedule.self, from: Data(#"{"bedtime":{"hour":12,"minute":0}}"#.utf8))
-        #expect(odd.bedtime == ClockTime(20, 0))
     }
 
     // A 01:00 bedtime in winter: wind-down at 22:00, night at midnight, all within one evening.

@@ -51,21 +51,21 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
             let pause = NSMenu()
             pause.addItem(withTitle: String(localized: "For an Hour"), action: #selector(offForAnHour), keyEquivalent: "").target = self
             pause.addItem(withTitle: String(localized: "Until Morning"), action: #selector(offUntilMorning), keyEquivalent: "").target = self
-            let item = menu.addItem(withTitle: String(localized: "Turn Off Temporarily"), action: nil, keyEquivalent: "")
+            let item = menu.addItem(withTitle: String(localized: "Pause"), action: nil, keyEquivalent: "")
             menu.setSubmenu(pause, for: item)
         } else {
-            let title = model.resumeAt.map { String(localized: "Turn Gloam On (off until \(Format.time($0)))") }
+            let title = model.resumeAt.map { String(localized: "Resume (paused until \(Format.time($0)))") }
                 ?? String(localized: "Turn Gloam On")
             menu.addItem(withTitle: title, action: #selector(toggleEnabled), keyEquivalent: "").target = self
         }
-        // An app exception is permanent (Settings › Apps in true colour), so it sits apart from
+        // An app exception is permanent (Settings › Apps that pause Gloam), so it sits apart from
         // the timed offs, which all end by themselves.
         if let app = model.frontmost, let name = app.localizedName {
             menu.addItem(.separator())
             if model.excludedApps.contains(where: { $0.bundleID == app.bundleIdentifier }) {
-                menu.addItem(withTitle: String(localized: "Stop True Colour for \(name)"), action: #selector(includeFrontmost), keyEquivalent: "").target = self
+                menu.addItem(withTitle: String(localized: "Stop Pausing for \(name)"), action: #selector(includeFrontmost), keyEquivalent: "").target = self
             } else {
-                menu.addItem(withTitle: String(localized: "True Colour for \(name)"), action: #selector(excludeFrontmost), keyEquivalent: "").target = self
+                menu.addItem(withTitle: String(localized: "Pause for \(name)"), action: #selector(excludeFrontmost), keyEquivalent: "").target = self
             }
         }
         menu.addItem(.separator())
@@ -88,6 +88,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     func open() {
         guard panel == nil, let button = item.button, let buttonWindow = button.window else { return }
         AppModel.shared.refreshNow()
+        AppModel.shared.display.watchingClosely = true  // follow brightness keys at 2 Hz while visible
         let panel = LampPanel()
         // The controller sizes the panel to its content, so a notice appearing while it's open
         // grows it rather than clipping it (`LampPanel.top` keeps the top edge in place).
@@ -124,6 +125,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     func close() {
         // Nothing open (a right-click): hiding the app would hide whatever is in front.
         guard panel != nil else { return }
+        AppModel.shared.display.watchingClosely = false
         if let outsideClicks { NSEvent.removeMonitor(outsideClicks) }
         outsideClicks = nil
         item.button?.highlight(false)
@@ -157,11 +159,11 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
             // This re-runs every tick (the depth reads the clock): set the label only when it changes.
             // A timed off says when it ends, here too: the glyph alone looks like any other off.
             let label = !model.enabled
-                ? model.resumeAt.map { String(localized: "Gloam, off until \(Format.time($0))") } ?? String(localized: "Gloam, off")
-                : model.excludedFrontmost.map { String(localized: "Gloam, true colour for \($0.name)") }
+                ? model.resumeAt.map { String(localized: "Gloam, paused until \(Format.time($0))") } ?? String(localized: "Gloam, off")
+                : model.excludedFrontmost.map { String(localized: "Gloam, paused for \($0.name)") }
                     ?? String(localized: "Gloam, \(model.stage.title)")
             if item.button?.accessibilityLabel() != label { item.button?.setAccessibilityLabel(label) }
-            let tip = !model.enabled ? model.resumeAt.map { String(localized: "Gloam is off until \(Format.time($0))") } : nil
+            let tip = !model.enabled ? model.resumeAt.map { String(localized: "Gloam is paused until \(Format.time($0))") } : nil
             if item.button?.toolTip != tip { item.button?.toolTip = tip }
         } onChange: {
             DispatchQueue.main.async { MenuBarPanel.shared.refreshIcon() }

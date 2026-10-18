@@ -11,7 +11,7 @@ Runs on macOS 14+. Building needs Xcode 26+ (Swift 6.2 tools, macOS 26 SDK).
 swift test                      # core logic: colour science, sun, schedule
 swift run Gloam                 # run from source (menu-bar icon appears)
 ./scripts/build-app.sh          # release Gloam.app in .build/
-./scripts/snapshots.sh          # popover at four times of day, plus the welcome window
+./scripts/snapshots.sh          # popover at four times of day, Welcome and Settings
 ```
 
 `swift run Gloam --showcase --at 22:30` opens the popover in a normal window with the clock

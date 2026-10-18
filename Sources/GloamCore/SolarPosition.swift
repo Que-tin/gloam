@@ -54,14 +54,6 @@ public enum Sun {
         return nil
     }
 
-    /// Standard sunrise/sunset (−0.833°: refraction plus the solar disc) for the calendar day of `date`.
-    public static func riseAndSet(on date: Date, _ c: Coordinate, calendar: Calendar = .current)
-        -> (rise: Date?, set: Date?)
-    {
-        let day = calendar.dateInterval(of: .day, for: date)!
-        return (crossing(-0.833, rising: true, in: day, c), crossing(-0.833, rising: false, in: day, c))
-    }
-
     private static func degrees(_ v: Double) -> Double { v.truncatingRemainder(dividingBy: 360) }
     private static func radians(_ deg: Double) -> Double { deg * .pi / 180 }
 }

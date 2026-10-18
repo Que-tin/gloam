@@ -1,11 +1,12 @@
 // The evening in Settings as a graph: tonight's warmth and dimming over time, sunset, bedtime
 // and wake marked. It is also the control for what Settings sets, and only that: drag bedtime
-// or wake sideways, or a cap line (how warm, how dim it may get) up and down. Same model as the
-// sliders it replaced, two caps and two clock times, so "automatic" stays one clear thing.
+// or wake sideways, or a cap line (how warm, how dim it may get) up and down. Two caps and two
+// clock times, so "automatic" stays one clear thing.
 // (Fully editable stages and ramps were considered and left out: the stages are the evidence.)
 //
-// Both curves share one vertical scale, "how much", with two axes: warmth by light name on the
-// left (the dial's scale, `Light.warmth`) and dimming in percent on the right (the ladder's).
+// Both curves share one vertical scale, "how much", with two axes: warmth in Kelvin on the left
+// and dimming in percent on the right, both on the schedule's fixed scales (`Light.warmth`,
+// `Light.dimming` with their defaults); the popover's dial and ladder run to the screen instead.
 
 import Charts
 import GloamCore
@@ -14,7 +15,9 @@ import SwiftUI
 struct EveningGraph: View {
     @Binding var schedule: Schedule
     let place: Coordinate
-    let now: Date
+    /// The wake that ends the evening to show (`AppModel.eveningWake`): changes once a day, so
+    /// the chart isn't redrawn on every clock tick the way passing "now" did.
+    let wake: Date
     /// A limit's drag began or ended: Settings shows the night on screen while one is held.
     /// (Moving a clock time changes when, not how deep, so it previews nothing.)
     var onEditing: (Bool) -> Void = { _ in }
@@ -28,10 +31,16 @@ struct EveningGraph: View {
     /// Which night is shown, held while a marker is dragged: past wake in the morning, "the
     /// evening around now" flips to last night, and the marker with it.
     @State private var heldAnchor: Date?
+    /// The keyboard's marker: focus the graph, ←/→ move it, ↑/↓ switch bedtime and wake (the
+    /// graph is their only control). The ring shows only for keyboard focus.
+    @State private var keyMarker = Handle.bedtime
+    @State private var ring = false
+    @FocusState private var focused: Bool
 
     private static let warm = Color.kelvin(2400), dim = Color(white: 0.82)
+    private static let axisWidth: CGFloat = 46
 
-    private var evening: Schedule.Evening { schedule.evening(around: heldAnchor ?? now, place) }
+    private var evening: Schedule.Evening { schedule.evening(around: heldAnchor ?? wake.addingTimeInterval(-3600), place) }
 
     /// From a little before the evening starts until after wake (`Schedule.Evening.span`).
     private var span: ClosedRange<Date> { heldSpan ?? evening.span }
@@ -94,8 +103,9 @@ struct EveningGraph: View {
             RuleMark(y: .value("Dimming limit", dimmingCap))
                 .foregroundStyle(Self.dim.opacity(emphasis(.dimming)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
-            // Grips: what can be dragged looks like it. Limits at their right end, times at the top.
-            PointMark(x: .value("Time", span.upperBound), y: .value("Warmth limit", warmthCap))
+            // Grips: what can be dragged looks like it. Each limit's grip sits by its own axis
+            // (warmth left, dimming right), times' at the top.
+            PointMark(x: .value("Time", span.lowerBound), y: .value("Warmth limit", warmthCap))
                 .foregroundStyle(Self.warm).symbolSize(dragging == .warmth ? 90 : 55)
             PointMark(x: .value("Time", span.upperBound), y: .value("Dimming limit", dimmingCap))
                 .foregroundStyle(Self.dim).symbolSize(dragging == .dimming ? 90 : 55)
@@ -113,14 +123,23 @@ struct EveningGraph: View {
             }
         }
         .chartYAxis {
-            // Left: warmth, by the names the dial uses. Right: dimming, as the ladder counts it.
+            // Left: warmth in Kelvin (compact; names took the plot's width, and the legend gives
+            // the name too). Right: dimming on the schedule's fixed scale (to 30 %).
             AxisMarks(position: .leading, values: [0, Light.warmth(3400), Light.warmth(1900)]) { value in
                 AxisGridLine().foregroundStyle(.white.opacity(0.1))
-                AxisValueLabel { if let w = value.as(Double.self) { Text(Light.name(Light.kelvin(warmth: w))) } }
+                // Same width both sides, so the plot sits centred; spaced off the plot so the
+                // limits' grips at its edges never touch a label.
+                AxisValueLabel(horizontalSpacing: 12) {
+                    if let w = value.as(Double.self) {
+                        Text(Format.kelvin(Light.kelvin(warmth: w))).frame(width: Self.axisWidth, alignment: .trailing)
+                    }
+                }
                     .foregroundStyle(Self.warm.opacity(0.8))
             }
             AxisMarks(position: .trailing, values: [0, 0.5, 1]) { value in
-                AxisValueLabel { if let d = value.as(Double.self) { Text(Format.percent(d)) } }
+                AxisValueLabel(horizontalSpacing: 12) {
+                    if let d = value.as(Double.self) { Text(Format.percent(d)).frame(width: Self.axisWidth, alignment: .leading) }
+                }
                     .foregroundStyle(Self.dim.opacity(0.8))
             }
         }
@@ -137,12 +156,45 @@ struct EveningGraph: View {
         }
         .frame(height: 190)
         .padding(.top, 14)  // room for the markers' labels
-        .help("Drag bedtime, wake up, or a dashed limit")
+        .help("Drag bedtime, wake up, or a dashed limit. Keyboard: ←/→ move, ↑/↓ switch bedtime and wake.")
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onChange(of: focused) { _, now in ring = now && Lamp.focusFromKeyboard }
+        .onMoveCommand { direction in
+            ring = true
+            switch direction {
+            case .left: step(keyMarker, by: -1)
+            case .right: step(keyMarker, by: 1)
+            case .up, .down: keyMarker = keyMarker == .bedtime ? .wake : .bedtime
+            @unknown default: break
+            }
+        }
         // Settings closed mid-drag: nothing left held, and no preview set again on the way out.
         .onDisappear { (dragging, heldSpan, heldAnchor) = (nil, nil, nil) }
-        .accessibilityElement(children: .ignore)
+        // VoiceOver: the plan, then bedtime and wake as adjustable steps (the graph is their only
+        // control; the limits are adjustable in the legend).
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Tonight")
         .accessibilityValue(e.plan)
+        .accessibilityChildren {
+            timeStep(String(localized: "Bedtime"), .bedtime)
+            timeStep(String(localized: "Wake up"), .wake)
+        }
+    }
+
+    private func timeStep(_ title: String, _ marker: Handle) -> some View {
+        Text(title)
+            .accessibilityValue(Format.time(marker == .bedtime ? schedule.bedtime : schedule.wake))
+            .accessibilityAdjustableAction { direction in step(marker, by: direction == .increment ? 1 : -1) }
+    }
+
+    /// Bedtime or wake a quarter hour later (+1) or earlier (−1), within its window.
+    private func step(_ marker: Handle, by steps: Int) {
+        let (path, window) = marker == .bedtime ? (\Schedule.bedtime, Schedule.bedtimes) : (\Schedule.wake, Schedule.wakes)
+        let all = ClockTime.all(in: window)
+        guard let i = all.firstIndex(of: schedule[keyPath: path]) else { return }
+        schedule[keyPath: path] = all[min(all.count - 1, max(0, i + steps))]
     }
 
     private func marker(_ title: String, _ date: Date) -> some View {
@@ -150,7 +202,9 @@ struct EveningGraph: View {
             .fixedSize()
     }
 
-    private func emphasis(_ h: Handle) -> Double { dragging == h ? 1 : hovered == h ? 0.85 : 0.6 }
+    private func emphasis(_ h: Handle) -> Double {
+        dragging == h || (ring && focused && keyMarker == h) ? 1 : hovered == h ? 0.85 : 0.6
+    }
 
     private func cursor(for h: Handle?) -> NSCursor {
         switch h {
@@ -178,6 +232,13 @@ struct EveningGraph: View {
         return near.filter { $0.1 < 10 }.min { $0.1 < $1.1 }?.0
     }
 
+    /// A dragged limit in steps of 1 % of the scale, landing exactly on the range's ends (so the
+    /// deepest setting is the default itself, not a hair off it).
+    private static func step(_ v: Double, in range: ClosedRange<Double>) -> Double {
+        let r = range.clamp((v * 100).rounded() / 100)
+        return abs(r - range.upperBound) < 0.01 ? range.upperBound : r
+    }
+
     private func endDrag() {
         guard let was = dragging else { return }
         (dragging, heldSpan, heldAnchor) = (nil, nil, nil)
@@ -190,9 +251,12 @@ struct EveningGraph: View {
                 guard let plot = proxy.plotFrame.map({ geo[$0] }) else { return }
                 if dragging == nil {
                     guard let h = handle(at: g.startLocation, proxy, geo) else { return }
-                    // Anchored the afternoon before this night's wake: any settable wake (04:00–12:00)
-                    // or bedtime then still belongs to the same night.
-                    heldAnchor = evening.wake.addingTimeInterval(-18 * 3600)
+                    // Anchored at 13:00 the day before this night's wake: any settable wake (04:00–12:00)
+                    // or bedtime then still belongs to the same night. (Wake minus 18 h put a 04:00
+                    // wake's anchor at 10:00, and a wake dragged past it jumped a night back.)
+                    let cal = Calendar.current
+                    heldAnchor = cal.date(byAdding: .day, value: -1, to: evening.wake)
+                        .flatMap { cal.date(bySettingHour: 13, minute: 0, second: 0, of: $0) }
                     heldSpan = span
                     dragging = h
                     if h == .warmth || h == .dimming { onEditing(true) }
@@ -215,10 +279,14 @@ struct EveningGraph: View {
                     }
                 case .warmth:
                     guard let v: Double = proxy.value(atY: y) else { return }
-                    schedule.warmest = Light.kelvin(warmth: warmthRange.clamp(v))
+                    // Steps of 1 % of the scale, set only when one is crossed: a drag sends ~120
+                    // events a second, and each new value redrew Settings and the chart.
+                    let w = Self.step(v, in: warmthRange)
+                    if abs(Light.warmth(schedule.warmest) - w) > 0.001 { schedule.warmest = Light.kelvin(warmth: w) }
                 case .dimming:
                     guard let v: Double = proxy.value(atY: y) else { return }
-                    schedule.darkest = Light.brightness(dimming: dimmingRange.clamp(v))
+                    let d = Self.step(v, in: dimmingRange)
+                    if abs(Light.dimming(schedule.darkest) - d) > 0.001 { schedule.darkest = Light.brightness(dimming: d) }
                 case nil: break
                 }
             }

@@ -13,11 +13,11 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   fraction of the level found), `Location` (zone.tab), `EnginePolicy` (gamma vs overlay per chip),
   `Command` (`gloam://` toggle/on/off/open).
 - `Sources/Gloam/App/` — `GloamApp` (`@main`: single instance, `--uninstall`, `Windows`, URLs, debug
-  flags `--showcase --at --snapshot --capture --film --onboarded --off --floor`), `MenuBarPanel`
+  flags `--showcase --at --snapshot --capture --film --onboarded --off --floor --exit-after`), `MenuBarPanel`
   (status item: click popover, right-click menu). `Model/AppModel` — settings, clock, target tint.
-- `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `GammaEngine`,
-  `OverlayEngine`, `Displays`, `RoomLight` (sensor), `Backlight` (read and dimmed), `DDC`
-  (third-party monitors over DDC/CI, on a background queue; unverified on hardware).
+- `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `GammaEngine`, `OverlayEngine`,
+  `Displays`, `RoomLight` (sensor), `Backlight`, `SavedDims` (crash recovery), `DDC` (third-party
+  monitors over DDC/CI, on a background queue; unverified on hardware).
 - `Sources/Gloam/UI/` — the "light as material" design: `PopoverView`, `Lamp` (orb dial, dimming
   ladder, small parts), `GloamGlyph` (menu-bar mark), `WelcomeView`, `SettingsView`,
   `EveningGraph` (Settings' evening, also its control), `CitySearch`, `Theme` (colours, names, formats).
@@ -36,37 +36,37 @@ swift run Gloam --film DIR             # popover frames while switching off and 
 
 ## Constraints
 
-- macOS 14+, universal (Intel Macs on 14/15 are a core audience); macOS 26 SDK. Swift 6.2: the app
-  defaults to MainActor, `GloamCore` stays nonisolated; notifications via `for await`.
+- macOS 14+, universal (Intel Macs on 14/15 are core), macOS 26 SDK; app on MainActor, `GloamCore`
+  nonisolated, notifications via `for await`.
 - No dependencies, no telemetry, no location permission (a city search is the only network use).
   Wording stays non-medical; defaults change only with evidence in `docs/science.md`. English only,
   but every user-facing string goes through `String(localized:)` (whole sentences, `Format` numbers).
 - Onboarding asks nothing; Welcome is a draft until Start (closing it first quits, unsaved; the
   menu-bar icon appears with Start). Bedtime and wake are clock times, never stages, set only in
   Settings (bedtime 20:00–03:00, wake 04:00–12:00, quarter hours: a night-time sleep, ≥ 8 h awake);
-  dimming never starts before sunset. Stages are fixed; only the Warmth and Dimming caps are
+  dimming never starts before sunset. Stages are fixed; only the Warmest and Dimmest caps are
   settings. The popover's dial and ladder override until the next stage (per-stage values and
   global strengths were tried and cut: "back to automatic" got unclear).
-- Popover controls span fixed ranges and show what was asked; the screen stops at its limits, with a
-  notice only for a hand setting (ends that moved with the limits made dimming move the warmth knob).
-- Tint gains use each display's own colour space (sRGB gains on P3 turn warm white bloomy red);
-  `RoomLight`/`Backlight` are private API: nil means no change.
+- Popover controls run to as far as the screen goes (`warmestOnMain`, `darkestOnMain`), every step
+  doing something, no notices. Their ends move only with the user's brightness: the smear floor's
+  share is held while Gloam dims (an end that moved with Gloam's dimming made the knob wander).
+- Tint gains use each display's own colour space (sRGB on P3 turns warm white red); private APIs
+  (`RoomLight`/`Backlight`) return nil for "no change".
 - Built-in, Apple and DDC/CI displays are dimmed by backlight as a fraction of the level found
   (`BacklightDim`): key presses and auto-brightness are adopted, never fought; quitting (or, after a
   crash, the next launch) restores. The rest: signal, never below 30%.
-- A built-in LCD never draws a white under `DisplayController.smearFloor` of daylight white's light
-  (light-on-dark text smears below it; a warm tint is a dim white): dimming goes first, then warmth.
+- A built-in LCD never draws a white under `DisplayController.smearFloor` of daylight white's light,
+  scaled by the user's slider (all from 75 %, none ≤ 25 %; light-on-dark text smears below it, and a
+  warm tint is a dim white): dimming goes first, then warmth.
   Monitors opt in (`smearGuarded`): macOS reports nothing about their panels.
-- One app owns the gamma table; interference is detected generically, never by app name.
 - Every window is ours and AppKit-hosted: the popover is a borderless panel, not `MenuBarExtra`
-  (unstylable, can't be opened or captured); Settings isn't a SwiftUI `Settings` scene. Dark.
-- Ticks (5 s; 60 s untinted with nothing due) write the tint directly; only user actions fade, and
-  a new target retargets a running fade. Backlights are polled at 2 Hz while tinted (DDC 20 s),
-  else once a minute; the gamma table is rewritten only if something overwrote it.
-- Timed off (right-click "Turn Off Temporarily": an hour, until morning) ends by itself
-  (`AppModel.resumeAt`); the switch is untimed; an app exception ("True Colour for X") is permanent.
-- Deliberately absent, cut after review: an "Always" mode, presets, a daytime tint, per-stage
-  tuning, an evening timeline or "next" strip in the popover (Settings has the graph), Kelvin
-  numbers in the popover, naming rival apps in the app.
+  (unstylable, can't be opened or captured); Settings isn't a SwiftUI `Settings` scene. Dark. One
+  app owns the gamma table; interference is detected generically, never by app name.
+- Ticks (5 s; 60 s when nothing is due or the screens sleep) write the tint and read backlights;
+  2 Hz only while the popover is open, and a read before any write keeps key presses adopted.
+  Only user actions fade; the gamma table is rewritten only if something overwrote it.
+- Timed pause (right-click "Pause": an hour, until morning) ends itself (`resumeAt`); app pauses don't.
+- Deliberately absent: an "Always" mode, presets, a daytime tint, per-stage tuning, a timeline or
+  Kelvin numbers in the popover (Settings has the graph), naming rival apps in the app.
 - The brand avoids eyes, sun-over-horizon and plain discs (other apps' marks). Anything
   launched locally must be quit and checked with `pgrep -lx Gloam` (snapshot/capture/film runs exit).

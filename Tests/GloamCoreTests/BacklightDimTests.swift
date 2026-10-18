@@ -96,6 +96,16 @@ import Testing
         #expect(peak <= 0.5 + 1e-9 && !d.isDimming)
     }
 
+    // Held at the floor above the curve, a press down below even the curve is kept, not
+    // pushed back up to the curve's level on the next write.
+    @Test func aPressBelowTheCurveAtTheFloorHolds() {
+        var d = BacklightDim(baseline: 0.5)
+        #expect(Self.push(&d, 0.1) == BacklightDim.floorLight)  // the curve wants 0.05
+        d.observe(light: 0.03)
+        #expect(Self.push(&d, 0.1) == nil)
+        #expect(Self.push(&d, 0.08) == nil)       // a deeper step keeps the user's level too
+    }
+
     // Brighter than the day level at night: the morning keeps it rather than dimming.
     @Test func aPressAboveTheDayLevelBecomesIt() {
         var d = BacklightDim(baseline: 0.2)

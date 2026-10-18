@@ -5,12 +5,6 @@ import Foundation
 import Testing
 @testable import GloamCore
 
-private func calendar(_ zone: String) -> Calendar {
-    var c = Calendar(identifier: .gregorian)
-    c.timeZone = TimeZone(identifier: zone)!
-    return c
-}
-
 private func at(_ cal: Calendar, _ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int = 0) -> Date {
     cal.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))!
 }
@@ -22,10 +16,6 @@ private func schedule(bed: ClockTime, wake: ClockTime) -> Schedule {
     return s
 }
 
-private let berlin = Coordinate(latitude: 52.52, longitude: 13.40)
-private let reykjavik = Coordinate(latitude: 64.15, longitude: -21.94)
-private let tromso = Coordinate(latitude: 69.65, longitude: 18.96)
-private let sydney = Coordinate(latitude: -33.87, longitude: 151.21)
 
 @Suite struct EveningEdgeTests {
     static let extremes: [(ClockTime, ClockTime)] = [
@@ -126,9 +116,12 @@ private let sydney = Coordinate(latitude: -33.87, longitude: 151.21)
         }
         let odd = try JSONDecoder().decode(Schedule.self, from: Data(#"{"wake":{"hour":-3,"minute":0}}"#.utf8))
         #expect(odd.wake == ClockTime(4, 0))  // 21:00, nearer the start of 04:00–12:00
+        // Saved by a build without them: the defaults.
+        let old = try JSONDecoder().decode(Schedule.self, from: Data(#"{"warmest":1900,"darkest":0.55}"#.utf8))
+        #expect(old.bedtime == ClockTime(23, 0) && old.wake == ClockTime(7, 0))
     }
 
-    // "At least 8 h awake" holds for every pair Settings can offer.
+    // "At least 8 h awake" holds for every pair the graph can set.
     @Test func everySettablePairIsARhythm() {
         for bed in ClockTime.all(in: Schedule.bedtimes) {
             for wake in ClockTime.all(in: Schedule.wakes) {

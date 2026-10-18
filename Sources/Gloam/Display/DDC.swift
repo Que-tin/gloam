@@ -104,7 +104,7 @@ nonisolated final class DDC: @unchecked Sendable {
         guard let write = Self.write else { return false }
         let value = UInt16(max(0, min(Double(maximum), (fraction * Double(maximum)).rounded())))
         var data: [UInt8] = [0x84, 0x03, Self.brightness, UInt8(value >> 8), UInt8(value & 0xFF), 0]
-        data[5] = data.dropLast().reduce(Self.destination ^ Self.host) { $0 ^ $1 }
+        data[5] = Self.checksum(data.dropLast(), from: Self.destination ^ Self.host)
         var ok = false
         for _ in 0..<2 {  // written twice: some monitors drop the first
             usleep(10_000)
@@ -113,10 +113,13 @@ nonisolated final class DDC: @unchecked Sendable {
         return ok
     }
 
+    /// MCCS's checksum: every byte XORed onto the addresses it travels between.
+    private static func checksum(_ bytes: ArraySlice<UInt8>, from seed: UInt8) -> UInt8 { bytes.reduce(seed, ^) }
+
     private static func readBrightness(_ service: AnyObject) -> (current: Int, max: Int)? {
         guard let write, let read else { return nil }
         var request: [UInt8] = [0x82, 0x01, brightness, 0]
-        request[3] = request.dropLast().reduce(destination ^ host) { $0 ^ $1 }
+        request[3] = checksum(request.dropLast(), from: destination ^ host)
         for _ in 0..<3 {  // reads are optional in MCCS and flaky through some links
             usleep(10_000)
             guard write(service, chip, UInt32(host), request, UInt32(request.count)) == kIOReturnSuccess else { continue }
@@ -125,7 +128,7 @@ nonisolated final class DDC: @unchecked Sendable {
             guard read(service, chip, UInt32(host), &reply, 11) == kIOReturnSuccess else { continue }
             // Reply: [source, length|0x80, 0x02, result, opcode, type, maxHi, maxLo, curHi, curLo, checksum].
             guard reply[2] == 0x02, reply[3] == 0, reply[4] == brightness,
-                  reply[10] == reply.dropLast().reduce(0x50 as UInt8, { $0 ^ $1 }) else { continue }
+                  reply[10] == checksum(reply.dropLast(), from: 0x50) else { continue }
             return (Int(reply[8]) << 8 | Int(reply[9]), Int(reply[6]) << 8 | Int(reply[7]))
         }
         return nil

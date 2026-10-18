@@ -61,7 +61,7 @@ public struct ClockTime: Codable, Hashable, Sendable {
         return ClockTime(minutesOfDay: window.from + Int(minutes))
     }
 
-    /// Every settable time in `window`, in order (the Settings pickers).
+    /// Every settable time in `window`, in order (the graph's keyboard and VoiceOver steps).
     public static func all(in window: (from: Int, to: Int)) -> [ClockTime] {
         let length = (window.to - window.from + 1440) % 1440
         return stride(from: 0, through: length, by: Schedule.timeStep).map { ClockTime(minutesOfDay: window.from + $0) }
@@ -103,7 +103,6 @@ public struct Schedule: Codable, Equatable, Sendable {
     public static let bedtimes = (from: 20 * 60, to: 3 * 60), wakes = (from: 4 * 60, to: 12 * 60)
     /// Settings step through the times in quarter hours.
     public static let timeStep = 15
-    public var sunsetEnabled = true
     public let sunset = Stage(kelvin: 3400, brightness: 1)
     public let windDown = Stage(kelvin: 2700, brightness: 0.7)
     public let night = Self.deepest
@@ -175,10 +174,8 @@ public struct Schedule: Codable, Equatable, Sendable {
         let now = minutes(date, calendar)
         let wakeMin = Double(wake.minutesOfDay), bedMin = Double(bedtime.minutesOfDay)
         var f = Factors()
-        if sunsetEnabled {
-            let afterMorning = Self.window(now, from: wakeMin + Self.morning, to: wakeMin)
-            if afterMorning > 0 { f.sunset = afterMorning * Self.nightFactor(elevation: Sun.elevation(at: date, c)) }
-        }
+        let afterMorning = Self.window(now, from: wakeMin + Self.morning, to: wakeMin)
+        if afterMorning > 0 { f.sunset = afterMorning * Self.nightFactor(elevation: Sun.elevation(at: date, c)) }
         if isRhythmValid {  // ≥ 8 h awake, so the 3 h lead always fits after wake
             let afterSundown = Self.sundownFactor(elevation: Sun.elevation(at: date, c))
             f.windDown = afterSundown * Self.window(now, from: bedMin - Double(Self.windDownLead), to: wakeMin)
@@ -203,9 +200,13 @@ public struct Schedule: Codable, Equatable, Sendable {
         Tint(kelvin: max(t.kelvin, warmest), brightness: max(t.brightness, darkest))
     }
 
+    /// The night stage as the limits allow it: what a preview of tonight shows.
+    public var limitedNight: Tint { limited(night.tint) }
+
     /// How much of the smear floor a built-in display at this backlight level (0…1, the
     /// brightness slider) keeps: all of it from 75%, none at 25% or below, smooth between. The
-    /// trails were seen at a bright backlight and their absolute luminance scales with it.
+    /// trails were seen at a bright backlight; that they fade at a low one is an untested
+    /// assumption (the trail dims with the white around it), see docs/science.md.
     public static func backlightFactor(_ level: Double) -> Double {
         smoothstep(min(1, max(0, (level - 0.25) / 0.5)))
     }
@@ -284,7 +285,7 @@ public struct Schedule: Codable, Equatable, Sendable {
 
     /// One evening's timeline, as real dates.
     public struct Evening: Equatable, Sendable {
-        public var sunset: Date?      // nil when sunset warming is off, or in polar day/night
+        public var sunset: Date?      // nil in polar day or night
         public var windDown: Date?    // nil when the rhythm is invalid
         public var night: Date?
         public var bedtime: Date
@@ -328,7 +329,7 @@ public struct Schedule: Codable, Equatable, Sendable {
         // of that calendar day": in an Icelandic June the sun sets after midnight, and that day's
         // only sunset is the previous night's, at 00:03.
         let sunset = Sun.crossing(-0.833, rising: false, in: DateInterval(start: bed.addingTimeInterval(-15 * 3600), end: wakeDate), c)
-        if sunsetEnabled { e.sunset = sunset }
+        e.sunset = sunset
         if isRhythmValid {
             // Dimming waits for the sun to go down, so in summer it starts at sunset.
             let notBeforeSunset = { (d: Date) in sunset.map { max(d, $0) } ?? d }

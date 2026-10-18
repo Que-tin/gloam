@@ -56,15 +56,19 @@ public struct BacklightDim: Equatable, Codable, Sendable {
     /// Dimmed, a reading away from what was written is an outside move, adopted. On the curve
     /// it scales the baseline by the move's ratio, so the fraction now applies to the new level;
     /// against the floor it moves the floor instead (`heldFloor`), and the baseline only grows to
-    /// meet it.
+    /// meet it, unless the move went below the curve itself: then the curve follows it down,
+    /// or the next write would put back the light the user just took away.
     public mutating func observe(light: Double) {
         guard light.isFinite, light >= 0 else { return }
         guard let w = written else { return baseline = light }
         guard !same(light, w) else { return }
         let atFloor = w > baseline * fraction * 1.001 + 1e-9  // the curve wanted less than was written
-        if atFloor {
+        if atFloor && light >= baseline * fraction {
             heldFloor = light
             baseline = max(baseline, light)
+        } else if atFloor {
+            baseline = light / fraction  // fraction > 0: the curve wanted less than the floor
+            heldFloor = light < Self.floorLight ? light : nil
         } else {
             baseline = w > 0 ? baseline * light / w : fraction > 0 ? light / fraction : light
             heldFloor = light < Self.floorLight ? light : nil

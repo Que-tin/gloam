@@ -1,8 +1,8 @@
 // First launch only. A menu-bar app is otherwise invisible until someone finds its icon. It
 // asks nothing that most people need to answer: sunset comes from the time zone (shown, and
 // changeable here, because "how does it know where I am?" is the first question people ask),
-// and the evening is timed from a fixed 23:00 bedtime that fits most people; anyone it
-// doesn't suit turns Warmth or Dimming down in the preview, or later in Settings.
+// and the evening is timed from a 23:00 bedtime that fits most people (moved in Settings, never
+// asked here); anyone it doesn't suit turns Warmest or Dimmest down in the preview.
 // Everything here is a draft until Start: closing the window first quits Gloam without saving
 // anything, so the next launch lands here again. Nothing tints until Start (Preview aside).
 
@@ -20,7 +20,7 @@ struct WelcomeView: View {
     @State private var schedule = Schedule()
 
     private var shownPlace: Place { place ?? model.timeZonePlace }
-    private var evening: Schedule.Evening { schedule.evening(around: model.now, shownPlace.coordinate) }
+    private var evening: Schedule.Evening { schedule.evening(around: model.eveningWake.addingTimeInterval(-3600), shownPlace.coordinate) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -154,7 +154,7 @@ struct WelcomeView: View {
     }
 
     private func showNight() {
-        model.preview = previewing ? schedule.limited(schedule.night.tint) : nil
+        model.preview = previewing ? schedule.limitedNight : nil
     }
 
     private func slider(_ title: String, _ shown: String, _ value: Binding<Double>) -> some View {

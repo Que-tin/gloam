@@ -7,8 +7,8 @@ import Observation
 import ServiceManagement
 import SwiftUI
 
-/// An app that gets true colour while it's in front (photo, video, design work). This is
-/// what replaces a manual pause: set once, and Gloam steps aside by itself.
+/// An app that pauses Gloam while it's in front (photo, video, design work): set once, and
+/// Gloam pauses by itself whenever the app is in front.
 struct ExcludedApp: Codable, Equatable, Identifiable {
     var bundleID: String
     var name: String
@@ -25,25 +25,23 @@ final class AppModel {
             resumeAt = nil  // switching by hand ends a timed off; `turnOff(until:)` sets it after
             save(enabled, "enabled")
             update(fade: 1)
-            announce(enabled ? String(localized: "Gloam on") : String(localized: "Gloam off"))
+            // After this change settles, so a timed pause (`turnOff`) is announced as one.
+            DispatchQueue.main.async { [self] in
+                AccessibilityNotification.Announcement(enabled ? String(localized: "Gloam on")
+                    : resumeAt.map { String(localized: "Gloam paused until \(Format.time($0))") } ?? String(localized: "Gloam off")).post()
+            }
         }
     }
     /// Saved after the user stops adjusting, not on every drag event.
     var schedule: Schedule {
         didSet {
             saveSoon()
-            if schedule.bedtime != oldValue.bedtime || schedule.wake != oldValue.wake {
-                clockedAt = nil  // the stages moved, and a hand setting's end with them
-                if manual != nil {
-                    refreshClock()
-                    manualUntil = nextStage?.at ?? schedule.evening(around: now, place.coordinate).wake
-                }
-            }
+            if schedule.bedtime != oldValue.bedtime || schedule.wake != oldValue.wake { stagesMoved() }
             if preview == nil { update(fade: 0.35) }
         }
     }
     /// Nil means "follow the time zone".
-    var customPlace: Place? { didSet { save(customPlace, "place"); update(fade: 1.5) } }
+    var customPlace: Place? { didSet { save(customPlace, "place"); stagesMoved(); update(fade: 1.5) } }
     var engine: Engine { didSet { save(engine, "engine"); display.use(engine) } }
     var excludedApps: [ExcludedApp] { didSet { save(excludedApps, "excludedApps"); update(fade: 0.6) } }
     /// Per-display strength by display UUID; missing means full strength.
@@ -64,10 +62,7 @@ final class AppModel {
     /// becomes the new every-night. Where nothing changes (polar day), until the next wake.
     var manual: Tint? {
         didSet {
-            if manual != nil && oldValue == nil {
-                refreshClock()
-                manualUntil = nextStage?.at ?? schedule.evening(around: now, place.coordinate).wake
-            }
+            if manual != nil && oldValue == nil { holdManualUntilNextChange() }
             update(fade: manual == nil ? 1 : 0.15)
         }
     }
@@ -81,12 +76,13 @@ final class AppModel {
 
     private(set) var now = Date()
     /// The app in front, ignoring Gloam itself: opening Gloam's panel activates Gloam, and that
-    /// must neither cancel an exception nor hide which app "true colour for…" refers to.
+    /// must neither cancel an exception nor hide which app "paused for…" refers to.
     private(set) var frontmost: NSRunningApplication?
     /// Showcase runs (README screenshots) use a fixed place, never the developer's time zone.
     private(set) var timeZonePlace = Debug.isShowcase ? .greenwich : Place.forTimeZone() ?? .greenwich
     /// Mirrors SMAppService, which isn't observable; refreshed whenever it may have changed.
-    private(set) var launchesAtLogin = SMAppService.mainApp.status == .enabled
+    private(set) var launchesAtLogin = AppModel.loginItemEnabled
+    private static var loginItemEnabled: Bool { SMAppService.mainApp.status == .enabled }
     /// Shifts the app's clock; only set by the debug `--at` flag.
     @ObservationIgnored static var clockOffset: TimeInterval = 0
 
@@ -95,6 +91,10 @@ final class AppModel {
     @ObservationIgnored private var tickTask: Task<Void, Never>?
     /// The running tick sleeps a minute (`isQuiet`); anything that ends the quiet restarts it.
     @ObservationIgnored private var tickingSlowly = false
+    /// The screens are off (the Mac may stay awake for hours): nothing to show, so the clock
+    /// ticks slowly and the room isn't read. Watched here, not read from the display layer,
+    /// so the order the two hear about a wake in doesn't matter.
+    @ObservationIgnored private var screensAsleep = false
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
 
     private init() {
@@ -129,13 +129,17 @@ final class AppModel {
             observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification) { model, _ in
                 model.update(fade: 1.5)
             },
+            observe(NSWorkspace.shared.notificationCenter, NSWorkspace.screensDidSleepNotification) { model, _ in
+                model.screensAsleep = true
+            },
             observe(NSWorkspace.shared.notificationCenter, NSWorkspace.screensDidWakeNotification) { model, _ in
+                model.screensAsleep = false
                 model.update(fade: 1.5)
             },
             observe(.default, .NSSystemTimeZoneDidChange) { model, _ in
                 NSTimeZone.resetSystemTimeZone()  // otherwise the old zone stays cached
-                model.clockedAt = nil
                 model.timeZonePlace = Place.forTimeZone() ?? .greenwich
+                model.stagesMoved()
                 model.update(fade: 2)
             },
         ]
@@ -169,6 +173,9 @@ final class AppModel {
     /// What changes next and when, at its nominal time (sunset, or the clock time) rather
     /// than when the ease crosses halfway; never in the past.
     private(set) var nextStage: (kind: StageKind, at: Date)?
+    /// The wake that ends the evening the clock is in. Views showing "tonight" (the Settings
+    /// graph, Welcome) key on it rather than `now`, so they redraw once a day, not every tick.
+    private(set) var eveningWake = Date.distantPast
     /// The place the stored stage was worked out for; nil forces the next refresh.
     @ObservationIgnored private var clockedAt: Coordinate?
 
@@ -181,8 +188,8 @@ final class AppModel {
         }
     }
 
-    /// Something holds the tint off: Gloam is off, Welcome isn't finished, or an app in true
-    /// colour is in front.
+    /// Something holds the tint off: Gloam is off, Welcome isn't finished, or an app that
+    /// pauses Gloam is in front.
     var isHeld: Bool { !enabled || !hasOnboarded || excludedFrontmost != nil }
 
     var excludedFrontmost: ExcludedApp? {
@@ -203,19 +210,22 @@ final class AppModel {
     /// How far into the evening, 0 (day) … 1 (night); the menu-bar glyph fills with it.
     var eveningDepth: Double { schedule.depth(at: now, place.coordinate) }
 
-
     // MARK: Actions
 
-    /// Off for a while, from the menu-bar item's menu ("For an Hour", "Until Morning"): the
+    /// Paused for a while, from the menu-bar item's "Pause" menu ("For an Hour", "Until Morning"): the
     /// forgotten switch is the usual way a pause goes wrong, so this one turns itself back on.
-    /// Checked by the clock tick, so it can come back up to a minute late while idle.
+    /// Checked on every update and tick, so it can come back up to a minute late while idle.
     private(set) var resumeAt: Date? { didSet { save(resumeAt, "resumeAt") } }
 
-    /// A tint within a step of either popover control (a dial nudge is ~14 mired) of what
-    /// automatic asks for: "Auto" would reset nothing.
+    /// A tint that shows on screen within half a step of either popover control (a dial nudge is
+    /// 2 % of the way to the screen's warmest; a ladder cell 5 % of the way to its deepest) of
+    /// what automatic shows: "Auto" would reset nothing. Compared as shown, after the screen's
+    /// limits, so two asks the screen can't tell apart count as the same.
     func matchesAutomatic(_ tint: Tint) -> Bool {
-        let auto = automatic
-        return abs(Kelvin.mired(tint.kelvin) - Kelvin.mired(auto.kelvin)) < 7 && abs(tint.brightness - auto.brightness) < 0.02
+        let (t, auto) = (display.onMain(tint), display.onMain(automatic))
+        let dialSpan = Kelvin.mired(display.warmestOnMain) - Kelvin.mired(Stage.kelvinRange.upperBound)
+        let halfNudge = max(1, 0.01 * dialSpan), halfCell = 0.025 * max(0.05, 1 - display.darkestOnMain)
+        return abs(Kelvin.mired(t.kelvin) - Kelvin.mired(auto.kelvin)) < halfNudge && abs(t.brightness - auto.brightness) < halfCell
     }
 
     func turnOff(until date: Date) {
@@ -235,7 +245,7 @@ final class AppModel {
         }
     }
 
-    /// True colour for the app you were just using, from the menu-bar item's right-click menu.
+    /// Paused for the app you were just using, from the menu-bar item's right-click menu.
     func excludeFrontmost() {
         guard let url = frontmost?.bundleURL else { return }
         exclude(appAt: url)
@@ -250,13 +260,12 @@ final class AppModel {
 
     func strength(for display: DisplayInfo) -> Double { displayStrength[display.uuid] ?? 1 }
 
-
     /// SMAppService isn't observable; re-read it when Settings opens.
-    func refreshLoginStatus() { launchesAtLogin = SMAppService.mainApp.status == .enabled }
+    func refreshLoginStatus() { launchesAtLogin = Self.loginItemEnabled }
 
     func setLaunchAtLogin(_ on: Bool) {
         try? on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
-        launchesAtLogin = SMAppService.mainApp.status == .enabled
+        launchesAtLogin = Self.loginItemEnabled
     }
 
     // MARK: Plumbing
@@ -264,7 +273,7 @@ final class AppModel {
     /// Nothing on screen and nothing due for a minute: the clock can tick slowly. A user action
     /// (Gloam on, an app switch, the dial) updates at once, whatever the tick.
     private var isQuiet: Bool {
-        target.isNeutral && manual == nil
+        screensAsleep || target.isNeutral && manual == nil
             && (isHeld || schedule.tint(at: now.addingTimeInterval(80), place.coordinate).isNeutral)
     }
 
@@ -272,11 +281,12 @@ final class AppModel {
         refreshClock()
         let hadRoom = roomLux != nil
         readRoom()
-        if manual != nil, let until = manualUntil, now >= until { manual = nil }
-        // Brought back to what automatic asks for, a hand setting is automatic again (the
-        // popover shows the tint asked for, before limits, so its knobs don't move).
+        expireHolds()
+        // Before the comparison below: a key press since the last tick moves what's on screen.
+        display.tickBacklights()
+        // Brought back to what automatic shows, a hand setting is automatic again (compared after
+        // the screen's limits; the knobs don't move, both read the same on screen).
         if let manual, matchesAutomatic(manual) { self.manual = nil }
-        if !enabled, let resume = resumeAt, now >= resume { enabled = true }
         display.keepAlive()
         guard !display.isFading else { return }
         // The room reading appearing or going (lid opened or closed) eases instead of jumping.
@@ -289,7 +299,7 @@ final class AppModel {
     private func readRoom() {
         // No sensor reads while unused, nor while the schedule isn't dimming (room light only
         // eases dimming); the first read once it is starts unsmoothed.
-        guard enabled && autoDimming, schedule.tint(at: now, place.coordinate).brightness < 0.999 else {
+        guard enabled && autoDimming, !screensAsleep, schedule.tint(at: now, place.coordinate).brightness < 0.999 else {
             roomLux = nil
             return
         }
@@ -319,6 +329,7 @@ final class AppModel {
 
     func update(fade: Double) {
         refreshClock()
+        expireHolds()  // after a wake, an expired hand setting or pause must not come back first
         display.show(target, duration: fade)
         // Gloam switched on in the evening, say: room light and the keep-alive start now,
         // not when the minute's sleep ends.
@@ -328,11 +339,28 @@ final class AppModel {
         }
     }
 
-    /// The popover is opening: what it shows is worked out now, not at the next tick (which
-    /// may be a minute off, with the backlight read as long ago).
-    func refreshNow() {
-        display.refreshBacklights()
-        tick()
+    /// The popover is opening: what it shows is worked out now (backlights read included), not
+    /// at the next tick, which may be a minute off.
+    func refreshNow() { tick() }
+
+    /// Ends a hand setting or a timed pause whose time has come.
+    private func expireHolds() {
+        if manual != nil, let until = manualUntil, now >= until { manual = nil }
+        if !enabled, let resume = resumeAt, now >= resume { enabled = true }
+    }
+
+    /// A hand setting holds until the next change the popover names, or the next wake.
+    private func holdManualUntilNextChange() {
+        refreshClock()
+        manualUntil = nextStage?.at ?? schedule.evening(around: now, place.coordinate).wake
+    }
+
+    /// Bedtime, wake, the place or the time zone changed: the stages move, and a running hand
+    /// setting's end with them.
+    private func stagesMoved() {
+        clockedAt = nil
+        refreshClock()  // now, not at the next tick: Settings' graph shows the night `eveningWake` names
+        if manual != nil { holdManualUntilNextChange() }
     }
 
     /// Moves the clock to now, and with it the stage and what comes next. Skipped within a
@@ -347,6 +375,8 @@ final class AppModel {
         if current != stage { stage = current }
         let next = schedule.upcoming(after: date, coordinate, count: 1).first
         if next?.kind != nextStage?.kind || next?.at != nextStage?.at { nextStage = next }
+        let wake = schedule.evening(around: date, coordinate).wake
+        if wake != eveningWake { eveningWake = wake }
     }
 
     /// Notification-center observers as main-actor tasks, so handlers need no isolation dance.
@@ -373,10 +403,6 @@ final class AppModel {
             guard let self, !Task.isCancelled else { return }
             self.save(self.schedule, "schedule")
         }
-    }
-
-    private func announce(_ text: String) {
-        AccessibilityNotification.Announcement(text).post()
     }
 
     private func save<T: Encodable>(_ value: T?, _ key: String) {

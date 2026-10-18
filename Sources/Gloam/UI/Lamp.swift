@@ -142,14 +142,14 @@ struct LampDial: View {
     let kelvinAt: (Double) -> Double
     /// What the orb glows with: the screen's tint this instant.
     let shown: Tint
-    /// 0 = the lamp is unlit (off, stepping aside, or daytime), 1 = lit. Animated by `PopoverView.warm`.
+    /// 0 = the lamp is unlit (off, paused for an app, or daytime), 1 = lit. Animated by `PopoverView.warm`.
     let core: Double
     let bloom: Double
     let orbTitle: String
     let orbCaption: String
     /// When set, the orb is a quiet power button (Gloam is off) instead of a readout.
     var onPower: (() -> Void)?
-    /// False when turning the ring would change nothing (an app in front has true colour): no
+    /// False when turning the ring would change nothing (an app in front pauses Gloam): no
     /// drag, no cursor, no detents. A drag the binding ignored used to buzz the trackpad on
     /// every event.
     var editable = true
@@ -295,7 +295,7 @@ struct LampDial: View {
             if !caption.isEmpty { LampLabel(text: caption) }
         }
         .fixedSize()
-        .help("\(Format.kelvin((kelvin / 100).rounded() * 100)). Changing it holds until the next stage.")
+        .help("\(Format.kelvin(kelvin)). Changing it holds until the next stage.")
     }
 
     /// Flattened into one layer: 49 capsules redrawn every frame of a fade or drag.
@@ -347,10 +347,9 @@ struct LampDial: View {
         .position(x: center.x + cos(a) * Self.ringRadius, y: center.y + sin(a) * Self.ringRadius)
     }
 
-    /// "20%", large; a word ("aside"), smaller.
+    /// The reading, "20%" or "<5%".
     private var orbHeadline: Text {
-        let size: CGFloat = orbTitle.first?.isLetter == true ? 19 : 28
-        return Text(orbTitle).font(.system(size: size, weight: .medium, design: .rounded).monospacedDigit())
+        Text(orbTitle).font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
     }
 
     /// The lamp face: colour is the screen's warmth now, light is its brightness.
@@ -407,8 +406,8 @@ struct LampDial: View {
     }
 
     private func readoutText(r: CGFloat, ink: Color, etched: Bool) -> some View {
-            // Every change of reading fades the old out and the new in (`swapFade`); a morphing
-            // numericText overprinted digits ("100 %" into "20 %") halfway.
+            // Numbers roll from one to the next (numericText), on a switch and while dragging alike.
+            // Only numbers belong here: a word rolling into a number overprints.
             VStack(spacing: 2) {
                 orbHeadline
                     .tracking(-1)
@@ -417,20 +416,23 @@ struct LampDial: View {
                     // or jump.
                     .minimumScaleFactor(0.5)
                     .frame(maxWidth: r * 1.7)
+                    .contentTransition(.numericText())
+                    .animation(reduceMotion ? nil : .snappy, value: orbTitle)
                 if !orbCaption.isEmpty {
                     Text(orbCaption)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .lineLimit(2)  // "true colour for Adobe Lightroom Classic"
+                        .lineLimit(2)  // "paused for Adobe Lightroom Classic"
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.8)
                         .opacity(0.85)
                         .frame(width: r * 1.8)
+                        .contentTransition(.opacity)  // "blue light" ↔ "paused for …"
+                        .animation(reduceMotion ? nil : .default, value: orbCaption)
                 }
             }
             .foregroundStyle(ink.opacity(core > 0.5 ? 0.92 : 0.75))
             .blendMode(etched ? .multiply : .normal)
             .offset(y: 2)
-            .swapFade("\(orbTitle) \(orbCaption)")
     }
 }
 
@@ -479,7 +481,7 @@ extension View {
 
 // MARK: - Dimming ladder
 
-/// Cells rising like a volume wedge, 0 (full brightness) … 1 (the deepest dimming there is);
+/// Cells rising like a volume wedge, 0 (full brightness) … 1 (as dim as this screen goes);
 /// each lit cell glows as bright as the screen it stands for, so the further the ladder goes
 /// the dimmer its own light. Each cell is 5%: the lit cells match the number to half a cell.
 /// "Dimming" rather than "brightness": what the control does is take light away, and the
@@ -502,10 +504,11 @@ struct DimmingLadder: View {
             HStack {
                 LampLabel(text: String(localized: "Dimming"))
                 Spacer()
+                // Changes directly: it follows every frame of a screen fade, where rolling digits
+                // never settle long enough to read (the orb, which rolls, shows the destination).
                 Text(Format.percent(dimming))
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(Lamp.ink.opacity(0.9))
-                    .contentTransition(.numericText())
             }
             GeometryReader { geo in
                 HStack(spacing: 3) {
@@ -563,8 +566,9 @@ struct DimmingLadder: View {
         let n = min(Self.cells, max(0, cells))
         // Scrolling reaches here even while disabled (an AppKit view catches it): no detent then.
         guard isEnabled, n != litCells else { return }
-        Lamp.detent()
         dimming = Double(n) / Double(Self.cells)
+        // A detent only for a step that happened (a screen that can't dim stays full).
+        if litCells == n { Lamp.detent() }
     }
 }
 

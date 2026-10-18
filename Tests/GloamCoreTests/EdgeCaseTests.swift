@@ -5,12 +5,6 @@ import Foundation
 import Testing
 @testable import GloamCore
 
-private let berlin = Coordinate(latitude: 52.52, longitude: 13.40)
-private func calendar(_ zone: String) -> Calendar {
-    var c = Calendar(identifier: .gregorian)
-    c.timeZone = TimeZone(identifier: zone)!
-    return c
-}
 
 @Suite struct UpcomingTests {
     // Between a stage's clock time and its ease crossing halfway (~20 min), the nominal time is
@@ -39,7 +33,7 @@ private func calendar(_ zone: String) -> Calendar {
     // Reykjavik in late June: the sun sets after midnight, so the calendar day's only sunset
     // is the previous night's, at 00:03.
     @Test func eveningUsesTonightsSunset() {
-        let cal = calendar("Atlantic/Reykjavik"), reykjavik = Coordinate(latitude: 64.15, longitude: -21.94)
+        let cal = calendar("Atlantic/Reykjavik")
         let afternoon = cal.date(from: DateComponents(year: 2026, month: 6, day: 21, hour: 18))!
         let e = Schedule().evening(around: afternoon, reykjavik, calendar: cal)
         let sunset = try! #require(e.sunset)
@@ -57,11 +51,6 @@ private func calendar(_ zone: String) -> Calendar {
 }
 
 @Suite struct InputTests {
-    @Test func schemeIsCaseInsensitive() {
-        #expect(Command(url: URL(string: "GLOAM://toggle")!) == .toggle)
-        #expect(Command(url: URL(string: "other://toggle")!) == nil)
-    }
-
     @Test func nonASCIIDigitsAreRejected() {
         #expect(Place.parseISO6709("+5²30+01322") == nil)
         #expect(Place.parseISO6709("+٥٢30+01322") == nil)

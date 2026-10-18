@@ -2,12 +2,6 @@ import Foundation
 import Testing
 @testable import GloamCore
 
-private let berlin = Coordinate(latitude: 52.52, longitude: 13.40)
-private var utcBerlin: Calendar {
-    var c = Calendar(identifier: .gregorian)
-    c.timeZone = TimeZone(identifier: "Europe/Berlin")!
-    return c
-}
 private func date(_ s: String) -> Date { ISO8601DateFormatter().date(from: s)! }
 /// Display P3, XYZ → linear RGB.
 private let p3: LinearRGB = { c in
@@ -65,25 +59,24 @@ private let p3: LinearRGB = { c in
 
     // Published Berlin times for 2026-06-21: sunrise 04:43, sunset 21:33 (CEST).
     @Test func riseAndSetMatchAlmanac() throws {
-        let (rise, set) = Sun.riseAndSet(on: date("2026-06-21T10:00:00Z"), berlin, calendar: utcBerlin)
+        let (rise, set) = riseAndSet(on: date("2026-06-21T10:00:00Z"), berlin, calendar: berlinCalendar)
         let r = try #require(rise), s = try #require(set)
         #expect(abs(r.timeIntervalSince(date("2026-06-21T02:43:00Z"))) < 180)
         #expect(abs(s.timeIntervalSince(date("2026-06-21T19:33:00Z"))) < 180)
     }
 
     @Test func polarNightHasNoSunrise() {
-        let tromso = Coordinate(latitude: 69.65, longitude: 18.96)
-        let (rise, set) = Sun.riseAndSet(on: date("2026-12-21T12:00:00Z"), tromso)
+        let (rise, set) = riseAndSet(on: date("2026-12-21T12:00:00Z"), tromso)
         #expect(rise == nil && set == nil)
     }
 }
 
 @Suite struct ScheduleTests {
     private func at(_ h: Int, _ m: Int, month: Int = 6, day: Int = 21) -> Date {
-        utcBerlin.date(from: DateComponents(year: 2026, month: month, day: day, hour: h, minute: m))!
+        berlinCalendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: h, minute: m))!
     }
-    private func tint(_ s: Schedule, _ d: Date) -> Tint { s.tint(at: d, berlin, calendar: utcBerlin) }
-    private func stage(_ s: Schedule, _ d: Date) -> StageKind { s.stage(at: d, berlin, calendar: utcBerlin) }
+    private func tint(_ s: Schedule, _ d: Date) -> Tint { s.tint(at: d, berlin, calendar: berlinCalendar) }
+    private func stage(_ s: Schedule, _ d: Date) -> StageKind { s.stage(at: d, berlin, calendar: berlinCalendar) }
 
     @Test func nightFactorBounds() {
         #expect(Schedule.nightFactor(elevation: 30) == 0)
@@ -106,7 +99,7 @@ private let p3: LinearRGB = { c in
     // Berlin, June: sunset 21:33. A 20:00 wind-down would dim the screen in daylight.
     @Test func neverDimsWhileTheSunIsUp() {
         let s = Schedule()
-        let e = s.evening(around: at(16, 0), berlin, calendar: utcBerlin)
+        let e = s.evening(around: at(16, 0), berlin, calendar: berlinCalendar)
         #expect(e.windDown == e.sunset)  // the timeline says so too
         #expect(tint(s, at(20, 30)).brightness == 1)
         #expect(stage(s, at(20, 30)) == .day)
@@ -141,35 +134,27 @@ private let p3: LinearRGB = { c in
         }
     }
 
-    @Test func sunsetCanBeTurnedOff() {
-        var s = Schedule()
-        s.sunsetEnabled = false
-        #expect(tint(s, at(18, 0, month: 12)) == .neutral)
-        #expect(stage(s, at(3, 0, month: 12)) == .night)
-    }
-
     @Test func nextStageFindsWhatArrivesFirst() {
         var s = Schedule()
-        #expect(s.nextStage(after: at(13, 0), berlin, calendar: utcBerlin)?.kind != .day)
-        #expect(s.nextStage(after: at(13, 0, month: 12), berlin, calendar: utcBerlin)?.kind == .sunset)
-        #expect(s.nextStage(after: at(21, 0, month: 3), berlin, calendar: utcBerlin)?.kind == .night)
-        #expect(s.nextStage(after: at(3, 0), berlin, calendar: utcBerlin)?.kind == .day)
-        s.sunsetEnabled = false
-        s.wake = ClockTime(16, 0)  // invalid rhythm: nothing ever happens
-        #expect(s.nextStage(after: at(13, 0), berlin, calendar: utcBerlin) == nil)
+        #expect(s.nextStage(after: at(13, 0), berlin, calendar: berlinCalendar)?.kind != .day)
+        #expect(s.nextStage(after: at(13, 0, month: 12), berlin, calendar: berlinCalendar)?.kind == .sunset)
+        #expect(s.nextStage(after: at(21, 0, month: 3), berlin, calendar: berlinCalendar)?.kind == .night)
+        #expect(s.nextStage(after: at(3, 0), berlin, calendar: berlinCalendar)?.kind == .day)
+        s.wake = ClockTime(16, 0)  // invalid rhythm, in a midnight-sun June: nothing ever happens
+        #expect(s.nextStage(after: at(13, 0), tromso, calendar: berlinCalendar) == nil)
     }
 
     @Test func eveningBelongsToTheNextWake() {
         let s = Schedule()  // bed 23:00, wake 07:00
-        let afternoon = s.evening(around: at(16, 0), berlin, calendar: utcBerlin)
+        let afternoon = s.evening(around: at(16, 0), berlin, calendar: berlinCalendar)
         #expect(afternoon.wake == at(7, 0, day: 22) && afternoon.bedtime == at(23, 0))
         #expect(afternoon.windDown == afternoon.sunset && afternoon.night == at(22, 0))  // June: dimming waits for sunset
-        let march = s.evening(around: at(16, 0, month: 3), berlin, calendar: utcBerlin)
+        let march = s.evening(around: at(16, 0, month: 3), berlin, calendar: berlinCalendar)
         #expect(march.windDown == at(20, 0, month: 3) && march.night == at(22, 0, month: 3))
-        let s2 = afternoon.sunset.map { utcBerlin.component(.hour, from: $0) }
+        let s2 = afternoon.sunset.map { berlinCalendar.component(.hour, from: $0) }
         #expect(s2 == 21)  // tonight's June sunset, not tomorrow's
         // At 03:00 the evening is the one still under way.
-        let small = s.evening(around: at(3, 0, day: 22), berlin, calendar: utcBerlin)
+        let small = s.evening(around: at(3, 0, day: 22), berlin, calendar: berlinCalendar)
         #expect(small.wake == at(7, 0, day: 22) && small.bedtime == at(23, 0))
     }
 
@@ -178,7 +163,7 @@ private let p3: LinearRGB = { c in
         s.bedtime = ClockTime(bed.0, bed.1)
         s.wake = ClockTime(11, 0)
         for hour in [16, 23] {
-            let e = s.evening(around: at(hour, 0), berlin, calendar: utcBerlin)
+            let e = s.evening(around: at(hour, 0), berlin, calendar: berlinCalendar)
             let order = [e.sunset!, e.windDown!, e.night!, e.bedtime, e.wake]
             #expect(order == order.sorted(), "evening around \(hour):00 is out of order")
             #expect(e.wake > at(hour, 0) && e.wake.timeIntervalSince(at(hour, 0)) <= 86_400)
@@ -189,8 +174,8 @@ private let p3: LinearRGB = { c in
     @Test(arguments: [(10, 24), (3, 28)]) func daylightSavingNightsKeepWallClockTimes(date: (Int, Int)) {
         var s = Schedule()
         s.bedtime = ClockTime(0, 0)
-        let e = s.evening(around: at(18, 0, month: date.0, day: date.1), berlin, calendar: utcBerlin)
-        let clock = { (d: Date?) in d.map { utcBerlin.dateComponents([.hour, .minute], from: $0) } }
+        let e = s.evening(around: at(18, 0, month: date.0, day: date.1), berlin, calendar: berlinCalendar)
+        let clock = { (d: Date?) in d.map { berlinCalendar.dateComponents([.hour, .minute], from: $0) } }
         #expect(clock(e.windDown) == DateComponents(hour: 21, minute: 0))
         #expect(clock(e.night) == DateComponents(hour: 23, minute: 0))
         #expect(clock(e.bedtime) == DateComponents(hour: 0, minute: 0))
@@ -200,29 +185,27 @@ private let p3: LinearRGB = { c in
         var s = Schedule()
         s.wake = ClockTime(13, 0)
         s.bedtime = ClockTime(5, 0)
-        let e = s.evening(around: at(10, 0), berlin, calendar: utcBerlin)
+        let e = s.evening(around: at(10, 0), berlin, calendar: berlinCalendar)
         #expect(e.sunset! < e.windDown! && e.windDown! < e.bedtime && e.bedtime < e.wake)
     }
 
     @Test func eveningWithoutSunsetOrValidRhythm() {
         var s = Schedule()
-        s.sunsetEnabled = false
         s.wake = ClockTime(16, 0)
-        let e = s.evening(around: at(12, 0), berlin, calendar: utcBerlin)
+        let e = s.evening(around: at(12, 0, month: 12), tromso, calendar: berlinCalendar)  // polar night
         #expect(e.sunset == nil && e.windDown == nil && e.night == nil)
     }
 
     @Test(arguments: [6, 12]) func depthIsContinuousAndOrdered(month: Int) {
-        var s = Schedule()
-        s.sunsetEnabled = month == 12  // June also covers "wind-down with no sunset before it"
-        var last = s.depth(at: at(0, 0, month: month), berlin, calendar: utcBerlin)
+        let s = Schedule()
+        var last = s.depth(at: at(0, 0, month: month), berlin, calendar: berlinCalendar)
         for minute in 1..<1440 {
-            let d = s.depth(at: at(minute / 60, minute % 60, month: month), berlin, calendar: utcBerlin)
+            let d = s.depth(at: at(minute / 60, minute % 60, month: month), berlin, calendar: berlinCalendar)
             #expect(abs(d - last) < 0.1, "depth jump at minute \(minute)")
             last = d
         }
-        #expect(s.depth(at: at(13, 0, month: month), berlin, calendar: utcBerlin) == 0)
-        #expect(s.depth(at: at(3, 0, month: month), berlin, calendar: utcBerlin) == 1)
+        #expect(s.depth(at: at(13, 0, month: month), berlin, calendar: berlinCalendar) == 0)
+        #expect(s.depth(at: at(3, 0, month: month), berlin, calendar: berlinCalendar) == 1)
     }
 
     @Test func windowsCrossMidnightWithEasedEdges() {
@@ -249,12 +232,12 @@ private let p3: LinearRGB = { c in
 
     @Test func upcomingListsTheNextChangesInOrder() {
         let s = Schedule()
-        let evening = s.upcoming(after: at(21, 15, month: 3), berlin, calendar: utcBerlin)
+        let evening = s.upcoming(after: at(21, 15, month: 3), berlin, calendar: berlinCalendar)
         #expect(evening.map(\.kind) == [.night, .day])
         #expect(evening.map(\.at) == [at(22, 0, month: 3), at(7, 0, month: 3, day: 22)])
-        let summerDay = s.upcoming(after: at(14, 0), berlin, calendar: utcBerlin)
+        let summerDay = s.upcoming(after: at(14, 0), berlin, calendar: berlinCalendar)
         #expect(summerDay.first?.kind == .windDown)  // June: wind-down waits for sunset, no separate sunset step
-        let winterDay = s.upcoming(after: at(14, 0, month: 12), berlin, calendar: utcBerlin)
+        let winterDay = s.upcoming(after: at(14, 0, month: 12), berlin, calendar: berlinCalendar)
         #expect(winterDay.map(\.kind) == [.sunset, .windDown])
     }
 
@@ -293,14 +276,14 @@ private let p3: LinearRGB = { c in
         let night = at(3, 0, month: 3)
         #expect(Schedule.roomFactor(lux: 0) == 1 && Schedule.roomFactor(lux: 10) == 1)
         #expect(abs(Schedule.roomFactor(lux: 500) - 1.0 / 3) < 1e-9 && Schedule.roomFactor(lux: 5000) == Schedule.roomFactor(lux: 500))
-        let bright = s.tint(at: night, berlin, roomLux: 800, calendar: utcBerlin)
+        let bright = s.tint(at: night, berlin, roomLux: 800, calendar: berlinCalendar)
         #expect(abs(bright.brightness - 0.85) < 1e-9 && bright.kelvin == s.night.kelvin)  // 45% dimming → 15%
     }
 
     @Test func decodingIsTolerant() throws {
         let json = #"{"bedtime":{"hour":1,"minute":30},"night":{"kelvin":0},"darkest":0.8,"warmest":99999}"#
         let s = try JSONDecoder().decode(Schedule.self, from: Data(json.utf8))
-        // Bedtime is a setting again; stage values from older builds are not, and are ignored.
+        // Bedtime is a setting; stage values saved by older builds are not, and are ignored.
         #expect(s.bedtime == ClockTime(1, 30) && s.night == Schedule().night)
         #expect(s.darkest == 0.8 && s.warmest == Kelvin.daylight)
         let back = try JSONDecoder().decode(Schedule.self, from: JSONEncoder().encode(s))
@@ -346,6 +329,7 @@ private let p3: LinearRGB = { c in
         #expect(cmd("gloam://toggle") == .toggle)
         #expect(cmd("gloam://on") == .on && cmd("gloam://OFF") == .off)
         #expect(cmd("gloam://open") == .open)
+        #expect(cmd("GLOAM://toggle") == .toggle)  // schemes are case-insensitive
         #expect(cmd("gloam://explode") == nil && cmd("other://toggle") == nil)
     }
 }

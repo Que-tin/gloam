@@ -47,9 +47,11 @@ extension StageKind {
 enum Light {
     /// A name for a colour temperature, so the dial speaks in feelings before numbers.
     static func name(_ kelvin: Double) -> String {
-        switch kelvin {
+        // Named by the value shown beside it (100 K steps), so "Lamplight · 2400 K" never reads
+        // "Candlelight · 2400 K" at a band's edge.
+        switch (kelvin / 100).rounded() * 100 {
         case 5500...: String(localized: "Daylight", comment: "light colour")
-        case 4200..<5500: String(localized: "Soft white", comment: "light colour")
+        case 4200..<5500: String(localized: "Cool white", comment: "light colour (\"soft white\" bulbs are ~2700 K in US shops)")
         case 3200..<4200: String(localized: "Halogen", comment: "light colour")
         case 2400..<3200: String(localized: "Lamplight", comment: "light colour")
         case 1700..<2400: String(localized: "Candlelight", comment: "light colour")
@@ -57,32 +59,36 @@ enum Light {
         }
     }
 
-    /// Warmth as a position, 0 (daylight) … 1 (ember), even in mired, where equal steps are
-    /// equal visible steps: the popover's dial and the evening graph share this scale.
-    static func warmth(_ kelvin: Double) -> Double {
-        let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(Stage.kelvinRange.lowerBound))
-        return min(1, max(0, (Kelvin.mired(kelvin) - cool) / (warm - cool)))
+    /// Warmth as a position, 0 (daylight) … 1 (`warmest`), even in mired, where equal steps are
+    /// equal visible steps: ember by default (the graph's fixed scale), or the warmest a screen
+    /// goes (the popover's dial).
+    static func warmth(_ kelvin: Double, warmest: Double = Stage.kelvinRange.lowerBound) -> Double {
+        let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(warmest))
+        return warm - cool < 0.5 ? 1 : min(1, max(0, (Kelvin.mired(kelvin) - cool) / (warm - cool)))
     }
 
-    static func kelvin(warmth w: Double) -> Double {
-        let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(Stage.kelvinRange.lowerBound))
+    static func kelvin(warmth w: Double, warmest: Double = Stage.kelvinRange.lowerBound) -> Double {
+        let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(warmest))
         return 1e6 / (cool + (warm - cool) * min(1, max(0, w)))
     }
 
-    /// Dimming as a position, 0 (full brightness) … 1 (the deepest there is), as the ladder shows it.
-    static func dimming(_ brightness: Double) -> Double {
-        min(1, max(0, (1 - brightness) / (1 - Stage.brightnessRange.lowerBound)))
+    /// Dimming as a position, 0 (full brightness) … 1 (`darkest`): the deepest there is by
+    /// default (the schedule's scale, in Settings), or the deepest a screen goes (the ladder).
+    static func dimming(_ brightness: Double, darkest: Double = Stage.brightnessRange.lowerBound) -> Double {
+        // A screen that can't dim: full while dimming is asked for (as dim as it goes), empty when not.
+        darkest > 0.999 ? (brightness < 0.999 ? 1 : 0) : min(1, max(0, (1 - brightness) / (1 - darkest)))
     }
 
-    static func brightness(dimming d: Double) -> Double {
-        1 - min(1, max(0, d)) * (1 - Stage.brightnessRange.lowerBound)
+    static func brightness(dimming d: Double, darkest: Double = Stage.brightnessRange.lowerBound) -> Double {
+        1 - min(1, max(0, d)) * (1 - darkest)
     }
 }
 
 /// Numbers in the user's own format ("54%" here, "54 %" in a German region).
 enum Format {
     static func kelvin(_ k: Double) -> String {
-        "\(((k / 50).rounded() * 50).formatted(.number.grouping(.never)))K"
+        // To the nearest 100 K, as bulb labels give it (EU 2019/2020); finer reads as false precision.
+        "\(((k / 100).rounded() * 100).formatted(.number.grouping(.never)))\u{00A0}K"  // never split
     }
     static func percent(_ v: Double) -> String { v.formatted(.percent.precision(.fractionLength(0))) }
     static func time(_ d: Date?) -> String { d?.formatted(date: .omitted, time: .shortened) ?? "—" }

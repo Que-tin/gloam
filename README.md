@@ -39,7 +39,7 @@ around what sleep research says matters:
   estimates how much blue light still reaches you, compared with the same screen untinted at
   the brightness you set. On the built-in screen, Apple displays and monitors that support
   DDC/CI it dims the backlight itself, the way the brightness keys do (never below about
-  40 cd/m²); other monitors are dimmed in software, never below 30%, so shadows stay readable.
+  40 cd/m² on a typical laptop screen); other monitors are dimmed in software, never below 30%, so shadows stay readable.
 
 Room lighting and total screen time matter more than any screen app. Gloam helps with the part a
 screen can.
@@ -47,16 +47,16 @@ screen can.
 ## Using it
 
 - **The lamp.** It glows with your screen's colour right now and shows how much blue light still
-  reaches you. Its dial (warmth, daylight to ember) and ladder (dimming) show what the evening asks
-  for; move them (or scroll, or use the arrow keys) to take over by hand until the next change, and
-  "Auto" hands back at once. Where your screen can't follow, it stops at its limit (and says why if you asked for more).
+  reaches you. Its dial (warmth) and ladder (dimming) each run from nothing to as far as your screen
+  goes, and show what the evening asks for; move them (or scroll, or use the arrow keys) to take
+  over by hand until the next change, and "Auto" hands back at once.
 - **On, off, or off for a while.** The switch at the top turns Gloam off and on. Right-click the
-  menu-bar icon for **Turn Off Temporarily**: for an hour, or until morning; either ends by itself.
-- **True colour where it matters.** Right-click while using Lightroom, Photoshop or a video player
-  and choose **True Colour for** it (or add apps in Settings): Gloam steps aside while it's in front.
+  menu-bar icon to **Pause** for an hour or until morning; either ends by itself.
+- **Paused where colour matters.** Right-click while using Lightroom, Photoshop or a video player
+  and choose **Pause for** it (or add apps in Settings): Gloam pauses while it's in front.
 - **Your evening, as a graph.** Settings shows tonight's warmth and dimming against sunset, bedtime
-  and wake. Drag bedtime or wake sideways, or the dashed Warmth and Dimming limits up and down;
-  automatic runs as designed until it would cross a limit. **Preview Tonight** shows the night on
+  and wake. Drag bedtime or wake sideways, or the dashed Warmest and Dimmest limits up and down;
+  automatic runs as designed until it would cross a limit. **Preview tonight** shows the night on
   your screen while you set it. "Adapt to room light" eases the dimming in a bright room (MacBook, lid open).
 - **Settings** (gear, or right-click the menu-bar icon) also hold your location, which screens
   to tint, app exceptions and launch at login.

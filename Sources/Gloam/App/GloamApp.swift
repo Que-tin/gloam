@@ -104,11 +104,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             print("Gloam: \(others.isEmpty ? "" : "quit the running copy; ")login item \(login == .enabled ? "removed" : "was not set"); settings cleared.")
             exit(0)
         }
-        // One Gloam at a time: two would fight over the screen's colour table. A second launch
-        // opens the running one's panel and quits.
-        if !others.isEmpty {
-            NSWorkspace.shared.open(URL(string: "gloam://open")!)
-            exit(0)
+        // One Gloam at a time: two would fight over the screen's colour table. A later launch
+        // opens the earlier one's panel and quits. "Earlier" by the process's own start time
+        // (`launchDate` is nil for a copy started from a shell, which then ranked itself oldest),
+        // then pid, so two copies started together (login item and a click) don't both leave; the
+        // URL goes to that copy's own bundle, not whichever one LaunchServices would pick.
+        let key = { (pid: pid_t) in (Self.startTime(pid), pid) }
+        let me = key(ProcessInfo.processInfo.processIdentifier)
+        if let elder = others.filter({ key($0.processIdentifier) < me }).min(by: { key($0.processIdentifier) < key($1.processIdentifier) }) {
+            // From here this copy only forwards: a URL arriving now must not build the model and
+            // dim the screen in a process about to exit without restoring.
+            handingOver = elder.bundleURL.flatMap { $0.pathExtension == "app" ? $0 : nil }.map { .bundle($0) } ?? .launchServices
+            forward([URL(string: "gloam://open")!]) { exit(0) }
+            return
         }
         // Also covers `swift run`, where there is no Info.plist to say LSUIElement.
         NSApp.setActivationPolicy(.accessory)
@@ -119,11 +127,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        guard handingOver == nil else { return forward(urls) {} }
         for command in urls.compactMap(Command.init(url:)) {
             if command != .open { AppModel.shared.run(command) }
             else if AppModel.shared.hasOnboarded { MenuBarPanel.shared.open() }
             else { Windows.showWelcome() }
         }
+    }
+
+    /// Where a copy that is handing over to an earlier one sends its URLs; nil when it isn't.
+    private enum HandOver { case bundle(URL), launchServices }
+    private var handingOver: HandOver?
+
+    private func forward(_ urls: [URL], then done: @escaping () -> Void) {
+        switch handingOver {
+        case .bundle(let app)?:
+            NSWorkspace.shared.open(urls, withApplicationAt: app, configuration: .init()) { _, _ in
+                DispatchQueue.main.async(execute: done)
+            }
+        default:
+            urls.forEach { NSWorkspace.shared.open($0) }
+            done()
+        }
+    }
+
+    /// When a process started, from the kernel: unlike `launchDate`, set however it was started.
+    private static func startTime(_ pid: pid_t) -> Date {
+        var info = kinfo_proc(), size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return .distantFuture }
+        let t = info.kp_proc.p_starttime
+        return Date(timeIntervalSince1970: Double(t.tv_sec) + Double(t.tv_usec) / 1e6)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -150,7 +184,7 @@ enum Windows {
 
     private final class SettingsCloser: NSObject, NSWindowDelegate {
         func windowWillClose(_ notification: Notification) {
-            // A preview (Preview Tonight, or a limit mid-drag) never outlives the window.
+            // A preview (Preview tonight, or a limit mid-drag) never outlives the window.
             AppModel.shared.preview = nil
             DispatchQueue.main.async { Windows.settings = nil }
         }
@@ -301,12 +335,7 @@ enum Debug {
     /// them with their chrome, and quits. An app may capture its own windows without Screen
     /// Recording permission, so this shows exactly what users see.
     private static func capture(into dir: String) {
-        func shoot(_ window: NSWindow, _ name: String) {
-            guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber),
-                                                      [.bestResolution]) else { return }
-            try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?
-                .write(to: URL(fileURLWithPath: dir).appendingPathComponent("window-\(name).png"))
-        }
+        func shoot(_ window: NSWindow, _ name: String) { writePNG(window, to: "\(dir)/window-\(name).png") }
         Task {
             // The popover alone first: it closes as soon as another window takes focus.
             MenuBarPanel.shared.open()
@@ -338,10 +367,7 @@ enum Debug {
             @MainActor func roll(_ seconds: Double) async {
                 let end = Date().addingTimeInterval(seconds)
                 while Date() < end, let panel = MenuBarPanel.shared.panelWindow {
-                    if let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(panel.windowNumber), [.bestResolution]) {
-                        try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?
-                            .write(to: URL(fileURLWithPath: dir).appendingPathComponent(String(format: "frame-%03d.png", frame)))
-                    }
+                    writePNG(panel, to: "\(dir)/" + String(format: "frame-%03d.png", frame))
                     frame += 1
                     try? await Task.sleep(for: .milliseconds(40))
                 }
@@ -363,6 +389,17 @@ enum Debug {
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         guard let tiff = renderer.nsImage?.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return }
+        write(rep, to: path)
+    }
+
+    /// A window as it is on screen, chrome included.
+    private static func writePNG(_ window: NSWindow, to path: String) {
+        guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber),
+                                                  [.bestResolution]) else { return }
+        write(NSBitmapImageRep(cgImage: image), to: path)
+    }
+
+    private static func write(_ rep: NSBitmapImageRep, to path: String) {
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
     }
     #endif
