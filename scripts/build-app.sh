@@ -23,5 +23,7 @@ cp "$BIN" "$APP/Contents/MacOS/Gloam"
 cp .build/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
 
-codesign --force --options runtime --timestamp=none --sign "${SIGN_IDENTITY:--}" "$APP"
+# Notarization needs a secure timestamp; an ad-hoc signature can't have one.
+if [ -n "${SIGN_IDENTITY:-}" ]; then TIMESTAMP=--timestamp; else TIMESTAMP=--timestamp=none; fi
+codesign --force --options runtime "$TIMESTAMP" --sign "${SIGN_IDENTITY:--}" "$APP"
 echo "Built $APP ($VERSION)"
