@@ -200,4 +200,23 @@ import Testing
         let old = #"{"baseline":0.5,"written":0.25,"fraction":0.5,"step":0}"#
         #expect(try JSONDecoder().decode(BacklightDim.self, from: Data(old.utf8)).written == 0.25)
     }
+
+    // A monitor with 50 steps walks one step per write, rounded up (the signal dims the rest),
+    // and records each step as dimming until the release lands on the baseline.
+    @Test func aMonitorWalksOneStepAtATime() {
+        var d = BacklightDim(baseline: 12.0 / 50, step: 1.0 / 50)
+        var lights: [Int] = []
+        while let (light, final) = d.nextStep(for: 0.3) {
+            lights.append(Int((light * 50).rounded()))
+            d.wrote(light, for: final ? 0.3 : light / d.baseline)
+        }
+        #expect(lights == [11, 10, 9, 8, 7, 6, 5, 4])   // 0.3 × 12 = 3.6 is under the light floor (4 of 50)
+        #expect(d.isDimming)
+        var back: [Int] = []
+        while let (light, final) = d.nextStep(for: 1) {
+            back.append(Int((light * 50).rounded()))
+            d.wrote(light, for: final ? 1 : min(0.999, light / d.baseline))
+        }
+        #expect(back == [5, 6, 7, 8, 9, 10, 11, 12] && !d.isDimming)
+    }
 }

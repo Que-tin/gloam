@@ -410,8 +410,9 @@ final class DisplayController {
                 // On the signal fallback: remember what the backlight should show, for the retry.
                 requested[display.id] = pow(asked.brightness, Kelvin.displayGamma)
             } else if dims[display.id] != nil {
-                setBacklight(display.id, fraction: pow(t.brightness, Kelvin.displayGamma))
-                t.brightness = 1
+                let fraction = pow(t.brightness, Kelvin.displayGamma)
+                setBacklight(display.id, fraction: fraction)
+                t.brightness = signalShare(display.id, fraction: fraction)
             }
             tints[display.id] = t
         }
@@ -424,6 +425,17 @@ final class DisplayController {
         repace()
     }
 
+    /// A monitor moves a whole step at a time, a few times a second (`DDC`): until it shows the
+    /// light asked for, the signal dims what it shows too much of, so fades and the hand-over
+    /// from signal dimming at launch run smoothly. A step up in flight already counts as shown:
+    /// the signal darkens first and the monitor brightens after, so a timing slip dips, never flashes.
+    private func signalShare(_ id: CGDirectDisplayID, fraction: Double) -> Double {
+        guard monitors[id] != nil, let dim = dims[id] else { return 1 }
+        let shown = max(dim.written ?? min(1, dim.baseline), inFlight[id] ?? 0)
+        guard shown > 0 else { return 1 }
+        return pow(min(1, dim.target(for: fraction) / shown), 1 / Kelvin.displayGamma)
+    }
+
     private func setBacklight(_ id: CGDirectDisplayID, fraction: Double) {
         guard !asleep, dims[id] != nil else { return }
         requested[id] = fraction
@@ -434,24 +446,25 @@ final class DisplayController {
             readBacklight(id)
         }
         guard var dim = dims[id] else { return }
-        guard let light = dim.light(for: fraction) else { return }
         if let monitor = monitors[id] {
-            guard !probingIDs.contains(id) else { return }  // its handle is being replaced
-            // Sent in the background, the latest value winning, and recorded only once the
-            // monitor took it: a write lost to a sleeping monitor must be sent again, not assumed.
-            guard inFlight[id] != light else { return }
+            // One step at a time, sent in the background, the next once the monitor took this
+            // one (each answer pushes again), and recorded only then: a write lost to a sleeping
+            // monitor must be sent again, not assumed.
+            guard !probingIDs.contains(id), inFlight[id] == nil,  // its handle is being replaced
+                  let (light, final) = dim.nextStep(for: fraction) else { return }
+            let recorded = final ? fraction : min(0.999, light / max(dim.baseline, light))
             inFlight[id] = light
             monitor.set(fraction: light) { [weak self] ok in
-                self?.monitorAnswered(id, monitor, light: light, fraction: fraction, ok: ok)
+                self?.monitorAnswered(id, monitor, light: light, fraction: recorded, ok: ok)
             }
             return
-        } else {
-            if !dim.isDimming { dim.baselineLevel = Backlight.level(id) }
-            let ok = if fraction >= 1, let level = dim.baselineLevel { Backlight.set(level: level, on: id) }
-                else { Backlight.set(light: light, on: id) }
-            // A failed write changes nothing: the next push tries again from what the panel shows.
-            guard ok else { return }
         }
+        guard let light = dim.light(for: fraction) else { return }
+        if !dim.isDimming { dim.baselineLevel = Backlight.level(id) }
+        let ok = if fraction >= 1, let level = dim.baselineLevel { Backlight.set(level: level, on: id) }
+            else { Backlight.set(light: light, on: id) }
+        // A failed write changes nothing: the next push tries again from what the panel shows.
+        guard ok else { return }
         backlightWritten[id] = Date()
         dim.wrote(light, for: fraction)
         store(dim, for: id)
@@ -462,13 +475,12 @@ final class DisplayController {
         guard ok, monitors[id] === monitor, var dim = dims[id] else { return }
         retryAt[id] = nil
         retryDelay[id] = nil
-        let wasDimming = dim.isDimming
         backlightWritten[id] = Date()
         dim.wrote(light, for: fraction)
         store(dim, for: id)
-        // Dimming took over (perhaps from the signal fallback): drop the signal dimming now,
-        // not at the next clock tick.
-        if !wasDimming, dim.isDimming, fadeTask == nil { push() }
+        // The next step, and the signal eased to what the monitor shows now (a running fade
+        // pushes every frame anyway).
+        if fadeTask == nil { push() }
     }
 
     /// Every change to `dims` goes through here: unchanged values aren't written (each write
