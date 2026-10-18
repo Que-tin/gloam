@@ -1,10 +1,11 @@
 // First launch only. A menu-bar app is otherwise invisible until someone finds its icon. It
 // asks nothing that most people need to answer: sunset comes from the time zone (shown, and
 // changeable here, because "how does it know where I am?" is the first question people ask),
-// and the evening is timed from a 23:00 bedtime that fits most people (moved in Settings, never
-// asked here); anyone it doesn't suit turns Warmest or Dimmest down in the preview.
+// and the evening is timed from a 23:00 bedtime that fits most people. Bedtime, Warmest and
+// Dimmest live in Settings, with its preview: a preview here as well added a step and a choice
+// almost nobody needed before seeing an evening.
 // Everything here is a draft until Start: closing the window first quits Gloam without saving
-// anything, so the next launch lands here again. Nothing tints until Start (Preview aside).
+// anything, so the next launch lands here again. Nothing tints until Start.
 
 import GloamCore
 import SwiftUI
@@ -13,14 +14,12 @@ struct WelcomeView: View {
     @Bindable var model: AppModel
     let close: () -> Void
     @State private var openAtLogin = true
-    @State private var previewing = false
     @State private var changingCity = false
     /// Drafts, applied on Start.
     @State private var place: Place?
-    @State private var schedule = Schedule()
 
     private var shownPlace: Place { place ?? model.timeZonePlace }
-    private var evening: Schedule.Evening { schedule.evening(around: model.eveningWake.addingTimeInterval(-3600), shownPlace.coordinate) }
+    private var evening: Schedule.Evening { Schedule().evening(around: model.eveningWake.addingTimeInterval(-3600), shownPlace.coordinate) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -66,32 +65,6 @@ struct WelcomeView: View {
                 }
             }
 
-            section(String(localized: "Tonight"), top: 20) {
-                Text(evening.plan)
-                    .foregroundStyle(Lamp.ink.opacity(0.85))
-                    .fixedSize(horizontal: false, vertical: true)
-                // Where "deepest around 22:00" comes from, and that it can move.
-                Text("Timed for a \(Format.time(schedule.bedtime)) bedtime, which you can change in Settings.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Lamp.ink.opacity(0.6))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 4)
-                LampPill(title: previewing ? String(localized: "Done") : String(localized: "Preview tonight"),
-                         symbol: previewing ? "checkmark" : "eye", action: togglePreview)
-                    .fixedSize()
-                    .padding(.top, 10)
-                // Seeing tonight is the moment to say "a bit less": the same two sliders as
-                // Settings, live on the real screen while the preview is on.
-                if previewing {
-                    VStack(spacing: 8) {
-                        // Values named as in Settings (without its Kelvin), so the two places speak alike.
-                        slider(String(localized: "Warmest"), Light.name(schedule.warmest), $schedule.warmthAllowance, max: Schedule().warmthAllowance)
-                        slider(String(localized: "Dimmest"), Format.percent(Light.dimming(schedule.darkest)), $schedule.dimmingAllowance, max: Schedule().dimmingAllowance)
-                    }
-                    .padding(.top, 12)
-                }
-            }
-
             HStack {
                 Text("Open Gloam at login").foregroundStyle(Lamp.ink.opacity(0.85))
                 Spacer()
@@ -117,7 +90,6 @@ struct WelcomeView: View {
         .background(LampSurface(glow: Tint(kelvin: 2700, brightness: 0.8), lit: 1).ignoresSafeArea())
         .environment(\.colorScheme, .dark)
         .tint(Color.kelvin(2700))
-        .onChange(of: schedule) { if previewing { showNight() } }
     }
 
     private func section(_ title: String, top: CGFloat, @ViewBuilder _ content: () -> some View) -> some View {
@@ -133,9 +105,7 @@ struct WelcomeView: View {
     }
 
     private func start() {
-        model.preview = nil
         model.customPlace = place
-        model.schedule = schedule
         model.setLaunchAtLogin(openAtLogin)
         model.hasOnboarded = true
         close()
@@ -146,27 +116,4 @@ struct WelcomeView: View {
         if Bundle.main.bundleIdentifier != nil { return NSApp.applicationIconImage }
         return NSImage(contentsOfFile: "docs/icon.png") ?? NSApp.applicationIconImage
     }()
-
-    /// Shows the night on the real screen until "Done", following the sliders.
-    private func togglePreview() {
-        previewing.toggle()
-        showNight()
-    }
-
-    private func showNight() {
-        model.preview = previewing ? schedule.limitedNight : nil
-    }
-
-    private func slider(_ title: String, _ shown: String, _ value: Binding<Double>, max: Double) -> some View {
-        HStack(spacing: 10) {
-            Text(title).font(.system(size: 12)).foregroundStyle(Lamp.ink.opacity(0.75)).frame(width: 72, alignment: .leading)
-            // Named for VoiceOver; the visible Text beside it is the label people see.
-            // Up to the recommended night only: deeper is a Settings choice, beside its warning.
-            Slider(value: value, in: 0...max) { Text(title) }
-                .labelsHidden()
-                .accessibilityValue(shown)
-            Text(shown).font(.system(size: 12)).monospacedDigit().foregroundStyle(Lamp.ink.opacity(0.6))
-                .frame(width: 84, alignment: .trailing)
-        }
-    }
 }

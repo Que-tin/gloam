@@ -24,8 +24,8 @@ doi:10.1371/journal.pbio.3001571; also published as the workshop report CIE TN 0
 | Sleep environment | ≤ 1 lx |
 
 Individual sensitivity varies more than 50-fold (Phillips et al. 2019, *PNAS*
-doi:10.1073/pnas.1901824116), which is why Warmest and Dimmest (Settings, and Welcome's
-preview) set where the night goes: lighter for those it suits, deeper for the sensitive.
+doi:10.1073/pnas.1901824116), which is why Warmest and Dimmest (Settings) set where the
+night goes: lighter for those it suits, deeper for the sensitive.
 
 ## How much light a screen gives off
 
