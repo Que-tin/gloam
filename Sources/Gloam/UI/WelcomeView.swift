@@ -32,7 +32,7 @@ struct WelcomeView: View {
                 Text("Evenings, a little softer.")
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
                     .foregroundStyle(Lamp.ink)
-                Text("Gloam warms your screen as the sun goes down and dims it later in the evening, so it gives off less of the light that keeps you awake.")
+                Text("Gloam warms your screen as the sun goes down and dims it later in the evening, so it gives off less of the light that keeps you alert.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Lamp.ink.opacity(0.72))
                     .fixedSize(horizontal: false, vertical: true)
@@ -47,7 +47,7 @@ struct WelcomeView: View {
                              ?? String(localized: "\(shownPlace.name) · no sunset today"))
                             .foregroundStyle(Lamp.ink)
                         Text(place == nil
-                             ? String(localized: "Estimated from your Mac's time zone, and worked out on this Mac. No location access needed.")
+                             ? String(localized: "Estimated from your Mac's time zone and worked out on this Mac; no location access needed.")
                              : String(localized: "Worked out on this Mac from the city you chose."))
                             .font(.system(size: 11))
                             .foregroundStyle(Lamp.ink.opacity(0.6))
@@ -71,7 +71,7 @@ struct WelcomeView: View {
                     .foregroundStyle(Lamp.ink.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
                 // Where "deepest around 22:00" comes from, and that it can move.
-                Text("Timed from a \(Format.time(schedule.bedtime)) bedtime; change it any time in Settings.")
+                Text("Timed for a \(Format.time(schedule.bedtime)) bedtime, which you can change in Settings.")
                     .font(.system(size: 11))
                     .foregroundStyle(Lamp.ink.opacity(0.6))
                     .fixedSize(horizontal: false, vertical: true)
@@ -84,7 +84,7 @@ struct WelcomeView: View {
                 // Settings, live on the real screen while the preview is on.
                 if previewing {
                     VStack(spacing: 8) {
-                        // Values as Settings shows them, so the two places speak alike.
+                        // Values named as in Settings (without its Kelvin), so the two places speak alike.
                         slider(String(localized: "Warmest"), Light.name(schedule.warmest), $schedule.warmthAllowance, max: Schedule().warmthAllowance)
                         slider(String(localized: "Dimmest"), Format.percent(Light.dimming(schedule.darkest)), $schedule.dimmingAllowance, max: Schedule().dimmingAllowance)
                     }

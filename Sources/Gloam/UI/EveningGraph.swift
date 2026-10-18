@@ -96,7 +96,7 @@ struct EveningGraph: View {
             RuleMark(x: .value("Wake", e.wake))
                 .foregroundStyle(.white.opacity(emphasis(.wake)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
-                .annotation(position: .top, alignment: .trailing) { marker(String(localized: "Wake up"), e.wake) }
+                .annotation(position: .top, alignment: .trailing) { marker(String(localized: "Wake-up"), e.wake) }
             RuleMark(y: .value("Warmth limit", warmthCap))
                 .foregroundStyle(Self.warm.opacity(emphasis(.warmth)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
@@ -185,7 +185,7 @@ struct EveningGraph: View {
         .accessibilityValue(e.plan)
         .accessibilityChildren {
             timeStep(String(localized: "Bedtime"), .bedtime)
-            timeStep(String(localized: "Wake up"), .wake)
+            timeStep(String(localized: "Wake-up"), .wake)
         }
     }
 

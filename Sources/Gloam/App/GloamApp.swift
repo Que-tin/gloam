@@ -89,7 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // `Gloam --uninstall`: forget everything (login item, settings) for a clean slate.
         if CommandLine.arguments.contains("--uninstall") {
             guard let id = Bundle.main.bundleIdentifier else {
-                print("Gloam: --uninstall needs the app bundle (run .build/Gloam.app/Contents/MacOS/Gloam).")
+                print("Gloam: --uninstall needs the app bundle: run Gloam.app/Contents/MacOS/Gloam --uninstall")
                 exit(1)
             }
             // A running copy would write its settings back as it quits, so wait for it first.
@@ -101,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let login = SMAppService.mainApp.status
             try? SMAppService.mainApp.unregister()
             UserDefaults.standard.removePersistentDomain(forName: id)
-            print("Gloam: \(others.isEmpty ? "" : "quit the running copy; ")login item \(login == .enabled ? "removed" : "was not set"); settings cleared.")
+            print("Gloam: \(others.isEmpty ? "" : "running copy quit; ")\(login == .enabled ? "login item removed" : "no login item to remove"); settings cleared.")
             exit(0)
         }
         // One Gloam at a time: two would fight over the screen's colour table. A later launch

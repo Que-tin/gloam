@@ -85,7 +85,7 @@ struct CitySearch: View {
         }.prefix(5).map { $0 }
         // MapKit reports "nothing found" as an error too; offline is the other common cause.
         status = results.isEmpty
-            ? (items == nil ? String(localized: "No matching city, or no connection") : String(localized: "No matching city")) : nil
+            ? (items == nil ? String(localized: "No matching city (or no internet connection)") : String(localized: "No matching city")) : nil
     }
 }
 

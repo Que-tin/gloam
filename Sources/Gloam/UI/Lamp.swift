@@ -153,7 +153,7 @@ struct LampDial: View {
     /// drag, no cursor, no detents. A drag the binding ignored used to buzz the trackpad on
     /// every event.
     var editable = true
-    /// Spoken by VoiceOver: "Warmth for Wind-down".
+    /// Spoken by VoiceOver after the dial's name: "Warmth, Wind-down".
     let stageName: String
     /// Under the readout: what changes next and when ("Night at 22:00").
     let caption: String
@@ -211,7 +211,7 @@ struct LampDial: View {
                     }
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Warmth for \(stageName)")
+                .accessibilityLabel("Warmth, \(stageName)")
                 .accessibilityValue("\(Light.name(kelvin).lowercased()), \(Format.kelvin(kelvin))")
                 .accessibilityAdjustableAction { direction in nudge(direction == .increment ? 0.02 : -0.02) }
 
@@ -397,11 +397,11 @@ struct LampDial: View {
             .contentShape(Circle())
             .onTapGesture { onPower?() }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(onPower == nil ? "\(orbTitle) \(orbCaption)" : String(localized: "Turn Gloam on"))
+            .accessibilityLabel(onPower == nil ? "\(orbTitle), \(orbCaption)" : String(localized: "Turn Gloam on"))
             .accessibilityAddTraits(onPower == nil ? [] : .isButton)
             .accessibilityAction { onPower?() }
             .help(onPower == nil
-                ? String(localized: "How much of the blue-rich light that keeps you alert in the evening (melanopic light) still reaches you, against the same screen untinted at the brightness you set.")
+                ? String(localized: "How much of the blue-rich light that keeps you alert in the evening (melanopic light) still reaches you, compared with this screen untinted at its daytime brightness.")
                 : String(localized: "Turn Gloam on"))
     }
 
@@ -555,7 +555,7 @@ struct DimmingLadder: View {
             }
         }
         .onScrollWheel { delta in set(cells: litCells + (delta > 0 ? 1 : -1)) }
-        .help("How far Gloam dims below your own brightness: 0 % leaves your screen as you set it, 100 % is as dim as it goes. Drag, click or scroll.")
+        .help("How far Gloam dims below your own brightness: 0% leaves your screen as you set it; 100% is as dim as it goes. Drag, click, scroll or use the arrow keys.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Dimming")
         .accessibilityValue(Format.percent(dimming))

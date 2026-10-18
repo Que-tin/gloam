@@ -209,7 +209,7 @@ struct PopoverView: View {
 
     private func statusRow(_ text: String, _ pill: String, _ symbol: String, action: @escaping () -> Void) -> some View {
         HStack(spacing: 8) {
-            LampLabel(text: text, opacity: 0.6)
+            LampLabel(text: text, opacity: 0.6).lineLimit(2)  // a long app name wraps once, then truncates
             Spacer()
             LampPill(title: pill, symbol: symbol, action: action).fixedSize()
         }
@@ -219,13 +219,13 @@ struct PopoverView: View {
     @ViewBuilder private var notices: some View {
         if model.display.interference {
             // The overlay never touches the gamma table, so it ends the tug of war on its own.
-            LampNotice(text: String(localized: "Another app keeps changing your screen's colours, so the two take turns."),
+            LampNotice(text: String(localized: "Another app keeps changing your screen's colours, which can make it flicker."),
                        action: model.display.resolvedEngine == .gamma ? (String(localized: "Use overlay"), { model.engine = .overlay }) : nil)
                 .padding(.top, 14)
         }
         if model.enabled, model.display.resolvedEngine == .gamma,
            let hdr = model.display.displays.first(where: \.hdrActive) {
-            LampNotice(text: String(localized: "HDR is on for \(hdr.name). The tint may look washed out."),
+            LampNotice(text: String(localized: "HDR is on for \(hdr.name), so the tint may look washed out."),
                        action: (String(localized: "Use overlay"), { model.engine = .overlay }))
                 .padding(.top, 14)
         }

@@ -105,7 +105,7 @@ struct SettingsView: View {
                         model.schedule = Schedule()
                     }
                     .fixedSize()
-                    .help(String(localized: "Bedtime \(Format.time(Schedule().bedtime)), wake up \(Format.time(Schedule().wake)), and the full evening"))
+                    .help(String(localized: "Back to a \(Format.time(Schedule().bedtime)) bedtime, \(Format.time(Schedule().wake)) wake-up and the recommended Warmest and Dimmest"))
                 }
                 LampPill(title: previewing ? String(localized: "Done") : String(localized: "Preview tonight"),
                          symbol: previewing ? "checkmark" : "eye") {
@@ -161,7 +161,7 @@ struct SettingsView: View {
                     if choice == .timeZone { model.customPlace = nil }
                 })
             ) {
-                Text("\(model.timeZonePlace.name), from time zone").tag(LocationChoice.timeZone)
+                Text("\(model.timeZonePlace.name) (time zone)").tag(LocationChoice.timeZone)
                 if let city = model.customPlace {
                     Text("\(city.name) · \(Geo.describe(city.coordinate))").tag(LocationChoice.city)
                 }
@@ -196,16 +196,16 @@ struct SettingsView: View {
                     Toggle(several ? String(localized: "Avoid smearing on \(display.name)") : String(localized: "Avoid smearing"),
                            isOn: Binding(get: { model.smearGuarded.contains(display.uuid) },
                                          set: { on in if on { model.smearGuarded.insert(display.uuid) } else { model.smearGuarded.remove(display.uuid) } }))
-                        .help("When light text on a dark background leaves trails on this display in the evening: the tint stops short of the range that causes them (less dimming; at full brightness, less warmth).")
+                        .help("Turn on if light text on dark backgrounds leaves trails on this display in the evening. Gloam then stops short of the darkest tints: less dimming, and at full brightness less warmth.")
                 }
                 if display.hdrActive && model.display.resolvedEngine == .gamma {
-                    Text("HDR is on for \(display.name): tints can look washed out. Turn HDR off in the evening, or use Overlay.")
+                    Text("HDR is on for \(display.name), so the tint may look washed out. Turn HDR off in the evening, or use Overlay.")
                         .font(.callout).foregroundStyle(.orange)
                 }
             }
             Picker(selection: $model.engine) {
                 Text("Automatic").tag(Engine.auto)
-                Text("Gamma (best quality)").tag(Engine.gamma)  // "true colour" means an app exception elsewhere
+                Text("Colour signal (best quality)").tag(Engine.gamma)
                 Text("Overlay (compatible)").tag(Engine.overlay)
             } label: {
                 Text("Method")
@@ -308,7 +308,7 @@ private struct LegendKey: View {
         .accessibilityLabel(title)
         .accessibilityValue(value == spoken ? value : "\(value), \(spoken)")
         .accessibilityAdjustableAction { direction in nudge(direction == .increment ? 0.05 : -0.05) }
-        .help("Drag its dashed line in the graph, or focus here and use the arrow keys")
+        .help("Drag the dashed line in the graph, or select this and use the arrow keys.")
     }
 }
 

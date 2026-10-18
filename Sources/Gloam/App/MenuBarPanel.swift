@@ -54,7 +54,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
             let item = menu.addItem(withTitle: String(localized: "Pause"), action: nil, keyEquivalent: "")
             menu.setSubmenu(pause, for: item)
         } else {
-            let title = model.resumeAt.map { String(localized: "Resume (paused until \(Format.time($0)))") }
+            let title = model.resumeAt.map { String(localized: "Resume Gloam (Paused Until \(Format.time($0)))") }
                 ?? String(localized: "Turn Gloam On")
             menu.addItem(withTitle: title, action: #selector(toggleEnabled), keyEquivalent: "").target = self
         }
@@ -65,7 +65,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
             if model.excludedApps.contains(where: { $0.bundleID == app.bundleIdentifier }) {
                 menu.addItem(withTitle: String(localized: "Stop Pausing for \(name)"), action: #selector(includeFrontmost), keyEquivalent: "").target = self
             } else {
-                menu.addItem(withTitle: String(localized: "Pause for \(name)"), action: #selector(excludeFrontmost), keyEquivalent: "").target = self
+                menu.addItem(withTitle: String(localized: "Always Pause for \(name)"), action: #selector(excludeFrontmost), keyEquivalent: "").target = self
             }
         }
         menu.addItem(.separator())
