@@ -31,7 +31,7 @@ swift test                             # core tests
 swift run Gloam --showcase --at 22:30  # popover in a window at 22:30 (debug; never tints)
 swift run Gloam --film DIR             # popover frames while switching off and on (--capture: stills)
 ./scripts/snapshots.sh                 # regenerate docs/screenshots (never tints the screen)
-./scripts/build-app.sh                 # .build/Gloam.app, universal, ad-hoc signed
+./scripts/build-app.sh                 # .build/Gloam.app + Gloam.dmg, universal, ad-hoc signed
 ```
 
 ## Constraints

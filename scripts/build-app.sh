@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds a release Gloam.app (universal arm64 + x86_64) into .build/Gloam.app.
+# Builds a release Gloam.app (universal arm64 + x86_64) into .build/, and Gloam.dmg to ship it in.
 # Signed ad hoc: without a paid Apple developer account it can't be notarized (README › Install).
 set -eu
 
@@ -24,4 +24,13 @@ cp .build/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
 
 codesign --force --options runtime --timestamp=none --sign - "$APP"
-echo "Built $APP ($VERSION)"
+
+# The download: a disk image that opens on Gloam beside an Applications shortcut to drag it onto.
+STAGE=.build/dmg
+rm -rf "$STAGE" .build/Gloam.dmg
+mkdir -p "$STAGE"
+ditto "$APP" "$STAGE/Gloam.app"
+ln -s /Applications "$STAGE/Applications"
+hdiutil create -volname Gloam -srcfolder "$STAGE" -format UDZO -quiet .build/Gloam.dmg
+rm -rf "$STAGE"
+echo "Built $APP and .build/Gloam.dmg ($VERSION)"
