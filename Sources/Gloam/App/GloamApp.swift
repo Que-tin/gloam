@@ -54,15 +54,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showSettings() { Windows.showSettings() }
     private var signals: [DispatchSourceSignal] = []
 
-    /// Other running copies. The bundled app looks only for itself, by identifier: matching by
-    /// name made it quit for a running showcase or snapshot copy (whose arguments it can't see),
-    /// or any unrelated app called Gloam. A `swift run` build has no identifier, so it looks by
-    /// name and finds the bundled app; showcase runs never touch the screen and may coexist.
+    /// Other running copies: the bundled app by its identifier, and any copy by name (a `swift
+    /// run` build has no identifier, and the bundled app must not run beside one that tints).
+    /// Copies run with a showcase flag never touch the screen and are left out, read from their
+    /// arguments: matching by name alone made the bundled app quit for a snapshot run.
     private static func otherCopies() -> [NSRunningApplication] {
         let me = ProcessInfo.processInfo.processIdentifier
         let byID = Bundle.main.bundleIdentifier.map(NSRunningApplication.runningApplications(withBundleIdentifier:)) ?? []
-        let byName = Debug.isShowcase || Bundle.main.bundleIdentifier != nil ? [] : NSWorkspace.shared.runningApplications.filter {
-            $0.executableURL?.lastPathComponent == "Gloam"
+        let byName = Debug.isShowcase ? [] : NSWorkspace.shared.runningApplications.filter {
+            $0.executableURL?.lastPathComponent == "Gloam" && !Self.isShowcase($0.processIdentifier)
         }
         return (byID + byName).filter { $0.processIdentifier != me }
             .reduce(into: []) { all, app in if !all.contains(app) { all.append(app) } }
@@ -149,6 +149,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             urls.forEach { NSWorkspace.shared.open($0) }
             done()
         }
+    }
+
+    /// Whether another process was started with a flag that keeps it off the screen.
+    private static func isShowcase(_ pid: pid_t) -> Bool {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid], size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return false }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return false }
+        let args = buffer.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+        return args.contains { ["--showcase", "--snapshot", "--capture", "--film"].contains($0) }
     }
 
     /// When a process started, from the kernel: unlike `launchDate`, set however it was started.
