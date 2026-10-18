@@ -22,15 +22,77 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Gloam"
 cp .build/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
+# The disk image's window background (below) rides inside the app: a .background folder beside it
+# showed to anyone whose Finder shows hidden files, and Finder takes the picture from any file
+# on the image. Added before signing, so the signature covers it.
+swift scripts/make-dmg-background.swift .build/dmg-background
+tiffutil -cathidpicheck .build/dmg-background/background.png .build/dmg-background/background@2x.png \
+    -out "$APP/Contents/Resources/DMGBackground.tiff" 2>/dev/null
 
 codesign --force --options runtime --timestamp=none --sign - "$APP"
 
-# The download: a disk image that opens on Gloam beside an Applications shortcut to drag it onto.
+# The download: a disk image that opens on Gloam beside an Applications shortcut to drag it onto,
+# over Gloam's own background (in the app, above; the icon positions match the drawing).
+# The window's layout is the image's .DS_Store, kept as Resources/dmg-layout, so the image is made
+# straight from a folder: never mounted, nothing for macOS to add (it put .fseventsd in a mounted
+# one). Only without that file does Finder lay out a scratch copy, once, and the result is kept;
+# that needs a Mac that lets this shell control Finder (Privacy & Security › Automation).
+LAYOUT_FILE=Resources/dmg-layout
 STAGE=.build/dmg
-rm -rf "$STAGE" .build/Gloam.dmg
+SCRATCH=/private/tmp/Gloam-layout.dmg
+rm -rf "$STAGE" .build/Gloam.dmg "$SCRATCH"
 mkdir -p "$STAGE"
 ditto "$APP" "$STAGE/Gloam.app"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname Gloam -srcfolder "$STAGE" -format UDZO -quiet .build/Gloam.dmg
+if [ ! -f "$LAYOUT_FILE" ]; then
+    hdiutil create -volname Gloam -srcfolder "$STAGE" -fs HFS+ -format UDRW -quiet "$SCRATCH"
+    MOUNT="$(hdiutil attach -readwrite -noverify -noautoopen "$SCRATCH" | awk -F '\t' '/Apple_HFS/ {print $NF}')"
+    # Another "Gloam" mounted makes this "Gloam 1", and the layout would point there for good.
+    if [ "$(basename "$MOUNT")" != Gloam ]; then
+        [ -n "$MOUNT" ] && hdiutil detach -quiet -force "$MOUNT"
+        echo "Eject the mounted \"Gloam\" disk image and build again, to lay out the disk image." >&2
+        exit 1
+    fi
+    osascript - "$(basename "$MOUNT")" >/dev/null 2>&1 <<'LAYOUT' && cp "$MOUNT/.DS_Store" "$LAYOUT_FILE"
+on run argv
+    tell application "Finder" to tell disk (item 1 of argv)
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        try
+            set pathbar visible of container window to false
+        end try
+        -- 560 × 360 below the title bar, centred on a 1512 × 982 screen (the 14-inch default): Finder
+        -- keeps a fixed position, it has no "centred"
+        set bounds of container window to {476, 297, 1036, 685}
+        set options to icon view options of container window
+        set arrangement of options to not arranged
+        set icon size of options to 128
+        set text size of options to 13
+        set background picture of options to file "Gloam.app:Contents:Resources:DMGBackground.tiff"
+        set position of item "Gloam.app" of container window to {150, 140}
+        set position of item "Applications" of container window to {410, 140}
+        update without registering applications
+        delay 1
+        close
+    end tell
+end run
+LAYOUT
+    hdiutil detach -quiet -force "$MOUNT"
+    rm -f "$SCRATCH"
+    # Finder records where the scratch copy and its disk were (hence /private/tmp, not this
+    # checkout, whose path holds the user's name) and the disks' IDs, which differ in every image
+    # anyway: blanked, so the file shipped in every image says nothing about the Mac it was made on.
+    [ -f "$LAYOUT_FILE" ] && perl -0777 -pi -e 's/[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}/00000000-0000-0000-0000-000000000000/g' "$LAYOUT_FILE"
+fi
+if [ -f "$LAYOUT_FILE" ]; then
+    cp "$LAYOUT_FILE" "$STAGE/.DS_Store"
+    STYLE=styled
+else
+    STYLE="plain (no $LAYOUT_FILE, and Finder automation not allowed)"
+fi
+hdiutil create -volname Gloam -srcfolder "$STAGE" -fs HFS+ -format UDZO -quiet .build/Gloam.dmg
 rm -rf "$STAGE"
+echo "Disk image: $STYLE"
 echo "Built $APP and .build/Gloam.dmg ($VERSION)"
