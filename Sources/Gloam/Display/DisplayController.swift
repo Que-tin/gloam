@@ -221,6 +221,7 @@ final class DisplayController {
     }
 
     @ObservationIgnored private var engine: TintEngine
+    @ObservationIgnored private let redraw = Redraw()
     @ObservationIgnored private(set) var resolvedEngine: Engine
     @ObservationIgnored private var fadeTask: Task<Void, Never>?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
@@ -412,6 +413,7 @@ final class DisplayController {
         }
         writeSaved()
         engine.restoreAll()
+        redraw.nudge([])
     }
 
     private func push() {
@@ -435,7 +437,11 @@ final class DisplayController {
         for display in displays where tints[display.id] == nil && backlight(display.id) != nil {
             setBacklight(display.id, fraction: 1)
         }
-        if !asleep { engine.apply(tints) }
+        if !asleep {
+            engine.apply(tints)
+            // Monitors step their own brightness at once; the signal evening it out must show now too.
+            redraw.nudge(resolvedEngine == .gamma ? Set(tints.keys.filter { monitors[$0] != nil }) : [])
+        }
         refreshEffective()
         repace()
     }
@@ -739,6 +745,7 @@ final class DisplayController {
         levelReadAt = [:]
         silent.subtract(displays.map(\.uuid).filter { !known.contains($0) })  // reconnected: ask again
         engine.displaysChanged()
+        redraw.displaysChanged()
         adoptBacklights()
         pollBacklights()
         push()
