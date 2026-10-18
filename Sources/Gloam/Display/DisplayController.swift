@@ -288,10 +288,12 @@ final class DisplayController {
         let current = Set(displays.map(\.id))
         let active = !shown.isNeutral || dims.contains { current.contains($0.key) && $0.value.isDimming }
         let readsMacOS = displays.contains { $0.isBuiltin || (dims[$0.id] != nil && monitors[$0.id] == nil) }
+        // Unplugged monitors keep their entries (for when they return), not the 20 s pace.
+        let noMonitor = !displays.contains { monitors[$0.id] != nil }
         if asleep { return nil }  // nothing is read while the screens sleep; their wake repaces
         if watchingClosely && readsMacOS { return .milliseconds(500) }
-        if tickDriven { return active || monitors.isEmpty ? nil : .seconds(20) }
-        return active ? .seconds(5) : monitors.isEmpty ? .seconds(60) : .seconds(20)
+        if tickDriven { return active || noMonitor ? nil : .seconds(20) }
+        return active ? .seconds(5) : noMonitor ? .seconds(60) : .seconds(20)
     }
 
     /// Moves the poll to the pace things call for; speeding up starts from a fresh reading.
@@ -369,7 +371,8 @@ final class DisplayController {
     /// The most whole steps any monitor has to take to show `target`.
     private func monitorSteps(to target: Tint) -> Double {
         displays.reduce(0) { most, display in
-            guard monitors[display.id] != nil, let dim = dims[display.id], dim.step > 0 else { return most }
+            guard let monitor = monitors[display.id], !monitor.isFailing, !probingIDs.contains(display.id),
+                  let dim = dims[display.id], dim.step > 0 else { return most }
             let t = adjusted(.mix(.neutral, target, strength(display.uuid)), for: display.id)
             let goal = dim.target(for: pow(t.brightness, Kelvin.displayGamma))
             return max(most, (abs(goal - (dim.written ?? min(1, dim.baseline))) / dim.step).rounded())
@@ -417,7 +420,7 @@ final class DisplayController {
     }
 
     private func push() {
-        var tints: [CGDirectDisplayID: Tint] = [:]
+        var tints: [CGDirectDisplayID: Tint] = [:], stepping: Set<CGDirectDisplayID> = []
         for display in displays {
             let s = strength(display.uuid)
             guard s > 0 else { continue }
@@ -430,6 +433,7 @@ final class DisplayController {
                 let fraction = pow(t.brightness, Kelvin.displayGamma)
                 setBacklight(display.id, fraction: fraction)
                 t.brightness = signalShare(display.id, fraction: fraction)
+                if t.brightness < 1 || inFlight[display.id] != nil { stepping.insert(display.id) }
             }
             tints[display.id] = t
         }
@@ -439,8 +443,10 @@ final class DisplayController {
         }
         if !asleep {
             engine.apply(tints)
-            // Monitors step their own brightness at once; the signal evening it out must show now too.
-            redraw.nudge(resolvedEngine == .gamma ? Set(tints.keys.filter { monitors[$0] != nil }) : [])
+            // A monitor steps its own brightness at once; the signal evening it out must show now too.
+            // Only while that goes on: the dot stays off screen the rest of the time (removing it
+            // draws the frame that shows the last step's signal).
+            redraw.nudge(resolvedEngine == .gamma ? stepping : [])
         }
         refreshEffective()
         repace()
@@ -472,7 +478,10 @@ final class DisplayController {
             // One step at a time, sent in the background, the next once the monitor took this
             // one (each answer pushes again), and recorded only then: a write lost to a sleeping
             // monitor must be sent again, not assumed.
-            guard !probingIDs.contains(id), inFlight[id] == nil,  // its handle is being replaced
+            // Not while its handle is being replaced, nor while it refuses writes before its retry
+            // (`pollBacklights` paces those; each failed write costs ~200 ms of I2C).
+            guard !probingIDs.contains(id), inFlight[id] == nil,
+                  !(monitor.isFailing && Date() < retryAt[id] ?? .distantPast),
                   let (light, recorded) = dim.nextStep(for: fraction) else { return }
             inFlight[id] = light
             monitor.set(fraction: light) { [weak self] ok in
@@ -492,8 +501,9 @@ final class DisplayController {
     }
 
     private func monitorAnswered(_ id: CGDirectDisplayID, _ monitor: DDC, light: Double, fraction: Double, ok: Bool) {
+        guard monitors[id] === monitor else { return }  // a replaced handle's late answer
         if inFlight[id] == light { inFlight[id] = nil }
-        guard ok, monitors[id] === monitor, var dim = dims[id] else { return }
+        guard ok, var dim = dims[id] else { return }
         retryAt[id] = nil
         retryDelay[id] = nil
         backlightWritten[id] = Date()
@@ -621,15 +631,16 @@ final class DisplayController {
         for display in displays where dims[display.id] != nil {
             let id = display.id
             if let monitor = monitors[id] {
-                guard askMonitors else { continue }
+                // Not while a probe reads it on a new handle: two queues on one monitor garble replies.
+                guard askMonitors, !probingIDs.contains(id) else { continue }
                 if monitor.isFailing {
                     // Not read while it refuses writes; sent its level again instead (a monitor
                     // asleep at the morning restore would otherwise stay dim all day).
                     guard Date() >= retryAt[id] ?? .distantPast, let fraction = requested[id] else { continue }
+                    setBacklight(id, fraction: fraction)  // before the next retry time, which would hold it
                     let delay = min(300, (retryDelay[id] ?? 10) * 2)
                     retryDelay[id] = delay
                     retryAt[id] = Date().addingTimeInterval(delay)
-                    setBacklight(id, fraction: fraction)
                 } else {
                     monitor.read { [weak self] in self?.observe($0, on: id) }
                 }
@@ -746,6 +757,16 @@ final class DisplayController {
         silent.subtract(displays.map(\.uuid).filter { !known.contains($0) })  // reconnected: ask again
         engine.displaysChanged()
         redraw.displaysChanged()
+        // A screen macOS dims back after an unplug or power cycle at its own level, not Gloam's:
+        // that level is the new baseline (as `adopt` does for monitors). Read as a key press it
+        // scaled the baseline up, and the morning restore could go to full brightness.
+        for display in displays where !known.contains(display.uuid) && monitors[display.id] == nil {
+            guard let dim = dims[display.id], let w = dim.written, let light = Backlight.light(display.id),
+                  !dim.same(light, w) else { continue }
+            var fresh = BacklightDim(baseline: light)
+            fresh.lightFloor = lightFloor
+            store(fresh, for: display.id)
+        }
         adoptBacklights()
         pollBacklights()
         push()

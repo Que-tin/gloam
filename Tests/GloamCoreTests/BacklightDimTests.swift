@@ -242,4 +242,23 @@ import Testing
         }
         #expect(d.isDimming && highest <= 0.245)
     }
+
+    // One press on a monitor's own buttons is the user's, on 0–50 and 0–100 scales alike, at
+    // the floor and high up; Gloam's own write read back (rounded by half a step) is not.
+    @Test func aOneStepPressIsAdopted() {
+        for (steps, written) in [(50, 4), (100, 80)] {
+            let step = 1.0 / Double(steps)
+            var d = BacklightDim(baseline: 0.9, step: step)
+            d.wrote(Double(written) * step, for: 0.5)
+            #expect(d.same(d.written!, d.written! + step * 0.4))
+            d.observe(light: d.written! + step)
+            #expect(abs(d.written! - Double(written + 1) * step) < 1e-9, "\(steps): adopted")
+        }
+    }
+
+    // Saves need only a baseline: older or newer ones never throw the lot away.
+    @Test func partialSavesStillLoad() throws {
+        let d = try JSONDecoder().decode(BacklightDim.self, from: Data(#"{"baseline":0.6,"written":0.3}"#.utf8))
+        #expect(d.isDimming && abs(d.fraction - 0.5) < 1e-9 && d.step == 0)
+    }
 }

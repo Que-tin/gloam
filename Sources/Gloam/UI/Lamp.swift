@@ -122,6 +122,7 @@ struct PowerSwitch: View {
         .help(help ?? (self.on ? String(localized: "Turn Gloam off") : String(localized: "Turn Gloam on")))
         .accessibilityLabel("Gloam")
         .accessibilityValue(self.on ? String(localized: "On") : String(localized: "Off"))
+        .accessibilityRemoveTraits(.isButton)  // a switch, not "button, switch"
         .accessibilityAddTraits(.isToggle)
         .onChange(of: self.on) { _, now in
             DispatchQueue.main.async { withAnimation(reduceMotion ? nil : .snappy) { shown = now } }

@@ -24,6 +24,9 @@ cp "$BIN" "$APP/Contents/MacOS/Gloam"
 mkdir -p "$APP/Contents/Frameworks"
 ditto "$(dirname "$BIN")/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Gloam"
+# Without debug symbols: their map names every object file by absolute path, the builder's home
+# folder included, in an app anyone can download. (Before signing, which strip would break.)
+strip -S -x "$APP/Contents/MacOS/Gloam"
 cp .build/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
 # The disk image's window background (below) rides inside the app: a .background folder beside it

@@ -28,6 +28,10 @@ private let p3: LinearRGB = { c in
     }
 
     // Ingo Thies' measured blackbody table (2013, display-encoded) at 3400K is ≈ (1.00, 0.79, 0.59).
+    @Test func nanIsDaylight() {
+        #expect(Kelvin.linearGain(.nan) == Kelvin.linearGain(Kelvin.daylight))
+    }
+
     @Test func tracksBlackbodyReference() {
         let g = Kelvin.displayGain(Tint(kelvin: 3400))
         #expect(abs(g.green - 0.79) < 0.03)

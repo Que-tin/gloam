@@ -67,7 +67,7 @@ public enum Kelvin {
 
     /// Linear-light channel gains, brightest channel = 1. 6500K → (1, 1, 1).
     public static func linearGain(_ kelvin: Double, in space: LinearRGB = sRGB) -> RGB {
-        let k = min(range.upperBound, max(range.lowerBound, kelvin))
+        let k = kelvin.isNaN ? daylight : min(range.upperBound, max(range.lowerBound, kelvin))  // NaN: daylight, as `Tint`
         let target = space(xyz(k)), reference = space(xyz(daylight))
         let r = max(0, target.red / reference.red)
         let g = max(0, target.green / reference.green)

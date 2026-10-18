@@ -208,7 +208,7 @@ nonisolated final class DDC: @unchecked Sendable {
         defer { IOObjectRelease(parent) }
         var name = [CChar](repeating: 0, count: 128)  // io_name_t
         guard IORegistryEntryGetName(parent, &name) == KERN_SUCCESS else { return nil }
-        return String(cString: name)
+        return String(decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     /// A display with a cable behind it, as far as CoreGraphics tells: virtual screens (AirPlay,

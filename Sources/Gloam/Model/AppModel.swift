@@ -128,6 +128,8 @@ final class AppModel {
             // After sleep the clock has jumped: ease to what's due now, not hours later. The
             // screens can sleep without the Mac, and nothing is written to them meanwhile.
             observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification) { model, _ in
+                // The screens' own wake can go missing; quiet ticks would then last all evening.
+                if CGDisplayIsAsleep(CGMainDisplayID()) == 0 { model.screensAsleep = false }
                 model.update(fade: 1.5)
             },
             observe(NSWorkspace.shared.notificationCenter, NSWorkspace.screensDidSleepNotification) { model, _ in

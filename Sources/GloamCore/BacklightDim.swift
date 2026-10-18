@@ -49,9 +49,13 @@ public struct BacklightDim: Equatable, Codable, Sendable {
     /// below the comfortable range, which is why only an explicit setting past the recommended
     /// night reaches it.
     public static let deepestFloorLight = 0.03
-    /// Readings this close to what was written are Gloam's own write, not an outside move
-    /// (relative, because a key step near the bottom of the range moves the light very little).
-    public func same(_ a: Double, _ b: Double) -> Bool { abs(a - b) <= max(0.004, step, 0.03 * max(a, b)) }
+    /// Readings this close to what was written are Gloam's own write, not an outside move: within
+    /// 3 % on a display macOS controls (a key step near the bottom of the range moves the light very
+    /// little), under one step on a monitor, which rounds a write by half a step at most (a full
+    /// step, or 3 % of a 0–100 scale, swallowed one-step presses on the monitor's buttons).
+    public func same(_ a: Double, _ b: Double) -> Bool {
+        step > 0 ? abs(a - b) < 0.75 * step : abs(a - b) <= max(0.004, 0.03 * max(a, b))
+    }
 
     public init(baseline: Double, step: Double = 0) {
         self.baseline = baseline
@@ -140,6 +144,19 @@ public struct BacklightDim: Equatable, Codable, Sendable {
 
     // Saved for crash recovery without `lightFloor`, which follows the settings, not the panel.
     private enum CodingKeys: String, CodingKey { case baseline, written, fraction, baselineLevel, heldFloor, step }
+
+    /// Only the baseline is required: a field added later must not make every saved display fail
+    /// to load (`SavedDims` drops the lot on one error) after an update and a crash.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        baseline = try c.decode(Double.self, forKey: .baseline)
+        written = try c.decodeIfPresent(Double.self, forKey: .written)
+        fraction = try c.decodeIfPresent(Double.self, forKey: .fraction)
+            ?? written.map { baseline > 0 ? min(0.999, $0 / baseline) : 1 } ?? 1
+        baselineLevel = try c.decodeIfPresent(Double.self, forKey: .baselineLevel)
+        heldFloor = try c.decodeIfPresent(Double.self, forKey: .heldFloor)
+        step = try c.decodeIfPresent(Double.self, forKey: .step) ?? 0
+    }
 
     /// The lowest fraction this display can be dimmed to before the light floor holds it.
     public var lowestFraction: Double {
