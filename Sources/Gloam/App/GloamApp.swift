@@ -235,7 +235,7 @@ enum Windows {
     /// there's no grey system strip above the panel (Settings adds one only once it scrolls).
     private static func make(_ view: some View, title: String) -> NSWindow {
         let controller = NSHostingController(rootView: view)
-        controller.sizingOptions = [.preferredContentSize]  // windows follow their content (Welcome's preview sliders)
+        controller.sizingOptions = [.preferredContentSize]  // windows follow their content (Welcome's city results)
         let window = TopAnchoredWindow(contentViewController: controller)
         window.title = title
         window.styleMask = [.titled, .closable, .fullSizeContentView]
@@ -249,7 +249,7 @@ enum Windows {
     }
 
     /// Grows and shrinks from its top edge, as a sheet of paper would. AppKit keeps the bottom
-    /// edge, so Welcome's city results and preview sliders made the title bar jump as you typed.
+    /// edge, so Welcome's city results made the title bar jump as you typed.
     private final class TopAnchoredWindow: NSWindow {
         override func setFrame(_ frameRect: NSRect, display flag: Bool) {
             var frame = frameRect
@@ -362,7 +362,7 @@ enum Debug {
                 shoot(window, window === Windows.settings ? "settings" : "welcome")
             }
             // Settings scrolled too: its title strip only shows once the form is under it.
-            if let settings = Windows.settings, let scroll = Self.firstScrollView(in: settings.contentView) {
+            if let settings = Windows.settings, let scroll = settings.contentView?.firstScrollView {
                 scroll.contentView.scroll(to: NSPoint(x: 0, y: scroll.contentView.bounds.origin.y + 160))
                 scroll.reflectScrolledClipView(scroll.contentView)
                 try? await Task.sleep(for: .seconds(0.8))
@@ -400,12 +400,6 @@ enum Debug {
         }
     }
 
-    private static func firstScrollView(in view: NSView?) -> NSScrollView? {
-        guard let view else { return nil }
-        if let scroll = view as? NSScrollView { return scroll }
-        return view.subviews.lazy.compactMap { firstScrollView(in: $0) }.first
-    }
-
     private static func showcaseView(welcome: Bool) -> AnyView {
         welcome ? AnyView(WelcomeView(model: .shared) {}) : AnyView(PopoverView(model: .shared))
     }
@@ -419,10 +413,17 @@ enum Debug {
     }
 
     /// A window as it is on screen, chrome included.
+    /// In sRGB: a capture carries the screen's own colour profile, which names the panel down to
+    /// its serial number, and these images are published (docs/screenshots).
     private static func writePNG(_ window: NSWindow, to path: String) {
         guard let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber),
-                                                  [.bestResolution]) else { return }
-        write(NSBitmapImageRep(cgImage: image), to: path)
+                                                  [.bestResolution]),
+              let srgb = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard let converted = context.makeImage() else { return }
+        write(NSBitmapImageRep(cgImage: converted), to: path)
     }
 
     private static func write(_ rep: NSBitmapImageRep, to path: String) {

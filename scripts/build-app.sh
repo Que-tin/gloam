@@ -52,17 +52,25 @@ $SIGN "$APP"
 # that needs a Mac that lets this shell control Finder (Privacy & Security › Automation).
 LAYOUT_FILE=Resources/dmg-layout
 STAGE=.build/dmg
-SCRATCH=/private/tmp/Gloam-layout.dmg
-rm -rf "$STAGE" .build/Gloam.dmg "$SCRATCH"
+HOLDER=/private/tmp/Gloam-holder.dmg
+rm -rf "$STAGE" .build/Gloam.dmg "$HOLDER"
 mkdir -p "$STAGE"
 ditto "$APP" "$STAGE/Gloam.app"
 ln -s /Applications "$STAGE/Applications"
 if [ ! -f "$LAYOUT_FILE" ]; then
+    # Finder records where the scratch copy's file lies, with that disk's size, creation date and
+    # folder numbers: so it lies on a throwaway disk of its own, not the Mac's (whose details
+    # would ship in every image), nor this checkout (whose path holds the user's name).
+    hdiutil create -size 64m -volname GloamBuild -fs HFS+ -quiet "$HOLDER"
+    HOLD="$(hdiutil attach -nobrowse -noverify -noautoopen "$HOLDER" | awk -F '\t' '/Apple_HFS/ {print $NF}')"
+    [ -n "$HOLD" ] || { rm -f "$HOLDER"; echo "Couldn't mount a scratch disk image for the layout." >&2; exit 1; }
+    SCRATCH="$HOLD/Gloam-layout.dmg"
     hdiutil create -volname Gloam -srcfolder "$STAGE" -fs HFS+ -format UDRW -quiet "$SCRATCH"
     MOUNT="$(hdiutil attach -readwrite -noverify -noautoopen "$SCRATCH" | awk -F '\t' '/Apple_HFS/ {print $NF}')"
     # Another "Gloam" mounted makes this "Gloam 1", and the layout would point there for good.
     if [ "$(basename "$MOUNT")" != Gloam ]; then
         [ -n "$MOUNT" ] && hdiutil detach -quiet -force "$MOUNT"
+        hdiutil detach -quiet -force "$HOLD"; rm -f "$HOLDER"
         echo "Eject the mounted \"Gloam\" disk image and build again, to lay out the disk image." >&2
         exit 1
     fi
@@ -93,11 +101,10 @@ on run argv
 end run
 LAYOUT
     hdiutil detach -quiet -force "$MOUNT"
-    rm -f "$SCRATCH"
-    # Finder records where the scratch copy and its disk were (hence /private/tmp, not this
-    # checkout, whose path holds the user's name) and the disks' IDs, which differ in every image
-    # anyway: blanked, so the file shipped in every image says nothing about the Mac it was made on.
-    [ -f "$LAYOUT_FILE" ] && perl -0777 -pi -e 's/[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}/00000000-0000-0000-0000-000000000000/g' "$LAYOUT_FILE"
+    hdiutil detach -quiet -force "$HOLD"
+    rm -f "$HOLDER"
+    # What it still records about this Mac (disk IDs, the startup disk's size and date), blanked.
+    [ -f "$LAYOUT_FILE" ] && swift scripts/scrub-dmg-layout.swift "$LAYOUT_FILE"
 fi
 if [ -f "$LAYOUT_FILE" ]; then
     cp "$LAYOUT_FILE" "$STAGE/.DS_Store"

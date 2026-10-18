@@ -34,4 +34,10 @@ rm -rf "${CAP:?}"
 if pgrep -f "$BIN" >/dev/null; then echo "warning: Gloam still running" >&2; pkill -f "$BIN"; fi
 # Debug runs keep their settings in the "Gloam" domain; leave nothing behind.
 defaults delete Gloam >/dev/null 2>&1 || true; rm -f "$HOME/Library/Preferences/Gloam.plist"
+# These are published: none may carry a colour profile (a screen's names the panel and its
+# serial number) or text metadata. Captures are saved in plain sRGB; this is the safety net.
+if LEAKS="$(grep -a -l -E 'iCCP|tEXt|iTXt|zTXt' "$OUT"/*.png)"; then
+  echo "error: metadata in $LEAKS — don't publish these" >&2
+  exit 1
+fi
 echo "Wrote $OUT"
