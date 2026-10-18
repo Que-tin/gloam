@@ -668,7 +668,7 @@ private struct LampPress<S: Shape>: ViewModifier {
             .focused($focused)
             .focusEffectDisabled()
             .onChange(of: focused) { _, now in ring = now && Lamp.focusFromKeyboard }
-            .onKeyPress(keys: [.space, .return]) { _ in
+            .onKeyPress(keys: [.space, .return], phases: .down) { _ in
                 action()
                 return .handled
             }
