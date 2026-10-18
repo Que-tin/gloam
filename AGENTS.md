@@ -17,7 +17,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   (status item: click popover, right-click menu). `Model/AppModel` — settings, clock, target tint.
 - `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `GammaEngine`, `OverlayEngine`,
   `Displays`, `RoomLight` (sensor), `Backlight`, `SavedDims` (crash recovery), `DDC` (third-party
-  monitors over DDC/CI, on a background queue; unverified on hardware).
+  monitors over DDC/CI, on a background queue; verified on one monitor).
 - `Sources/Gloam/UI/` — the "light as material" design: `PopoverView`, `Lamp` (orb dial, dimming
   ladder, small parts), `GloamGlyph` (menu-bar mark), `WelcomeView`, `SettingsView`,
   `EveningGraph` (Settings' evening, also its control), `CitySearch`, `Theme` (colours, names, formats).

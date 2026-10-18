@@ -7,7 +7,8 @@
 // CoreGraphics display (by EDID UUID, or because both sides have a single external); anything
 // doubtful is left to signal dimming. Known gaps, from those projects: most hubs and docks,
 // DisplayLink, TVs, EIZO, the built-in HDMI of M1 Macs, and picture modes that lock
-// brightness. Written to their protocol; not yet verified on a monitor here.
+// brightness. Verified on one monitor (a 0–50 scale, no EDID UUID on its I2C service, so
+// paired by the single-external rule): read, dim and restore on quit all work.
 //
 // All I2C traffic runs on one serial queue per monitor, never the main thread: each command
 // sleeps 10–60 ms. Writes are coalesced to the latest value and spaced 200 ms apart, because
