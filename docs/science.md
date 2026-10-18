@@ -1,17 +1,18 @@
 # The science behind Gloam's defaults
 
 Gloam's schedule and numbers come from the research below, not from habit. This page is the
-reasoning; `Sources/GloamCore/Schedule.swift` and `Melanopic.swift` are the implementation.
-Gloam is a general-wellness tool, not a medical device.
+reasoning; the implementation is in `Sources/GloamCore/`: `Schedule`, `Melanopic`,
+`ColorTemperature`, `Smear` and `BacklightDim`. Gloam is a general-wellness tool, not a medical
+device.
 
 ## What actually matters: melanopic light
 
 The light that shifts the body clock and suppresses melatonin is sensed mainly by
 melanopsin in intrinsically photosensitive retinal ganglion cells, peaking around 480–490 nm.
 CIE S 026/E:2018 defines **melanopic EDI** (equivalent daylight illuminance) to measure it.
-Across lab studies it predicts melatonin suppression and sleep effects better than photopic
-lux or colour temperature (Cajochen et al. 2022, *Lighting Res. Technol.*; Giménez et al. 2022,
-*J. Pineal Res.*).
+It is the best single predictor of melatonin suppression across lab studies (Giménez et al.
+2022, *J. Pineal Res.*) and shows dose-response for sleep latency at higher levels (Cajochen et
+al. 2022, *Lighting Res. Technol.*).
 
 **Consensus thresholds** (Brown et al. 2022, *PLOS Biology* 20(3):e3001571,
 doi:10.1371/journal.pbio.3001571; reaffirmed in CIE TN 015:2023), measured at the eye:
@@ -28,31 +29,28 @@ preview) cap the automatic tint without replacing it.
 
 ## How much light a screen gives off
 
-Illuminance at the eye ≈ screen luminance × the solid angle the screen fills. A 27″ monitor at
-60 cm and 200 cd/m² delivers roughly 85 lx melanopic EDI showing white; a 14″ laptop at 50 cm
-and 150 cd/m² about 28 lx. A bright white screen alone can be 3–10× over the evening ceiling,
-before room lighting is counted.
+Illuminance at the eye ≈ screen luminance × the solid angle it fills. Showing white, a 27″
+monitor at 60 cm and 200 cd/m² delivers roughly 85 lx melanopic EDI, a 14″ laptop at 50 cm and
+150 cd/m² about 28 lx: 3–10× the evening ceiling before room lighting is counted.
 
 ## Brightness beats colour
 
 - **Schöllhorn et al. 2023**, *Communications Biology* 6:228 (doi:10.1038/s42003-023-04598-4):
   colour-matched screens differing only in melanopic output (~5 vs ~150 lx) changed sleep
-  latency, melatonin and its timing in proportion to melanopic dose. Dose = intensity × spectrum.
+  latency, melatonin and its timing dose-dependently. Dose = intensity × spectrum.
 - **Nagare et al. 2019**, *Lighting Res. Technol.*: a built-in night mode at unchanged brightness did not
   significantly reduce melatonin suppression; the authors conclude brightness must drop too.
 - **Duraccio et al. 2021**, *Sleep Health*: no measurable sleep difference from a built-in night mode alone
   in a 7-night field study.
+- **Green et al. 2017**, *Chronobiol. Int.* 34:855: short-wavelength screen light disrupted
+  sleep and melatonin at both (narrowly spaced) intensities tested: why Gloam warms as well.
+- **Heath et al. 2014**, *Chronobiol. Int.*: a warm-shift app on a tablet changed neither sleep onset nor
+  architecture in 16 adolescents. We know of no controlled trial showing a screen app improving
+  sleep; Gloam claims less light, not better sleep.
 
-- **Green et al. 2017**, *Chronobiol. Int.* 34:855: two hours of screen light; short-wavelength
-  light disrupted sleep and melatonin at both intensities tested, intensity mattering less. The
-  intensity range was narrow, so it doesn't contradict a dose model, but it is why Gloam warms
-  as well as dims rather than dimming alone.
-- **Heath et al. 2014**, *Chronobiol. Int.*: one hour of a warm-shift app on a tablet before bed in 16
-  adolescents changed neither sleep onset nor sleep architecture. No controlled trial shows a
-  screen app improving sleep; Gloam claims less light, not better sleep.
-
-Takeaway: **warming alone removes only about 40–65% of melanopic light; dimming is the main
-lever and warmth multiplies it.** Gloam therefore dims as well as warms from wind-down onward.
+Takeaway: **warming to the usual 3400–2700 K removes only about half to two thirds of melanopic
+light; dimming is the main lever and warmth multiplies it.** Gloam therefore dims as well as
+warms from wind-down onward.
 
 ## Why blue filters underperform: per-channel weights
 
@@ -67,8 +65,9 @@ D65 white) gives these approximate shares of white's melanopic output, in linear
 
 Gloam uses (0.005, 0.57, 0.425), a blend across panel types. **Green carries over half the
 signal**, so cutting only blue leaves most of it. These are modelled from typical spectra, not
-measured; blue is the least certain (±25%). Melanopic output relative to white, as Gloam
-computes it (a single P3 panel modelled on its own comes out a few points higher at each step):
+measured; blue is the least certain (±25%). Melanopic output relative to white, computed in
+sRGB (the popover computes in the screen's own space; on a P3 Mac screen the same tints keep
+more green and blue and read 3–6 points higher, e.g. 3400 K 0.50, 1900 K 0.20):
 
 | Colour temperature | Relative melanopic |
 |---|---|
@@ -84,28 +83,31 @@ brightness is about 22% of the light. The estimate in the popover accounts for t
 ## Timing: sunset leads, a bedtime default deepens it
 
 Melatonin begins rising about 2 h before habitual sleep, and the consensus ceiling applies from
-3 h before bedtime (Brown et al. 2022 never mention sunset). Sunset alone does little: 3400 K at
-full brightness is still ~4× over the evening ceiling. So the dimming stages are clock-anchored,
-but with two rules that keep the product light:
+3 h before bedtime (Brown et al. 2022 never mention sunset). Sunset alone does little: on a 27″
+monitor, 3400 K at full brightness is still ~4× over the evening ceiling. So the dimming stages
+are clock-anchored, but with two rules that keep the product light:
 
-- **No setup question.** Settings outside onboarding are changed by roughly 2–5% of users (UIE;
-  Firefox telemetry), while an onboarding question taxes everyone. A 23:00 default fits ~60% of
-  adults within an hour (Withings, 117k adults: mean bedtime 23:30, SD 65 min), and people's own
-  night-to-night variation (SD ~94 min) is larger than that error. Late sleepers raise
-  Night brightness (it caps how deep the evening goes; it does not move it later); an editable bedtime was cut (almost nobody would set it).
-- **No dimming in daylight.** Wind-down and Night never start while the sun is up. At 52°N a fixed
-  20:00 wind-down would otherwise dim the screen before sunset on ~170 days a year, which reads as
-  broken, and anyone who wants it can lower brightness by hand. In summer they follow sunset.
+- **No setup question.** An onboarding question taxes everyone, while settings are changed by
+  few. A 23:00 default fits ~60% of adults within an hour (Withings, 117k adults: mean bedtime
+  23:30, SD 65 min). Late sleepers raise Night brightness (it caps how deep the evening goes; it
+  does not move it later).
+- **No dimming in daylight.** Wind-down and Night fade in only as the sun sets (from 3° above to
+  3° below the horizon). A fixed 20:00 wind-down would otherwise dim the screen in daylight on
+  3½–5½ months a year at 52°N (depending on where in the time zone), which reads as broken.
+  In summer they follow sunset.
 
 | Stage | Starts | Default | ≈ Melanopic vs white |
 |---|---|---|---|
 | Sunset | sun 3° → −6° elevation | 3400 K, 100% | 44% |
-| Wind-down | bedtime − 3 h, not before sundown (45 min ease) | 2700 K, 70% | 14% |
-| Night | bedtime − 1 h, not before sundown (45 min ease) | 1900 K, 55% | 4% |
+| Wind-down | bedtime − 3 h, gated by sunset (45 min ease) | 2700 K, 70% | 14% |
+| Night | bedtime − 1 h, gated by sunset (45 min ease) | 1900 K, 55% | 4% |
 | Morning | back to daylight by wake time (20 min ease) | 6500 K, 100% | 100% |
 
-Night stops at 55% rather than the ~35% the evidence would allow, because a first evening that
-suddenly goes very dark reads as a broken display. People who want more can lower it.
+(sRGB figures, as above. On a built-in screen with a bright backlight the smear floor below
+caps Night's warmth, leaving it nearer 7–9%.)
+
+Night stops at 55% rather than going deeper, because a first evening that suddenly goes very
+dark reads as a broken display. People who want more can lower it.
 
 Morning light should be bright: after waking Gloam ignores the sun for five hours (easing back
 in afterwards), so a dark winter morning isn't left filtered.
@@ -114,50 +116,75 @@ in afterwards), so a dark winter morning isn't left filtered.
 
 Kelvin → RGB uses Krystek's (1985) rational approximation of the Planckian locus in CIE 1960,
 converted to the display's own linear RGB (its ColorSync profile: P3 for Mac screens, sRGB when
-unreadable), white-balanced so 6500 K is identity, then gamma-encoded. In sRGB it agrees with
-Ingo Thies' measured blackbody table (2013) within a few percent (3400 K ≈ 1.00 / 0.79 / 0.56) and stays
-physically meaningful below 2000 K, where the common Tanner Helland fit drifts. The display's
-own space matters below ~2000 K: the warm white lies outside sRGB, where blue clamps to zero;
-sent to a P3 panel those numbers show a purer red than asked for (1900 K, encoded: 1.00 / 0.53
-/ 0.02 in sRGB vs 1.00 / 0.61 / 0.23 for a MacBook Pro XDR panel), and white text blooms red.
-The display's matrix is built from its profile's primaries: asking ColorSync to convert XYZ
+unreadable), white-balanced so 6500 K is identity, then gamma-encoded. In sRGB it matches
+Ingo Thies' measured blackbody table (2013; 3400 K: 1.00 / 0.78 / 0.52 against its 1.00 / 0.77 / 0.52) and stays physical
+below 2000 K, where that warm white lies outside sRGB: sRGB gains on a P3 panel show a purer
+red than asked for (1900 K: 1.00 / 0.53 / 0.02 in sRGB vs 1.00 / 0.61 / 0.23 for a MacBook Pro
+XDR panel). The matrix is built from the profile's primaries: asking ColorSync to convert XYZ
 straight to the display clips at 1 and silently weakens every warm tint.
 Transitions interpolate in mireds (10⁶/K), where equal steps look equally large.
 
-## Built-in screens: dim the backlight, not the signal
+## Dimming: the backlight where macOS allows it, the signal elsewhere
 
-Dimming the signal (scaling the gamma table) of a built-in LCD at a bright backlight makes it
-smear: every white becomes a mid grey, and grey-to-grey transitions are the slowest a liquid
-crystal makes. The 14″ M3 Max XDR panel is slow to begin with (Notebookcheck, 20 Nov 2023:
-78.8 ms black→white, 80.8 ms 50→80% grey), and its mini-LED zones ramp over ~100 ms (Mayo,
-2022), so static halos grow too. Observed here: heavy smearing at 55% signal with the slider at
-100%, none at 80%. Warming alone suffers less: it keeps red at full drive. For the melanopic dose only light counts (Schöllhorn 2023), so lowering
-the backlight gives the same reduction with the panel at full range.
+Where the brightness keys work (the built-in panel, Apple displays) Gloam dims the backlight
+itself through the same call, as a fraction of the level it finds, never below 8 % of the
+panel's maximum: about 40 cd/m² on a 500-nit screen, within what is comfortable for sustained
+smartphone reading in low room light (Na & Suk 2015, *Opt. Express* 23:16912) and inside the
+21–75 cd/m² evening viewers preferred under 13–62 lx room light (Zhou et al. 2021, *Appl. Sci.*
+11:4108). A key press or auto-brightness moving the backlight is adopted, not fought: the
+fraction then applies to the new level, and the morning restores the level moved to
+(`BacklightDim`). Why not the signal: a dimmed signal leaves the backlight at full power,
+crushes shadows below ~30 %, pushes the liquid crystal into its slow dark range (below), and
+on M5 Pro and M5 Max MacBook Pros (and the MacBook Neo's external displays) macOS 26 and
+later ignore gamma tables altogether, an open Apple bug. Third-party
+monitors that answer a DDC/CI brightness read (most on a direct DisplayPort, USB-C or HDMI
+link; rarely through hubs, never DisplayLink or most TVs) are dimmed the same way over that
+channel, on their own 0–100 scale; the rest by signal, never below 30 %.
 
-So on built-in displays Gloam never scales the signal below 80% (≈ 61% light); warmth is
-unrestricted. Deeper evening dimming has to come from the backlight (the brightness keys or
-auto-brightness). No public report of this smearing was found; the cap is empirical, from one
-panel, and other built-in LCDs may tolerate more.
+### Light text on a dark background smears when the panel's white is dim
 
-## Auto dimming (optional inputs)
+Observed on a mini-LED laptop panel with the slider at 100 %, scrolling white-on-black text:
+heavy trails with the whole signal scaled to 55 %, none at 80 %. Both slow parts of the panel
+are slowest around black: the liquid crystal (40–60 ms transitions, Notebookcheck) and the
+mini-LED zones. Apple calls "a slight blur or color change while
+scrolling against black backgrounds" normal behaviour of the dimming zones on the iPad Pro's
+XDR display, the same mini-LED design (support.apple.com/HT212527). To the panel a warm tint is
+a dim white: red stays at full drive, but green and blue carry three quarters of the light.
+Relative to daylight white at the same slider position:
 
-Two readings, both through private macOS interfaces, ease the dimming; no reading means no
-change. **Backlight:** on a built-in display whose brightness slider is already low (a dark
-room under auto-brightness), Gloam keeps less of its dimming: all of it from 75%, none at 25%
-or below, so the two never stack into a screen that is too dark. Gloam only reads the slider;
-moving it would fight auto-brightness. These thresholds are a heuristic.
+| Tint | Light of white |
+|---|---|
+| 6500 K at 80 % signal (clean) | 61 % |
+| 1900 K | 47 % |
+| 1900 K at 80 % signal | 29 % |
+| 6500 K at 55 % signal (heavy trails) | 27 % |
 
-**Room light:** with a MacBook's lid open, the ambient light sensor eases the dimming in a
-bright room: all of it at ≤ 10 lx, a third of it at ≥ 500 lx, log-linear between. The sensor
-reads photopic lux at the lid, a proxy for the melanopic light at the eye that Brown et al.
-2022's ≤ 10 lx ceiling refers to; the two points are a heuristic. In a bright room the room dominates the light reaching the eye (Gooley et al. 2011, *JCEM*:
-room light < 200 lx before bed delayed melatonin onset in nearly everyone), so a much darker
-screen mostly costs readability. This is a reasoned default, not a trial result.
+So the floor is on the luminance of the tinted white (`Smear`; 61 % = 0.8^2.2, in the display's
+own colour space), giving up dimming before warmth: of all tints at one luminance the warmest
+has the least melanopic light. On a backlight-dimmed display the signal stays at full drive,
+so the floor only caps warmth, and only while the slider is high (all of it from 75 %, where
+the panel reaches about 2600–2800 K; none at 25 % or below), which the evening's own backlight
+dimming usually takes care of. Monitors dimmed by signal get the full floor when switched on
+per display in Settings: macOS says nothing about their panels. Measured: one panel, one
+neutral threshold. That the same luminance predicts warm smearing is the model's claim, backed
+by the physics and by iPad Pro XDR users finding the scrolling smear "more prominent when Night
+Shift is on"; a floor on green's own drive would put the cap near 3000–3200 K instead.
+
+## Auto dimming (optional input)
+
+**Room light** (read through a private macOS interface; no reading means no change): with a
+MacBook's lid open, the ambient light sensor eases the dimming in a bright room: all of it at
+≤ 10 lx, a third of it at ≥ 500 lx, log-linear between. The sensor reads photopic lux at the
+lid, a proxy for the melanopic light at the eye that Brown et al. 2022's ≤ 10 lx ceiling
+refers to; the two points are a heuristic. In a bright room the room dominates the light
+reaching the eye (Gooley et al. 2011, *JCEM*: room light < 200 lx before bed delayed melatonin
+onset in nearly everyone), so a much darker screen mostly costs readability. This is a
+reasoned default, not a trial result.
 
 ## What Gloam does not claim
 
 No claim that it improves sleep, raises melatonin, treats any condition, reduces eye strain or
 protects the eyes. Trials of colour shifting alone show small or no sleep effects, and a
-Cochrane review (Singh et al. 2023, CD013244) found no eye-strain benefit from blue blocking.
-Room lighting and total screen time matter more than screen colour; dim, warm lamps in the
-evening do the most good.
+Cochrane review of blue-filtering lenses (Singh et al. 2023, CD013244) found no eye-strain
+benefit. Room lighting and total screen time matter more than screen colour; dim, warm lamps in
+the evening do the most good.
