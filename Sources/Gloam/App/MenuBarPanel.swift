@@ -163,7 +163,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
             // Cached images: assign only when it changes (this re-runs on every model change).
             let image = GloamGlyph.cached(mode: mode, depth: model.eveningDepth)
             if item.button?.image !== image { item.button?.image = image }
-            // This re-runs every tick (the depth reads the clock): set the label only when it changes.
+            // Set the label only when it changes: this re-runs on every change the glyph reads.
             // A timed off says when it ends, here too: the glyph alone looks like any other off.
             let label = !model.enabled
                 ? model.resumeAt.map { String(localized: "Gloam, paused until \(Format.time($0))") } ?? String(localized: "Gloam, off")

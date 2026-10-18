@@ -261,4 +261,14 @@ import Testing
         let d = try JSONDecoder().decode(BacklightDim.self, from: Data(#"{"baseline":0.6,"written":0.3}"#.utf8))
         #expect(d.isDimming && abs(d.fraction - 0.5) < 1e-9 && d.step == 0)
     }
+
+    // After a crash mid-fade the panel sits between the saved dimming and the baseline: still
+    // Gloam's (the morning restores the baseline). At the baseline, or brighter, it's the user's.
+    @Test func aCrashMidFadeStillResumes() {
+        var d = BacklightDim(baseline: 0.6)
+        d.wrote(0.2, for: 1.0 / 3)
+        #expect(d.resumes(at: 0.2) && d.resumes(at: 0.35))
+        #expect(!d.resumes(at: 0.6) && !d.resumes(at: 0.9) && !d.resumes(at: 0.1))
+        #expect(!BacklightDim(baseline: 0.6).resumes(at: 0.3))  // not dimming: nothing to resume
+    }
 }

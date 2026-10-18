@@ -107,7 +107,9 @@ final class AppModel {
         enabled = expired || (Self.load("enabled") ?? true)
         resumeAt = expired ? nil : resume
         schedule = Self.load("schedule") ?? Schedule()
-        customPlace = Self.load("place")
+        let city: Place? = Self.load("place")
+        customPlace = city
+        customPlaceInUse = city?.keepsTime(of: .current, at: Date()) ?? false
         self.engine = engine
         displayStrength = Self.load("displayStrength") ?? [:]
         smearGuarded = Self.load("smearGuarded") ?? []
@@ -138,6 +140,11 @@ final class AppModel {
             observe(NSWorkspace.shared.notificationCenter, NSWorkspace.screensDidWakeNotification) { model, _ in
                 model.screensAsleep = false
                 model.update(fade: 1.5)
+            },
+            // The clock set by hand: what's due at the new time, eased in, not at the next tick.
+            observe(.default, .NSSystemClockDidChange) { model, _ in
+                model.stagesMoved()
+                model.update(fade: 2)
             },
             observe(.default, .NSSystemTimeZoneDidChange) { model, _ in
                 NSTimeZone.resetSystemTimeZone()  // otherwise the old zone stays cached
@@ -171,8 +178,10 @@ final class AppModel {
 
     /// The chosen city while it keeps the Mac's time; otherwise (travel, a city in another zone)
     /// the time zone's own, until the clocks match again.
-    var place: Place { customPlaceInUse ? customPlace! : timeZonePlace }
-    var customPlaceInUse: Bool { customPlace?.keepsTime(of: .current, at: now) ?? false }
+    var place: Place { customPlaceInUse ? customPlace ?? timeZonePlace : timeZonePlace }
+    /// Stored, set by `refreshClock` when it changes: worked out on each read, every view showing
+    /// the place redrew every tick (Settings and its graph every 5 s in the evening).
+    private(set) var customPlaceInUse = false
     /// Stored rather than computed (`refreshClock`): views read them on every redraw, and
     /// finding the next change scans the next 24 hours.
     private(set) var stage = StageKind.day
@@ -185,8 +194,8 @@ final class AppModel {
     /// The place the stored stage was worked out for; nil forces the next refresh.
     @ObservationIgnored private var clockedAt: Coordinate?
 
-    /// A look shown for a moment and then let go: Welcome's "Preview tonight", or a limit
-    /// being dragged in Settings. Eases in as gently as it eases out; later steps follow fast.
+    /// A look shown for a moment and then let go: Settings' "Preview tonight". Eases in as gently
+    /// as it eases out; later steps follow fast.
     var preview: Tint? {
         didSet {
             guard preview != oldValue else { return }  // re-clearing must not restart a fade
@@ -214,7 +223,9 @@ final class AppModel {
     var automatic: Tint { schedule.tint(at: now, place.coordinate, roomLux: autoDimming ? roomLux : nil) }
 
     /// How far into the evening, 0 (day) … 1 (night); the menu-bar glyph fills with it.
-    var eveningDepth: Double { schedule.depth(at: now, place.coordinate) }
+    /// How deep into the evening, in the menu-bar glyph's 24 steps: set by `refreshClock` when it
+    /// changes, so the glyph redraws a couple of dozen times a night, not on every tick.
+    private(set) var eveningDepth = 0.0
 
     // MARK: Actions
 
@@ -374,7 +385,10 @@ final class AppModel {
     /// second of the last move: a drag updates ~120 times a second, and moving `now` that often
     /// would redraw every view that reads it.
     private func refreshClock() {
-        let date = Date().addingTimeInterval(Self.clockOffset), coordinate = place.coordinate
+        let date = Date().addingTimeInterval(Self.clockOffset)
+        let inUse = customPlace?.keepsTime(of: .current, at: date) ?? false
+        if inUse != customPlaceInUse { customPlaceInUse = inUse }
+        let coordinate = place.coordinate
         guard abs(date.timeIntervalSince(now)) >= 1 || coordinate != clockedAt else { return }
         now = date
         clockedAt = coordinate
@@ -384,6 +398,8 @@ final class AppModel {
         if next?.kind != nextStage?.kind || next?.at != nextStage?.at { nextStage = next }
         let wake = schedule.evening(around: date, coordinate).wake
         if wake != eveningWake { eveningWake = wake }
+        let depth = (min(1, max(0, schedule.depth(at: date, coordinate))) * 24).rounded() / 24
+        if depth != eveningDepth { eveningDepth = depth }
     }
 
     /// Notification-center observers as main-actor tasks, so handlers need no isolation dance.

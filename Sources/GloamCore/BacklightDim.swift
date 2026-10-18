@@ -64,6 +64,16 @@ public struct BacklightDim: Equatable, Codable, Sendable {
 
     public var isDimming: Bool { written != nil }
 
+    /// Whether a display found at `light` is still where this saved dimming left it, after a
+    /// crash: at what was written, or anywhere between that and the baseline, as a fade (saved
+    /// at most once a second) leaves it. Then the baseline still holds for the morning; any
+    /// other level is the user's own.
+    public func resumes(at light: Double) -> Bool {
+        guard let w = written else { return false }
+        if same(light, w) { return true }
+        return light > min(w, baseline) && light < max(w, baseline) && !same(light, baseline)
+    }
+
     /// Feed every reading of the backlight. Undimmed, the baseline simply follows the system.
     /// Dimmed, a reading away from what was written is an outside move, adopted. On the curve
     /// it scales the baseline by the move's ratio, so the fraction now applies to the new level;

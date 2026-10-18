@@ -11,6 +11,8 @@ import GloamCore
 
 final class OverlayEngine: TintEngine {
     private var panels: [CGDirectDisplayID: NSPanel] = [:]
+    /// What each panel shows: an unchanged tint isn't painted again (a full-screen recomposite).
+    private var shown: [CGDirectDisplayID: Tint] = [:]
     private static let maxVeil = 0.45
 
     func apply(_ tints: [CGDirectDisplayID: Tint]) {
@@ -20,8 +22,11 @@ final class OverlayEngine: TintEngine {
             guard let id = screen.displayID else { continue }
             guard let tint = tints[id], !tint.isNeutral else {
                 panels[id]?.orderOut(nil)
+                shown[id] = nil
                 continue
             }
+            if shown[id] == tint, panels[id]?.isVisible == true { continue }
+            shown[id] = tint
             let panel = panels[id] ?? Self.makePanel(for: screen)
             panels[id] = panel
             guard let layers = panel.contentView?.layer?.sublayers, layers.count == 2 else { continue }
@@ -36,6 +41,7 @@ final class OverlayEngine: TintEngine {
 
     func reset() {
         panels.values.forEach { $0.orderOut(nil) }
+        shown = [:]
     }
 
     func displaysChanged() {

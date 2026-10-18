@@ -34,11 +34,12 @@ final class GammaEngine: TintEngine {
     func apply(_ tints: [CGDirectDisplayID: Tint]) {
         let active = tints.filter { !$0.value.isNeutral }
         guard !active.isEmpty else { return reset() }
+        everTinted = true
         for id in tinted.subtracting(active.keys) {
             if let base = calibration[id] { write(base, gain: .white, to: id) }
         }
         for (id, tint) in active {
-            if let base = calibration[id] ?? capture(id) { write(base, gain: Kelvin.displayGain(tint, in: space(id)), to: id) }
+            if let base = calibration[id] ?? capture(id) { write(base, gain: Kelvin.displayGain(tint, in: colourSpace(id)), to: id) }
         }
         tinted = Set(active.keys)
     }
@@ -69,9 +70,13 @@ final class GammaEngine: TintEngine {
         tinted = []
     }
 
+    /// Gloam wrote a table this run: only then does quitting reset them all, which would also
+    /// undo another app's (a quit from Welcome, say, or a day spent off).
+    private var everTinted = false
+
     /// On quit: the full ColorSync restore, so nothing of Gloam's can linger.
     func restoreAll() {
-        CGDisplayRestoreColorSyncSettings()
+        if everTinted { CGDisplayRestoreColorSyncSettings() }
         tinted = []
         gains = [:]
     }
@@ -94,9 +99,7 @@ final class GammaEngine: TintEngine {
 
     /// The display's linear RGB, from its ColorSync profile's primaries, or sRGB when the
     /// profile can't be used.
-    func colourSpace(_ id: CGDirectDisplayID) -> LinearRGB { space(id) }
-
-    private func space(_ id: CGDirectDisplayID) -> LinearRGB {
+    func colourSpace(_ id: CGDirectDisplayID) -> LinearRGB {
         if let known = spaces[id] { return known }
         var result = Kelvin.sRGB
         if let linear = CGColorSpaceCreateLinearized(CGDisplayCopyColorSpace(id)),
@@ -120,7 +123,11 @@ final class GammaEngine: TintEngine {
     }
 
     private func write(_ base: Ramp, gain: RGB, to id: CGDirectDisplayID) {
-        guard gains[id] != gain else { return }
+        // Unchanged to the eye: room light drifts the target by hair's breadths every tick, and a
+        // monitor dimmed by signal would get a table write every 5 s all night. Against the last
+        // write, so slow drift still lands; back to white is always exact.
+        if let last = gains[id], gain == .white ? last == gain
+            : max(abs(last.red - gain.red), abs(last.green - gain.green), abs(last.blue - gain.blue)) < 1.0 / 4096 { return }
         gains[id] = gain
         let r = base.red.map { $0 * CGGammaValue(gain.red) }
         let g = base.green.map { $0 * CGGammaValue(gain.green) }

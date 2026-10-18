@@ -1,6 +1,7 @@
 // Picking a city, for people whose time zone is a poor guess for where they are (a large
 // zone, or travelling). Shared by Welcome and Settings. Results come from Apple Maps
-// (MKLocalSearch), which receives only the typed name; nothing else ever leaves the Mac.
+// (MKLocalSearch), which receives only the typed name (Gloam's only other network use is the
+// update check).
 
 import GloamCore
 import MapKit

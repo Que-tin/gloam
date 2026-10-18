@@ -57,6 +57,8 @@ enum Updates {
 private final class PopoverDriver: NSObject, SPUUserDriver {
     private var installReply: ((SPUUserUpdateChoice) -> Void)?
     private var version = ""
+    /// The user asked for this round (Check for Updates…): its failures are shown, not swallowed.
+    private var asked = false
     private var expected: UInt64 = 0, received: UInt64 = 0
     private var clearTask: Task<Void, Never>?
 
@@ -84,12 +86,19 @@ private final class PopoverDriver: NSObject, SPUUserDriver {
     }
 
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
+        asked = true
         show(.checking)
         MenuBarPanel.shared.open()  // the answer appears there
     }
 
     /// Downloaded straight away; installing waits for the user.
     func showUpdateFound(with appcastItem: SUAppcastItem, state: SPUUserUpdateState, reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        // Information-only items (a release without a download) aren't Gloam's; never "installed".
+        guard !appcastItem.isInformationOnlyUpdate else {
+            show(asked ? .upToDate : .idle, for: asked ? 4 : nil)
+            asked = false
+            return reply(.dismiss)
+        }
         version = appcastItem.displayVersionString
         show(.downloading(version: version, progress: nil))
         reply(.install)
@@ -99,13 +108,16 @@ private final class PopoverDriver: NSObject, SPUUserDriver {
     func showUpdateReleaseNotesFailedToDownloadWithError(_ error: any Error) {}
 
     func showUpdateNotFoundWithError(_ error: any Error, acknowledgement: @escaping () -> Void) {
+        asked = false
         show(.upToDate, for: 4)
         acknowledgement()
     }
 
     func showUpdaterError(_ error: any Error, acknowledgement: @escaping () -> Void) {
-        // Only an answer to the user's own check is shown; a scheduled one fails quietly.
-        show(Updates.state.status == .checking ? .failed : .idle, for: 6)
+        // Only an answer to the user's own check is shown (also when its download fails); a
+        // scheduled one fails quietly.
+        show(asked ? .failed : .idle, for: 6)
+        asked = false
         acknowledgement()
     }
 
@@ -133,6 +145,7 @@ private final class PopoverDriver: NSObject, SPUUserDriver {
     func showExtractionReceivedProgress(_ progress: Double) {}
 
     func showReady(toInstallAndRelaunch reply: @escaping (SPUUserUpdateChoice) -> Void) {
+        asked = false
         installReply = reply
         show(.ready(version: version))
     }
@@ -149,7 +162,6 @@ private final class PopoverDriver: NSObject, SPUUserDriver {
 
     func dismissUpdateInstallation() {
         // Sparkle is done with this round; a ready update stays offered until it's installed.
-        if case .ready = Updates.state.status { return }
         if Updates.state.status == .installing || Updates.state.status == .checking { show(.idle) }
     }
 }

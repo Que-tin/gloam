@@ -202,9 +202,6 @@ public struct Schedule: Codable, Equatable, Sendable {
         Tint(kelvin: max(t.kelvin, warmest), brightness: max(t.brightness, darkest))
     }
 
-    /// Tonight's night: what a preview of tonight shows.
-    public var limitedNight: Tint { night.tint }
-
     /// How much of the smear floor a built-in display at this backlight level (0…1, the
     /// brightness slider) keeps: none up to 50%, all of it from 85%, smooth between. Measured on
     /// one mini-LED panel at the Night stage with no floor: no trails at 20–50 %, faint at 60 %,

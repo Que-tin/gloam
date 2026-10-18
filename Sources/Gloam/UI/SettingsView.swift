@@ -135,13 +135,9 @@ struct SettingsView: View {
     /// smear floor eases off with it, `Schedule.pastRecommended`). Dimmer needs no note: a dim
     /// screen is plainly dim.
     private var deeperNote: String? {
-        let (s, r) = (model.schedule, Schedule.recommendedNight)
-        var notes: [String] = []
-        if Kelvin.mired(s.warmest) > Kelvin.mired(r.kelvin) + 1 {
-            // Tentative on purpose: what happens depends on the screen, which Gloam can't know.
-            notes.append(String(localized: "Warmer than recommended: colours may begin to fade, and moving text may smear."))
-        }
-        return notes.isEmpty ? nil : notes.joined(separator: "\n")
+        guard Kelvin.mired(model.schedule.warmest) > Kelvin.mired(Schedule.recommendedNight.kelvin) + 1 else { return nil }
+        // Tentative on purpose: what happens depends on the screen, which Gloam can't know.
+        return String(localized: "Warmer than recommended: colours may begin to fade, and moving text may smear.")
     }
 
     private var isDefault: Bool {
@@ -151,7 +147,7 @@ struct SettingsView: View {
             && s.bedtime == d.bedtime && s.wake == d.wake
     }
 
-    private var night: Tint { model.schedule.limitedNight }
+    private var night: Tint { model.schedule.night.tint }
 
     private var location: some View {
         Section {
@@ -327,7 +323,9 @@ private enum LocationChoice { case timeZone, city, choose }
 
 /// Reports whether the window's form has scrolled from the top. SwiftUI on macOS 14 has no
 /// scroll-offset callback, so it watches the form's NSScrollView, found from the window: a
-/// watcher placed inside a form row made the form open scrolled.
+/// watcher placed inside a form row made the form open scrolled. It also keeps that scroll view on
+/// thin overlay scrollers (a narrow thumb, no track, shown while scrolling) whatever "Show scroll
+/// bars" says: a boxed bar down the edge of a small dark window was all chrome.
 private struct ScrollWatcher: NSViewRepresentable {
     let onChange: (Bool) -> Void
 
@@ -337,6 +335,7 @@ private struct ScrollWatcher: NSViewRepresentable {
     final class Watcher: NSView {
         let onChange: (Bool) -> Void
         nonisolated(unsafe) private var token: NSObjectProtocol?
+        nonisolated(unsafe) private var styleToken: NSObjectProtocol?
 
         init(onChange: @escaping (Bool) -> Void) {
             self.onChange = onChange
@@ -344,24 +343,32 @@ private struct ScrollWatcher: NSViewRepresentable {
         }
         required init?(coder: NSCoder) { nil }
 
-        deinit { if let token { NotificationCenter.default.removeObserver(token) } }
-
-        private static func firstScrollView(in view: NSView) -> NSScrollView? {
-            if let scroll = view as? NSScrollView { return scroll }
-            for sub in view.subviews { if let found = firstScrollView(in: sub) { return found } }
-            return nil
-        }
+        deinit { [token, styleToken].compactMap { $0 }.forEach(NotificationCenter.default.removeObserver) }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let token { NotificationCenter.default.removeObserver(token) }
+            [token, styleToken].compactMap { $0 }.forEach(NotificationCenter.default.removeObserver)
             token = nil
+            styleToken = nil
             // A beat later: the form's scroll view may not be in the window yet.
             DispatchQueue.main.async { [weak self] in self?.attach() }
         }
 
+        /// Overlay, at the smallest size AppKit draws (a style change can bring a new scroller).
+        private static func thin(_ scroll: NSScrollView) {
+            scroll.scrollerStyle = .overlay
+            scroll.verticalScroller?.controlSize = .mini
+        }
+
         private func attach() {
-            guard token == nil, let root = window?.contentView, let scroll = Self.firstScrollView(in: root) else { return }
+            guard token == nil, let scroll = window?.contentView?.firstScrollView else { return }
+            Self.thin(scroll)
+            // AppKit puts the system's style back when that preference changes: overlay again.
+            styleToken = NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+                                                                object: nil, queue: .main) { [weak scroll] _ in
+                // A beat later, after AppKit's own handling of the same notice.
+                DispatchQueue.main.async { MainActor.assumeIsolated { scroll.map(Self.thin) } }
+            }
             scroll.contentView.postsBoundsChangedNotifications = true
             let report: @MainActor @Sendable () -> Void = { [weak self, weak scroll] in
                 guard let self, let scroll else { return }
@@ -373,5 +380,12 @@ private struct ScrollWatcher: NSViewRepresentable {
                 MainActor.assumeIsolated(report)
             }
         }
+    }
+}
+
+extension NSView {
+    /// The first scroll view at or below this view, depth first (Settings' form).
+    var firstScrollView: NSScrollView? {
+        self as? NSScrollView ?? subviews.lazy.compactMap(\.firstScrollView).first
     }
 }

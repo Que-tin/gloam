@@ -652,8 +652,8 @@ struct LampNotice: View {
 
 /// A lamp part as a button that Tab always reaches. A SwiftUI `Button` gets keyboard focus only
 /// when the Mac's Keyboard navigation setting is on, which left the popover's switch and gear out
-/// of reach while the dial and ladder (focusable views) were not. Space or Return presses it; the
-/// ring shows for keyboard focus only, like the dial's.
+/// of reach while the dial and ladder (focusable views) were not. Space presses it; the ring
+/// shows for keyboard focus only, like the dial's.
 private struct LampPress<S: Shape>: ViewModifier {
     let shape: S
     let action: () -> Void
@@ -669,7 +669,7 @@ private struct LampPress<S: Shape>: ViewModifier {
             .focused($focused)
             .focusEffectDisabled()
             .onChange(of: focused) { _, now in ring = now && Lamp.focusFromKeyboard }
-            .onKeyPress(keys: [.space, .return], phases: .down) { _ in
+            .onKeyPress(.space, phases: .down) { _ in  // Return is the window's default button's, as on any Mac
                 action()
                 return .handled
             }

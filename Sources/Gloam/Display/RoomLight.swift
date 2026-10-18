@@ -56,10 +56,12 @@ final class RoomLight {
         return lux.isFinite && lux >= 0 ? lux : nil
     }
 
+    /// The power manager, looked up once (it lives as long as the system); asked every read.
+    private static let powerRoot = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
+
     private static var lidClosed: Bool {
-        let root = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
-        defer { IOObjectRelease(root) }
-        let state = IORegistryEntryCreateCFProperty(root, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)
+        guard powerRoot != 0 else { return false }
+        let state = IORegistryEntryCreateCFProperty(powerRoot, "AppleClamshellState" as CFString, kCFAllocatorDefault, 0)
         return (state?.takeRetainedValue() as? Bool) ?? false
     }
 }

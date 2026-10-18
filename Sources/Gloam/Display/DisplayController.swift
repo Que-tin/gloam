@@ -142,7 +142,7 @@ final class DisplayController {
 
     /// The warmest the main display shows at full signal: where the popover's dial ends, so its
     /// 100 % is real. With a backlight it moves only with the brightness the user set (the
-    /// smear floor's share is held while Gloam dims, see `pollBacklights`), never with the ladder.
+    /// smear floor's share is held while Gloam dims, see `refreshShares`), never with the ladder.
     var warmestOnMain: Double {
         max(Stage.kelvinRange.lowerBound, Smear.warmest(brightness: 1, floor: smearFloor(for: main), in: mainColourSpace))
     }
@@ -188,10 +188,6 @@ final class DisplayController {
         return min(1, max(0, level * pow(dim.baseline / light, 1 / Kelvin.displayGamma)))
     }
 
-    /// Some tinted display is dimmed by its signal (no backlight or DDC control): there, dimming
-    /// past the recommended night can make scrolled text trail and gradients band.
-    var dimsBySignal: Bool { displays.contains { strength($0.uuid) > 0 && backlight($0.id) == nil } }
-
     /// The deepest the main display goes, as a signal brightness: its backlight's light floor
     /// (relative to the level the user set), else the signal floor. The popover's ladder ends
     /// here, so its 100 % is real. Not the smear floor: that one moves with warmth, and the
@@ -206,7 +202,10 @@ final class DisplayController {
     }
 
     private func refreshEffective() {
-        let e = adjusted(shown, for: main)
+        // As tinted as the main display's own setting (Settings › Displays) has it: switched off
+        // there, the orb, its glow and the blue-light reading show an untinted screen.
+        let s = displays.first { $0.id == main }.map { strength($0.uuid) } ?? 1
+        let e = adjusted(.mix(.neutral, shown, s), for: main)
         if e != effective { effective = e }
     }
 
@@ -285,12 +284,12 @@ final class DisplayController {
     /// monitor keeps that pace so its baseline is fresh when dimming starts. Without the tick
     /// (before it starts), the timer stands in at the tick's pace.
     private var pollPace: Duration? {
+        if asleep { return nil }  // nothing is read while the screens sleep; their wake repaces
         let current = Set(displays.map(\.id))
         let active = !shown.isNeutral || dims.contains { current.contains($0.key) && $0.value.isDimming }
         let readsMacOS = displays.contains { $0.isBuiltin || (dims[$0.id] != nil && monitors[$0.id] == nil) }
         // Unplugged monitors keep their entries (for when they return), not the 20 s pace.
         let noMonitor = !displays.contains { monitors[$0.id] != nil }
-        if asleep { return nil }  // nothing is read while the screens sleep; their wake repaces
         if watchingClosely && readsMacOS { return .milliseconds(500) }
         if tickDriven { return active || noMonitor ? nil : .seconds(20) }
         return active ? .seconds(5) : noMonitor ? .seconds(60) : .seconds(20)
@@ -324,6 +323,8 @@ final class DisplayController {
 
     func use(_ choice: Engine) {
         engine.reset()
+        overwrites = []  // the overlay ends the tug of war: the notice goes with it
+        interference = false
         resolvedEngine = Self.resolve(choice)
         engine = Self.make(resolvedEngine)
         push()
@@ -347,11 +348,11 @@ final class DisplayController {
             return push()
         }
         guard target != (fade?.to ?? shown) else { return }
-        fade = Fade(from: shown, to: target, start: Date(), duration: duration, retarget: fadeTask != nil)
+        fade = Fade(from: shown, to: target, start: Self.uptime, duration: duration, retarget: fadeTask != nil)
         guard fadeTask == nil else { return }
         fadeTask = Task { [weak self] in
             while let self, let f = self.fade, !Task.isCancelled {
-                let t = min(1, Date().timeIntervalSince(f.start) / f.duration)
+                let t = min(1, (Self.uptime - f.start) / f.duration)
                 let eased = f.retarget ? 1 - (1 - t) * (1 - t) : (t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2)
                 self.shown = t >= 1 ? f.to : .mix(f.from, f.to, eased)
                 self.push()
@@ -366,7 +367,10 @@ final class DisplayController {
         }
     }
 
-    private struct Fade { var from, to: Tint; var start: Date; var duration: Double; var retarget: Bool }
+    private struct Fade { var from, to: Tint; var start: TimeInterval; var duration: Double; var retarget: Bool }
+    /// Fades run on the Mac's uptime, not the wall clock: a clock set back by hand mid-fade made
+    /// one last as long as the jump, with the schedule held meanwhile.
+    private static var uptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
     /// The most whole steps any monitor has to take to show `target`.
     private func monitorSteps(to target: Tint) -> Double {
@@ -542,11 +546,20 @@ final class DisplayController {
     /// exactly what a Gloam that never got to quit left behind, whose baseline then still holds.
     private func follow(_ id: CGDirectDisplayID, uuid: String, light: Double, step: Double = 0) {
         uuidOf[id] = uuid
-        var dim = BacklightDim(baseline: light, step: step)
-        if var left = saved[uuid], let w = left.written, left.same(light, w) {
+        if var left = saved[uuid], left.resumes(at: light) {
             left.step = step
-            dim = left
+            left.lightFloor = lightFloor
+            // Mid-fade the panel isn't at what was saved: continue from where it is.
+            if let w = left.written, !left.same(light, w) { left.wrote(light, for: min(0.999, light / left.baseline)) }
+            store(left, for: id)
+        } else {
+            restart(id, at: light, step: step)
         }
+    }
+
+    /// Follows a display afresh from the light it shows now, as its baseline.
+    private func restart(_ id: CGDirectDisplayID, at light: Double, step: Double = 0) {
+        var dim = BacklightDim(baseline: light, step: step)
         dim.lightFloor = lightFloor
         store(dim, for: id)
     }
@@ -597,9 +610,7 @@ final class DisplayController {
                 // the new baseline, dimmed again by the same fraction (recorded like any write).
                 dim.step = monitor.step
                 guard !dim.same(monitor.initial, w) else { continue }
-                var fresh = BacklightDim(baseline: monitor.initial, step: monitor.step)
-                fresh.lightFloor = lightFloor
-                store(fresh, for: id)
+                restart(id, at: monitor.initial, step: monitor.step)
                 setBacklight(id, fraction: dim.fraction)
             } else if var dim = dims[id] {
                 // Followed but not dimmed: its level may have changed while it was away (another
@@ -623,7 +634,6 @@ final class DisplayController {
     /// key press can move it a lot; a jump read as Gloam fighting the key).
     private func pollBacklights() {
         guard !asleep else { return }
-        var next: [CGDirectDisplayID: Double] = [:]
         // DDC reads are slow and some links drop them, so monitors are asked every 20 s, not twice a second.
         let askMonitors = Date().timeIntervalSince(monitorsPolled) > 20
         if askMonitors { monitorsPolled = Date() }
@@ -651,6 +661,13 @@ final class DisplayController {
                 if let fraction = requested[id], dims[id]?.light(for: fraction) != nil { setBacklight(id, fraction: fraction) }
             }
         }
+        refreshShares(lights)
+    }
+
+    /// Each built-in's share of the smear floor, from the brightness the user set (`lights`: this
+    /// poll's readings), eased there over 0.6 s when it moved.
+    private func refreshShares(_ lights: [CGDirectDisplayID: Double]) {
+        var next: [CGDirectDisplayID: Double] = [:]
         for display in displays where display.isBuiltin {
             let id = display.id, light = lights[id] ?? Backlight.light(id)
             // The floor eases with the brightness the user set, not with Gloam's own dimming, or
@@ -663,7 +680,7 @@ final class DisplayController {
                 levelReadAt[id] = Date()
                 let level = Backlight.level(id)
                 if let level, let light { undimmed[id] = (level, light) }
-                if shown.isNeutral, let light, let uuid = display.uuid as String? { dayLight[uuid] = light }
+                if shown.isNeutral, let light { dayLight[display.uuid] = light }
                 levelShare[id] = level.map(Schedule.backlightFactor)
             }
             if let factor = levelShare[id] { next[id] = factor }
@@ -763,9 +780,7 @@ final class DisplayController {
         for display in displays where !known.contains(display.uuid) && monitors[display.id] == nil {
             guard let dim = dims[display.id], let w = dim.written, let light = Backlight.light(display.id),
                   !dim.same(light, w) else { continue }
-            var fresh = BacklightDim(baseline: light)
-            fresh.lightFloor = lightFloor
-            store(fresh, for: display.id)
+            restart(display.id, at: light)
         }
         adoptBacklights()
         pollBacklights()
