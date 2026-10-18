@@ -4,11 +4,12 @@
 // (IOAVService, private IOKit), loaded with dlsym so a future
 // macOS that drops a symbol simply yields no monitor. A monitor is used only if it answers a
 // brightness read, which proves the channel, and if its IOKit service maps to exactly one
-// CoreGraphics display (by EDID UUID, or because both sides have a single external); anything
-// doubtful is left to signal dimming. Known gaps, from those projects: most hubs and docks,
-// DisplayLink, TVs, EIZO, the built-in HDMI of M1 Macs, and picture modes that lock
-// brightness. Verified on one monitor (a 0–50 scale, no EDID UUID on its I2C service, so
-// paired by the single-external rule): read, dim and restore on quit all work.
+// CoreGraphics display (by EDID vendor, model and serial, `EDIDIdentity`, or because both sides
+// have a single external); anything doubtful is left to signal dimming. The EDID is not on the
+// I2C service but on its port's framebuffer, and its "EDID UUID" is not CoreGraphics' display
+// UUID. Known gaps, from those projects: most hubs and docks, DisplayLink, TVs, EIZO, the
+// built-in HDMI of M1 Macs, and picture modes that lock brightness. Verified on one monitor (a
+// 0–50 scale): read, dim and restore on quit all work, and its EDID pairs it.
 //
 // All I2C traffic runs on one serial queue per monitor, never the main thread: each command
 // sleeps 10–60 ms. Writes are coalesced to the latest value and spaced 200 ms apart, because
@@ -17,6 +18,7 @@
 
 import CoreGraphics
 import Foundation
+import GloamCore
 import IOKit
 
 nonisolated final class DDC: @unchecked Sendable {
@@ -145,27 +147,59 @@ nonisolated final class DDC: @unchecked Sendable {
         guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("DCPAVServiceProxy"), &iterator) == KERN_SUCCESS
         else { return ([:], []) }
         defer { IOObjectRelease(iterator) }
-        var candidates: [(uuid: String?, service: AnyObject)] = []
+        let edids = framebufferEDIDs()
+        var candidates: [(edid: EDIDIdentity?, service: AnyObject)] = []
         while case let entry = IOIteratorNext(iterator), entry != 0 {
             defer { IOObjectRelease(entry) }
             guard let location = IORegistryEntryCreateCFProperty(entry, "Location" as CFString, kCFAllocatorDefault, 0)?
                 .takeRetainedValue() as? String, location == "External",
                   let service = create(kCFAllocatorDefault, entry)?.takeRetainedValue() else { continue }
-            let uuid = IORegistryEntrySearchCFProperty(entry, kIOServicePlane, "EDID UUID" as CFString, kCFAllocatorDefault,
-                                                       IOOptionBits(kIORegistryIterateRecursively | kIORegistryIterateParents)) as? String
-            candidates.append((uuid, service))
+            // The proxy hangs off an endpoint named for its port ("dispext0:dcpav-service-epic:0");
+            // the EDID sits on that port's framebuffer, in another branch of the registry.
+            let port = parentName(entry)?.split(separator: ":").first.map(String.init)
+            candidates.append((port.flatMap { edids[$0] }.flatMap(EDIDIdentity.init(edidUUID:)), service))
         }
         var found: [CGDirectDisplayID: DDC] = [:], silent: Set<String> = []
         for display in wanted {
-            let byUUID = candidates.filter { $0.uuid?.caseInsensitiveCompare(display.uuid) == .orderedSame }
-            // Without a UUID match, pair only one physical external with one I2C service: an
-            // AirPlay or Sidecar screen next to a monitor could otherwise take its channel.
+            let byEDID = candidates.filter {
+                $0.edid?.matches(vendor: CGDisplayVendorNumber(display.id), model: CGDisplayModelNumber(display.id),
+                                 serial: CGDisplaySerialNumber(display.id)) == true
+            }
+            // Without an EDID match, pair only one physical external with one I2C service: an
+            // AirPlay or Sidecar screen next to a monitor could otherwise take its channel. Twins
+            // without serials match several: left to signal dimming.
             let alone = wanted.count == 1 && externals == 1 && candidates.count == 1 && isPhysical(display.id)
-            let matches = byUUID.isEmpty && alone ? candidates : byUUID
+            let matches = byEDID.isEmpty && alone ? candidates : byEDID
             guard matches.count == 1 else { continue }
             if let ddc = DDC(service: matches[0].service) { found[display.id] = ddc } else { silent.insert(display.uuid) }
         }
         return (found, silent)
+    }
+
+    /// Each external framebuffer's "EDID UUID", by port name ("dispext0").
+    private static func framebufferEDIDs() -> [String: String] {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOMobileFramebufferShim"), &iterator) == KERN_SUCCESS
+        else { return [:] }
+        defer { IOObjectRelease(iterator) }
+        var edids: [String: String] = [:]
+        while case let entry = IOIteratorNext(iterator), entry != 0 {
+            defer { IOObjectRelease(entry) }
+            guard let port = parentName(entry),
+                  let uuid = IORegistryEntryCreateCFProperty(entry, "EDID UUID" as CFString, kCFAllocatorDefault, 0)?
+                    .takeRetainedValue() as? String else { continue }
+            edids[port] = uuid
+        }
+        return edids
+    }
+
+    private static func parentName(_ entry: io_registry_entry_t) -> String? {
+        var parent: io_registry_entry_t = 0
+        guard IORegistryEntryGetParentEntry(entry, kIOServicePlane, &parent) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(parent) }
+        var name = [CChar](repeating: 0, count: 128)  // io_name_t
+        guard IORegistryEntryGetName(parent, &name) == KERN_SUCCESS else { return nil }
+        return String(cString: name)
     }
 
     /// A display with a cable behind it, as far as CoreGraphics tells: virtual screens (AirPlay,

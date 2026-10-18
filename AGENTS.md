@@ -11,13 +11,13 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   `ColorTemperature` (Kelvin → gains, `Tint`), `SolarPosition`, `Melanopic` ("blue" light),
   `Smear` (the floor that stops built-in LCDs smearing), `BacklightDim` (backlight dimming as a
   fraction of the level found), `Location` (zone.tab), `EnginePolicy` (gamma vs overlay per chip),
-  `Command` (`gloam://` toggle/on/off/open).
+  `Command` (`gloam://` toggle/on/off/open), `DisplayIdentity` (reused ids, EDID pairing).
 - `Sources/Gloam/App/` — `GloamApp` (`@main`: single instance, `--uninstall`, `Windows`, URLs, debug
   flags `--showcase --at --snapshot --capture --film --onboarded --off --floor --exit-after`), `MenuBarPanel`
   (status item: click popover, right-click menu). `Model/AppModel` — settings, clock, target tint.
 - `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `GammaEngine`, `OverlayEngine`,
   `Displays`, `RoomLight` (sensor), `Backlight`, `SavedDims` (crash recovery), `DDC` (third-party
-  monitors over DDC/CI, on a background queue; verified on one monitor).
+  monitors over DDC/CI, paired by EDID via core `DisplayIdentity`; verified on one monitor).
 - `Sources/Gloam/UI/` — the "light as material" design: `PopoverView`, `Lamp` (orb dial, dimming
   ladder, small parts), `GloamGlyph` (menu-bar mark), `WelcomeView`, `SettingsView`,
   `EveningGraph` (Settings' evening, also its control), `CitySearch`, `Theme` (colours, names, formats).

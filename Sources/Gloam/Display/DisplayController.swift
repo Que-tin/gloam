@@ -381,9 +381,9 @@ final class DisplayController {
             }
         }
         // A monitor's answer would arrive on the main actor after quitting: wait for it here,
-        // and record the restore only if it got through. Unreachable, it stays saved as dimmed,
-        // so the next launch restores it.
-        for (id, monitor) in monitors {
+        // and record the restore only if it got through. Unreachable or unplugged, it stays saved
+        // as dimmed, so the next launch (or reconnect) restores it.
+        for (id, monitor) in monitors where displays.contains(where: { $0.id == id }) {
             guard var dim = dims[id], dim.isDimming, let light = dim.light(for: 1) else { continue }
             var ok = monitor.flush()
             if !ok {
@@ -549,8 +549,15 @@ final class DisplayController {
         for (id, monitor) in found {
             monitors[id] = monitor
             inFlight[id] = nil
-            if let w = dims[id]?.written {
-                monitor.set(fraction: w)  // a fresh handle: put the monitor back where Gloam has it
+            if var dim = dims[id], let w = dim.written {
+                // Back from a replug or a power cycle at the user's own level, not Gloam's: that is
+                // the new baseline, dimmed again by the same fraction (recorded like any write).
+                dim.step = monitor.step
+                guard !dim.same(monitor.initial, w) else { continue }
+                var fresh = BacklightDim(baseline: monitor.initial, step: monitor.step)
+                fresh.lightFloor = lightFloor
+                store(fresh, for: id)
+                setBacklight(id, fraction: dim.fraction)
             } else if var dim = dims[id] {
                 // Followed but not dimmed: its level may have changed while it was away (another
                 // machine, a KVM), and dimming must start from what it shows now.
@@ -688,11 +695,13 @@ final class DisplayController {
         main = CGMainDisplayID()
         // The same screen back under a new id (a GPU switch): the old entry goes, the new one
         // is followed from the saved state. Screens that went away keep theirs, for the morning.
-        let now = Dictionary(displays.map { ($0.uuid, $0.id) }, uniquingKeysWith: { a, _ in a })
-        for (id, uuid) in uuidOf where now[uuid].map({ $0 != id }) ?? false {
+        // An id now naming another screen goes the same way. `saved` keeps every screen's entry.
+        let current = Dictionary(displays.map { ($0.id, $0.uuid) }, uniquingKeysWith: { a, _ in a })
+        for id in staleFollows(followed: uuidOf, current: current) {
             dims[id] = nil
             monitors[id] = nil
             requested[id] = nil
+            inFlight[id] = nil
             uuidOf[id] = nil
         }
         // Normally cleared by the screens' wake; also here, so a missed notification can't stop
