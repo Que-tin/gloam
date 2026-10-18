@@ -44,7 +44,9 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
         let model = AppModel.shared
         let menu = NSMenu()
         menu.addItem(withTitle: String(localized: "Settings…"), action: #selector(openSettings), keyEquivalent: "").target = self
-        if Updates.controller != nil {
+        if case .ready(let version) = Updates.state.status {
+            menu.addItem(withTitle: String(localized: "Install Gloam \(version) and Restart"), action: #selector(installUpdate), keyEquivalent: "").target = self
+        } else if Updates.updater != nil {
             menu.addItem(withTitle: String(localized: "Check for Updates…"), action: #selector(checkForUpdates), keyEquivalent: "").target = self
         }
         menu.addItem(.separator())
@@ -80,6 +82,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
 
     @objc private func openSettings() { Windows.showSettings() }
     @objc private func checkForUpdates() { Updates.checkNow() }
+    @objc private func installUpdate() { Updates.install() }
     @objc private func toggleEnabled() { AppModel.shared.enabled.toggle() }
     @objc private func offForAnHour() { AppModel.shared.turnOff(until: AppModel.shared.now.addingTimeInterval(3600)) }
     @objc private func offUntilMorning() { AppModel.shared.turnOff(until: AppModel.shared.nextMorning) }

@@ -57,7 +57,7 @@ struct SettingsView: View {
     private var general: some View {
         Section("General") {
             Toggle("Open at login", isOn: Binding(get: { model.launchesAtLogin }, set: model.setLaunchAtLogin))
-            if Updates.controller != nil {
+            if Updates.updater != nil {
                 Toggle("Check for updates automatically", isOn: $checksForUpdates)
                     .onChange(of: checksForUpdates) { _, on in Updates.checksAutomatically = on }
             }

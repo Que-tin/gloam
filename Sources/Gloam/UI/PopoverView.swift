@@ -67,6 +67,7 @@ struct PopoverView: View {
                     model.enabled = true
                 }
             }
+            updateRow
             // Below the controls, so one appearing grows the panel downwards and never moves
             // the dial or ladder from under the pointer.
             notices
@@ -207,13 +208,41 @@ struct PopoverView: View {
         return String(localized: "\(next.kind.title) at \(Format.time(next.at))", comment: "Stage name, then time: Night at 22:00")
     }
 
-    private func statusRow(_ text: String, _ pill: String, _ symbol: String, action: @escaping () -> Void) -> some View {
+    /// A line of state with, on the right, its way back (`pill`), a figure (`detail`, set like the
+    /// dimming percentage above it) or a spinner (`busy`).
+    private func statusRow(_ text: String, _ pill: String? = nil, _ symbol: String? = nil, detail: String? = nil,
+                           busy: Bool = false, action: @escaping () -> Void = {}) -> some View {
         HStack(spacing: 8) {
             LampLabel(text: text, opacity: 0.6).lineLimit(2)  // a long app name wraps once, then truncates
             Spacer()
-            LampPill(title: pill, symbol: symbol, action: action).fixedSize()
+            if let pill { LampPill(title: pill, symbol: symbol, action: action).fixedSize() }
+            if let detail {
+                Text(detail).font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Lamp.ink.opacity(0.9))
+                    .contentTransition(.numericText())
+            }
+            if busy { ProgressView().controlSize(.small).accessibilityHidden(true) }
         }
+        .frame(minHeight: 26)  // a row without a pill keeps the height of one with
         .padding(.top, 16)
+    }
+
+    /// Sparkle's progress, as one row (`Updates`): no update window.
+    @ViewBuilder private var updateRow: some View {
+        switch Updates.state.status {
+        case .idle: EmptyView()
+        case .checking: statusRow(String(localized: "Checking for updates…"), busy: true)
+        case .upToDate: statusRow(String(localized: "Gloam is up to date"))
+        case .failed: statusRow(String(localized: "Couldn't check for updates"))
+        case .downloading(let version, let progress):
+            statusRow(String(localized: "Downloading Gloam \(version)…"), detail: progress.map { Format.percent($0) }, busy: progress == nil)
+        case .ready(let version):
+            statusRow(String(localized: "Gloam \(version) is ready"), String(localized: "Install"), "arrow.clockwise") {
+                Updates.install()
+            }
+            .help(String(localized: "Installs the update and restarts Gloam"))
+        case .installing: statusRow(String(localized: "Installing…"), busy: true)
+        }
     }
 
     @ViewBuilder private var notices: some View {

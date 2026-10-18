@@ -122,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         if !Debug.isShowcase { quitOnSignals() }  // showcase runs are killed by their watchdog
         Debug.applyLaunchArguments()
-        _ = Updates.controller
+        _ = Updates.updater
         // The menu-bar icon arrives with Start: until then Welcome is the whole app.
         if AppModel.shared.hasOnboarded || Debug.isShowcase { MenuBarPanel.shared.install() } else { Windows.showWelcome() }
     }

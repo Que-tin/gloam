@@ -34,8 +34,6 @@
 	<string>67ljQOJaVWsLOh7aSBWSc5AfK6KW4PN5/mr9fNALhpw=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
-	<key>SUShowReleaseNotes</key>
-	<false/>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 Quentin Albert. MIT License.</string>
 	<key>CFBundleURLTypes</key>
