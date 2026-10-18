@@ -5,7 +5,8 @@
 <h1 align="center">Gloam</h1>
 
 <p align="center">
-  <strong>Warms your Mac's screen from sunset and dims it before bed.</strong><br>
+  <strong>A blue light filter for your Mac: warms and dims the screen from sunset to bedtime,<br>
+  so evenings are easier on your eyes.</strong><br>
   Free and open source · no account · no tracking
 </p>
 
