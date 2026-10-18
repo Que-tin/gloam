@@ -31,6 +31,8 @@ struct EveningGraph: View {
     /// The keyboard's marker: focus the graph, ←/→ move it, ↑/↓ switch bedtime and wake (the
     /// graph is their only control). The ring shows only for keyboard focus.
     @State private var keyMarker = Handle.bedtime
+    /// The plot's width, for telling whether two markers' labels fit side by side.
+    @State private var plotWidth: CGFloat = 280
     @State private var ring = false
     @FocusState private var focused: Bool
 
@@ -81,22 +83,28 @@ struct EveningGraph: View {
                     .interpolationMethod(.monotone)
             }
             if let sunset = e.sunset, span.contains(sunset) {
-                // Its label gives way when bedtime is close (a summer evening): two would overprint.
-                let crowded = abs(sunset.timeIntervalSince(e.bedtime)) < 100 * 60
+                // Its label gives way when bedtime's is too close to fit beside it (a summer evening,
+                // or the longer labels of a 12-hour clock): two would overprint.
+                let sunsetLabel = label(String(localized: "Sunset"), sunset), bedLabel = label(String(localized: "Bedtime"), e.bedtime)
+                let apart = abs(sunset.timeIntervalSince(e.bedtime)) / span.upperBound.timeIntervalSince(span.lowerBound) * plotWidth
+                // Centred if it fits, else ending at its line (above the axis labels, which are free there).
+                let centred = apart >= (Self.width(of: sunsetLabel) + Self.width(of: bedLabel)) / 2 + 8
+                let crowded = apart < Self.width(of: bedLabel) / 2 + 8
                 RuleMark(x: .value("Sunset", sunset))
                     .foregroundStyle(.white.opacity(0.18))
-                    .annotation(position: .top, alignment: .center) {
-                        if !crowded { marker(String(localized: "Sunset"), sunset) }
+                    .annotation(position: .top, alignment: centred ? .center : .trailing,
+                                overflowResolution: .init(x: .disabled, y: .disabled)) {
+                        if !crowded { marker(sunsetLabel) }
                     }
             }
             RuleMark(x: .value("Bedtime", e.bedtime))
                 .foregroundStyle(.white.opacity(emphasis(.bedtime)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
-                .annotation(position: .top, alignment: .center) { marker(String(localized: "Bedtime"), e.bedtime) }
+                .annotation(position: .top, alignment: .center) { marker(label(String(localized: "Bedtime"), e.bedtime)) }
             RuleMark(x: .value("Wake", e.wake))
                 .foregroundStyle(.white.opacity(emphasis(.wake)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
-                .annotation(position: .top, alignment: .trailing) { marker(String(localized: "Wake-up"), e.wake) }
+                .annotation(position: .top, alignment: .trailing) { marker(label(String(localized: "Wake-up"), e.wake)) }
             RuleMark(y: .value("Warmth limit", warmthCap))
                 .foregroundStyle(Self.warm.opacity(emphasis(.warmth)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
@@ -153,6 +161,8 @@ struct EveningGraph: View {
         .chartOverlay { proxy in
             GeometryReader { geo in
                 Rectangle().fill(.clear).contentShape(Rectangle())
+                    .onAppear { plotWidth = proxy.plotSize.width }
+                    .onChange(of: proxy.plotSize.width) { _, width in plotWidth = width }
                     .gesture(drag(proxy, geo))
                     .onContinuousHover { phase in
                         guard dragging == nil else { return }
@@ -203,9 +213,14 @@ struct EveningGraph: View {
         schedule[keyPath: path] = all[min(all.count - 1, max(0, i + steps))]
     }
 
-    private func marker(_ title: String, _ date: Date) -> some View {
-        Text("\(title) \(Format.time(date))").font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-            .fixedSize()
+    private func label(_ title: String, _ date: Date) -> String { "\(title) \(Format.time(date))" }
+
+    private func marker(_ text: String) -> some View {
+        Text(text).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).fixedSize()
+    }
+
+    private static func width(of text: String) -> CGFloat {
+        (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 10, weight: .medium)]).width
     }
 
     private func emphasis(_ h: Handle) -> Double {
