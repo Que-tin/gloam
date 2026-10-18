@@ -20,6 +20,10 @@ swift scripts/make-icon.swift .build/icon
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Gloam"
+# Sparkle (updates) ships as a framework the app carries; the binary looks for it there.
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$(dirname "$BIN")/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Gloam"
 cp .build/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
 # The disk image's window background (below) rides inside the app: a .background folder beside it
@@ -29,7 +33,13 @@ swift scripts/make-dmg-background.swift .build/dmg-background
 tiffutil -cathidpicheck .build/dmg-background/background.png .build/dmg-background/background@2x.png \
     -out "$APP/Contents/Resources/DMGBackground.tiff" 2>/dev/null
 
-codesign --force --options runtime --timestamp=none --sign - "$APP"
+# Inside out, Sparkle's parts first, as Sparkle documents for apps that sign it themselves.
+SIGN="codesign --force --timestamp=none --sign -"  # no hardened runtime: it only serves notarization, and it would refuse Sparkle (no team ID)
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+$SIGN "$SPARKLE/XPCServices/Installer.xpc"
+$SIGN --preserve-metadata=entitlements "$SPARKLE/XPCServices/Downloader.xpc"
+$SIGN "$SPARKLE/Autoupdate" "$SPARKLE/Updater.app" "$APP/Contents/Frameworks/Sparkle.framework"
+$SIGN "$APP"
 
 # The download: a disk image that opens on Gloam beside an Applications shortcut to drag it onto,
 # over Gloam's own background (in the app, above; the icon positions match the drawing).

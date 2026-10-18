@@ -20,8 +20,8 @@
 2. Open Gloam. macOS blocks the first launch because Gloam isn't notarized (that needs a paid Apple
    developer account): open **System Settings › Privacy & Security** and click **Open Anyway**.
 
-Needs macOS 14 or later, Apple silicon or Intel. To update, quit Gloam and replace the app. To
-remove it, run `/Applications/Gloam.app/Contents/MacOS/Gloam --uninstall`, then delete the app.
+Needs macOS 14 or later, Apple silicon or Intel. Gloam updates itself (see below). To remove it,
+run `/Applications/Gloam.app/Contents/MacOS/Gloam --uninstall`, then delete the app.
 
 ## What it does
 
@@ -61,8 +61,10 @@ Settings shows your evening as a graph: drag bedtime, wake and how warm and dim 
 ## Good to know
 
 - **One tinting app at a time.** Turn off any other app that tints the screen; two at once flicker.
-- **Private.** No network requests and no location permission: sunset comes from your time zone.
-  The only exception is an optional city search, which sends the name to Apple Maps.
+- **Updates itself.** Gloam checks GitHub for new versions about once a day and installs them when
+  you say so (switch it off in Settings, or use **Check for Updates…** in the right-click menu).
+- **Private.** No tracking and no location permission: sunset comes from your time zone. The only
+  network use is the update check and an optional city search, which sends the name to Apple Maps.
 - **Scriptable:** `open gloam://toggle` (or `on`, `off`, `open`).
 - **Not medical.** Gloam reduces evening melanopic light (CIE S 026); it doesn't claim to improve
   sleep. The research behind every default: [docs/science.md](docs/science.md).
@@ -70,11 +72,11 @@ Settings shows your evening as a graph: drag bedtime, wake and how warm and dim 
 **Known issues:** hardware dimming of external monitors is verified on one monitor so far (hubs,
 docks and DisplayLink fall back to software). Gloam uses private macOS interfaces that an update
 can break; it then falls back to software dimming. Intel Macs and macOS 14–15 aren't tested on
-hardware yet. There's no update check: watch the repository's releases.
+hardware yet.
 
 ## Build from source
 
-Needs Xcode 26. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Needs Xcode 27. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```sh
 git clone https://github.com/Que-tin/gloam && cd gloam

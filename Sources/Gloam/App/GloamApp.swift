@@ -122,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         if !Debug.isShowcase { quitOnSignals() }  // showcase runs are killed by their watchdog
         Debug.applyLaunchArguments()
+        _ = Updates.controller
         // The menu-bar icon arrives with Start: until then Welcome is the whole app.
         if AppModel.shared.hasOnboarded || Debug.isShowcase { MenuBarPanel.shared.install() } else { Windows.showWelcome() }
     }
@@ -257,7 +258,9 @@ enum Windows {
         }
     }
 
-    static var anyVisible: Bool { [settings, welcome].contains { $0?.isVisible == true } }
+    /// Any ordinary window up (Settings, Welcome, Sparkle's update alert…), not the popover or the
+    /// menu bar's own. Counting only ours hid Sparkle's window when the popover closed.
+    static var anyVisible: Bool { NSApp.windows.contains { $0.isVisible && $0.level == .normal } }
 
     #if DEBUG
     static var all: [NSWindow] { [settings, welcome].compactMap { $0 } }

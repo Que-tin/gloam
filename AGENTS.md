@@ -14,15 +14,16 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   `Command` (`gloam://` toggle/on/off/open), `DisplayIdentity` (reused ids, EDID pairing).
 - `Sources/Gloam/App/` — `GloamApp` (`@main`: single instance, `--uninstall`, `Windows`, URLs, debug
   flags `--showcase --at --snapshot --capture --film --onboarded --off --floor --exit-after`), `MenuBarPanel`
-  (status item: click popover, right-click menu). `Model/AppModel` — settings, clock, target tint.
+  (status item: click popover, right-click menu), `Updates` (Sparkle). `Model/AppModel` — settings, clock, target tint.
 - `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `GammaEngine`, `OverlayEngine`,
   `Displays`, `RoomLight` (sensor), `Backlight`, `SavedDims` (crash recovery), `Redraw` (a frame now),
   `DDC` (monitors over DDC/CI, paired by EDID via core `DisplayIdentity`; verified on one monitor).
 - `Sources/Gloam/UI/` — the "light as material" design: `PopoverView`, `Lamp` (orb dial, dimming
   ladder, small parts), `GloamGlyph` (menu-bar mark), `WelcomeView`, `SettingsView`,
   `EveningGraph` (Settings' evening, also its control), `CitySearch`, `Theme` (colours, names, formats).
-- `Tests/GloamCoreTests/` — Swift Testing suites; `scripts/` — `build-app.sh`, `make-icon.swift`,
-  `snapshots.sh`; `Resources/Info.plist` (template; `build-app.sh` fills `__VERSION__`); `docs/`.
+- `.github/workflows/` — `ci` (tests, disk image), `release` (a pushed `v*` tag → signed GitHub release).
+- `Tests/GloamCoreTests/` — Swift Testing suites; `scripts/` — `build-app.sh` (app + dmg),
+  `make-icon.swift`, `make-dmg-background.swift`, `snapshots.sh`; `Resources/Info.plist` (template; `build-app.sh` fills `__VERSION__`); `docs/`.
 
 ## Commands
 
@@ -36,9 +37,10 @@ swift run Gloam --film DIR             # popover frames while switching off and 
 
 ## Constraints
 
-- macOS 14+, universal (Intel Macs on 14/15 are core), macOS 26 SDK; app on MainActor, `GloamCore`
-  nonisolated, notifications via `for await`.
-- No dependencies, no telemetry, no location permission (a city search is the only network use).
+- macOS 14+, universal (Intel Macs on 14/15 are core), Xcode 27 (26.6 crashes compiling the UI);
+  app on MainActor, `GloamCore` nonisolated, notifications via `for await`.
+- One dependency, Sparkle (updates, `App/Updates`); no telemetry, no location permission (update checks and
+  a city search are the only network use).
   Wording stays non-medical; defaults change only with evidence in `docs/science.md`. English only,
   but every user-facing string goes through `String(localized:)` (whole sentences, `Format` numbers).
 - Onboarding asks nothing; Welcome is a draft until Start (closing it first quits, unsaved; the

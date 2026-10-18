@@ -5,7 +5,7 @@ tinting depends on hardware nobody can test all of.
 
 ## Build and run
 
-Runs on macOS 14+. Building needs Xcode 26+ (Swift 6.2 tools, macOS 26 SDK).
+Runs on macOS 14+. Building needs Xcode 27 (Xcode 26.6's compiler crashes on the UI code).
 
 ```sh
 swift test                      # core logic: colour science, sun, schedule
@@ -25,7 +25,7 @@ included, and quits. Anything you launch yourself keeps running until you quit i
 - Keep `GloamCore` free of AppKit so it stays unit-testable; put logic there when you can.
 - Changes to defaults or to the colour and melanopic maths should cite evidence and update
   [docs/science.md](docs/science.md).
-- No telemetry, no network calls beyond a user-initiated city search.
+- No telemetry, no network calls beyond Sparkle's update check and a user-initiated city search.
 - Health wording stays honest: Gloam reduces evening melanopic light; it doesn't claim to
   improve sleep or treat anything.
 
@@ -34,3 +34,16 @@ included, and quits. Anything you launch yourself keeps running until you quit i
 Please include your Mac model and chip, macOS version, the display's name (Settings →
 Displays shows it), whether HDR is on, and which method is in use. If the screen doesn't
 change at all, say whether switching the method to Overlay helps.
+
+## Releasing
+
+Push a tag: `git tag v0.9.1 && git push origin v0.9.1`. The Release workflow tests and builds that
+commit, signs the disk image for Sparkle and publishes it with its `appcast.xml`, which installed
+copies check about once a day (`releases/latest/download/appcast.xml`). Edit the generated notes on
+GitHub afterwards if you like.
+
+It needs the update signing key as the repository secret `SPARKLE_PRIVATE_KEY`. The key was made
+once with Sparkle's `generate_keys` and lives in the maintainer's login Keychain; export it with
+`generate_keys -x <file>`, keep a copy somewhere safe (a GitHub secret can't be read back, and
+without the key installed copies can never be updated again), then
+`gh secret set SPARKLE_PRIVATE_KEY < <file>` and delete the file.

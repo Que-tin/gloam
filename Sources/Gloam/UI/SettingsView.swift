@@ -15,6 +15,8 @@ struct SettingsView: View {
     @State private var scrolled = false
     /// "Choose a city…" picked, no city found yet.
     @State private var choosingCity = false
+    /// Sparkle keeps the setting; this mirrors it for the switch.
+    @State private var checksForUpdates = Updates.checksAutomatically
 
     var body: some View {
         Form {
@@ -55,6 +57,10 @@ struct SettingsView: View {
     private var general: some View {
         Section("General") {
             Toggle("Open at login", isOn: Binding(get: { model.launchesAtLogin }, set: model.setLaunchAtLogin))
+            if Updates.controller != nil {
+                Toggle("Check for updates automatically", isOn: $checksForUpdates)
+                    .onChange(of: checksForUpdates) { _, on in Updates.checksAutomatically = on }
+            }
         }
     }
 
