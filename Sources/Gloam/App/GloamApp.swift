@@ -101,7 +101,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let login = SMAppService.mainApp.status
             try? SMAppService.mainApp.unregister()
             UserDefaults.standard.removePersistentDomain(forName: id)
-            print("Gloam: \(others.isEmpty ? "" : "running copy quit; ")\(login == .enabled ? "login item removed" : "no login item to remove"); settings cleared.")
+            // And every file Gloam leaves in the Library (Sparkle's downloads and web storage, the
+            // settings file itself), so nothing of it stays behind.
+            let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            for path in ["Caches/\(id)", "HTTPStorages/\(id)", "HTTPStorages/\(id).binarycookies", "Preferences/\(id).plist"] {
+                try? FileManager.default.removeItem(at: library.appendingPathComponent(path))
+            }
+            print("Gloam: \(others.isEmpty ? "" : "running copy quit; ")\(login == .enabled ? "login item removed" : "no login item to remove"); settings and caches cleared.")
             exit(0)
         }
         // One Gloam at a time: two would fight over the screen's colour table. A later launch
