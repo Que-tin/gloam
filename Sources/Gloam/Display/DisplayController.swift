@@ -158,7 +158,9 @@ final class DisplayController {
     /// The smear floor in force: all of it on a built-in (eased by the user's slider, `share`) or
     /// a monitor that opted in, less as Warmest goes past the recommended night (`consent`).
     private func smearFloor(for id: CGDirectDisplayID) -> Double {
-        guard let display = displays.first(where: { $0.id == id }) else { return 0 }
+        // Showcase runs (the README's pictures) show a plain monitor, whichever screen is main:
+        // a built-in's floor made them differ from Mac to Mac.
+        guard !Debug.isShowcase, let display = displays.first(where: { $0.id == id }) else { return 0 }
         let accepted = 1 - consent.warmth
         if display.isBuiltin { return Self.smearFloor * (share[id] ?? 1) * accepted }
         return smearGuarded(display.uuid) ? Self.smearFloor * accepted : 0

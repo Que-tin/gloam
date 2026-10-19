@@ -405,8 +405,20 @@ enum Debug {
     }
 
     /// SwiftUI-native render; AppKit-backed controls (menus, switches) draw as placeholders.
+    /// Framed like the real panel (16 pt continuous corners, the edge and shadow macOS draws
+    /// round a window) on a transparent canvas: a plain rectangle read as a crop, not a window.
+    /// Drawn, not photographed, so the pictures are the same on any Mac and whatever is plugged in.
     private static func snapshot(_ view: some View, to path: String) {
-        let renderer = ImageRenderer(content: view)
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        let framed = view
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(.white.opacity(0.1), lineWidth: 1))
+            .shadow(color: .black.opacity(0.35), radius: 4, y: 1)
+            .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+            .padding(.horizontal, 20)  // room for the shadow, no more
+            .padding(.top, 14)
+            .padding(.bottom, 28)
+        let renderer = ImageRenderer(content: framed)
         renderer.scale = 2
         guard let tiff = renderer.nsImage?.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return }
         write(rep, to: path)
