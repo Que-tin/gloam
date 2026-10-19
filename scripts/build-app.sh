@@ -29,6 +29,21 @@ install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS
 strip -S -x "$APP/Contents/MacOS/Gloam"
 cp .build/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
+# App Intents (Shortcuts, Spotlight, Focus filters, `Intents.swift`): macOS reads them from
+# Metadata.appintents, which Xcode extracts from the compiler's const values and SwiftPM doesn't;
+# Apple's own extractor, on the arm64 pass (the metadata is the same for both).
+INTENTS="$(mktemp -d)"
+find "$(dirname "$BIN")/../../Intermediates.noindex" -path '*/Gloam.build/Release/Gloam-p.build/Objects-normal/arm64/*.swiftconstvalues' > "$INTENTS/consts"
+find "$PWD/Sources/Gloam" -name '*.swift' > "$INTENTS/sources"
+[ -s "$INTENTS/consts" ] || { echo "No compiler const values for App Intents: has the build layout moved?" >&2; exit 1; }
+xcrun appintentsmetadataprocessor --output "$APP/Contents/Resources" \
+    --toolchain-dir "$(cd "$(dirname "$(xcrun --find swift)")/../.." && pwd)" --module-name Gloam \
+    --sdk-root "$(xcrun --sdk macosx --show-sdk-path)" --xcode-version "$(xcodebuild -version | awk '/Build version/ {print $3}')" \
+    --platform-family macOS --deployment-target 14.0 --target-triple arm64-apple-macos14.0 \
+    --source-file-list "$INTENTS/sources" --swift-const-vals-list "$INTENTS/consts" > "$INTENTS/log" 2>&1 \
+    || { cat "$INTENTS/log" >&2; exit 1; }
+rm -rf "$INTENTS"
+[ -d "$APP/Contents/Resources/Metadata.appintents" ] || { echo "App Intents metadata missing: Shortcuts wouldn't see Gloam." >&2; exit 1; }
 # The disk image's window background (below) rides inside the app: a .background folder beside it
 # showed to anyone whose Finder shows hidden files, and Finder takes the picture from any file
 # on the image. Added before signing, so the signature covers it.

@@ -71,7 +71,10 @@ Settings shows your evening as a graph: drag bedtime, wake and how warm and dim 
   you say so (switch it off in Settings, or use **Check for Updates…** in the right-click menu).
 - **Private.** No tracking and no location permission: sunset comes from your time zone. The only
   network use is the update check and an optional city search, which sends the name to Apple Maps.
-- **Scriptable:** `open gloam://toggle` (or `on`, `off`, `open`).
+- **Shortcuts, Spotlight and Focus:** "Set Gloam" and "Pause Gloam" actions in Shortcuts, and a Focus
+  filter that pauses Gloam while a Focus is on (System Settings › Focus; a Focus with it starts
+  Gloam if it isn't running). A keyboard shortcut to
+  turn it on or off can be set in Settings, and `open gloam://toggle` (or `on`, `off`, `open`) works too.
 - **Not medical.** Gloam reduces evening melanopic light (CIE S 026); it doesn't claim to improve
   sleep. The research behind every default: [docs/science.md](docs/science.md).
 

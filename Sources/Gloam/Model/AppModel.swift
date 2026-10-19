@@ -50,6 +50,8 @@ final class AppModel {
     /// External displays (by UUID) held to the smear floor on the user's say-so: macOS says
     /// nothing about a monitor's panel, so only its owner knows it smears. Built-ins are always held.
     var smearGuarded: Set<String> { didSet { save(smearGuarded, "smearGuarded"); applyDisplaySettings() } }
+    /// The global shortcut that turns Gloam on or off (`ToggleShortcut`); none until one is recorded.
+    var toggleShortcut: KeyCombo? { didSet { save(toggleShortcut, "toggleShortcut") } }
     /// Lets the room's light (`RoomLight`) ease the dimming, so the screen never gets darker
     /// than the room calls for.
     var autoDimming: Bool {
@@ -115,6 +117,7 @@ final class AppModel {
         smearGuarded = Self.load("smearGuarded") ?? []
         excludedApps = Self.load("excludedApps") ?? []
         autoDimming = Self.load("autoDimming") ?? true
+        toggleShortcut = Self.load("toggleShortcut")
         frontmost = NSWorkspace.shared.frontmostApplication.flatMap {
             $0.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : $0
         }
@@ -203,9 +206,13 @@ final class AppModel {
         }
     }
 
-    /// Something holds the tint off: Gloam is off, Welcome isn't finished, or an app that
-    /// pauses Gloam is in front.
-    var isHeld: Bool { !enabled || !hasOnboarded || excludedFrontmost != nil }
+    /// Something holds the tint off: Gloam is off, Welcome isn't finished, an app that pauses
+    /// Gloam is in front, or a Focus pauses it.
+    var isHeld: Bool { !enabled || !hasOnboarded || excludedFrontmost != nil || pausedByFocus }
+
+    /// A Focus whose filter pauses Gloam is on (`GloamFocusFilter`). Like an app exception it
+    /// holds the tint without touching `enabled`, so the Focus ending hands back what was there.
+    var pausedByFocus = false { didSet { if pausedByFocus != oldValue { update(fade: 0.5) } } }
 
     var excludedFrontmost: ExcludedApp? {
         guard let id = frontmost?.bundleIdentifier else { return nil }
@@ -222,7 +229,6 @@ final class AppModel {
     /// The schedule's tint now, limits and room light included.
     var automatic: Tint { schedule.tint(at: now, place.coordinate, roomLux: autoDimming ? roomLux : nil) }
 
-    /// How far into the evening, 0 (day) … 1 (night); the menu-bar glyph fills with it.
     /// How deep into the evening, in the menu-bar glyph's 24 steps: set by `refreshClock` when it
     /// changes, so the glyph redraws a couple of dozen times a night, not on every tick.
     private(set) var eveningDepth = 0.0
@@ -255,8 +261,13 @@ final class AppModel {
 
     func run(_ command: Command) {
         switch command {
+        // "On" from the shortcut, an intent or a URL means visibly on: a Focus's pause is lifted too
+        // (until that Focus next comes on), else it would change nothing on screen.
+        case .toggle where enabled && pausedByFocus: pausedByFocus = false
         case .toggle: enabled.toggle()
-        case .on: enabled = true
+        case .on:
+            enabled = true
+            pausedByFocus = false
         case .off: enabled = false
         case .open: break  // handled by the app delegate: the model doesn't open windows
         }

@@ -123,6 +123,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !Debug.isShowcase { quitOnSignals() }  // showcase runs are killed by their watchdog
         Debug.applyLaunchArguments()
         _ = Updates.updater
+        if !Debug.isShowcase {  // showcase runs share the real app's settings; they leave these alone
+            ToggleShortcut.shared.register(AppModel.shared.toggleShortcut)
+            // A Focus that pauses Gloam may already be on: its filter only runs again when it changes.
+            Task { if (try? await GloamFocusFilter.current)?.pause == true { AppModel.shared.pausedByFocus = true } }
+        }
         // The menu-bar icon arrives with Start: until then Welcome is the whole app.
         if AppModel.shared.hasOnboarded || Debug.isShowcase { MenuBarPanel.shared.install() } else { Windows.showWelcome() }
     }
@@ -139,6 +144,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Where a copy that is handing over to an earlier one sends its URLs; nil when it isn't.
     private enum HandOver { case bundle(URL), launchServices }
     private var handingOver: HandOver?
+
+    /// This copy only forwards to an earlier one (see above): an intent run here hands its
+    /// command over as a URL, as a click would, instead of acting in a process about to exit.
+    var isHandingOver: Bool { handingOver != nil }
+    func handOver(_ url: URL) { forward([url]) {} }
 
     private func forward(_ urls: [URL], then done: @escaping @MainActor @Sendable () -> Void) {
         switch handingOver {
@@ -288,6 +298,7 @@ enum Windows {
 ///   --film DIR        frames of the real popover switching off and on again, then quit
 ///   --at HH:MM        run the app's clock at that time of day
 ///   --onboarded, --off   start as if set up / switched off
+///   --focus-paused       start as if a Focus filter paused Gloam
 ///   --showcase [welcome]  show the popover (or the welcome view) in an ordinary window
 ///   --snapshot PATH   render the showcase to PATH and quit (never touches the screen)
 ///   --floor F         built-in smear floor as a signal fraction (default 0.8; 0 = none), to
@@ -318,6 +329,7 @@ enum Debug {
         }
         if args.contains("--onboarded") { AppModel.shared.hasOnboarded = true }
         if args.contains("--off") { AppModel.shared.enabled = false }
+        if args.contains("--focus-paused") { AppModel.shared.pausedByFocus = true }  // as a Focus filter would
         if let floor = value("--floor").flatMap(Double.init) {
             DisplayController.smearFloor = pow((0.0...1.0).clamp(floor), Kelvin.displayGamma)
             AppModel.shared.update(fade: 0)

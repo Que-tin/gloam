@@ -2,6 +2,7 @@
 // The lamp's dark surface runs under the transparent title bar; the forms stay native
 // (precise, familiar, accessible). No explanatory footers: labels carry the meaning.
 
+import Carbon.HIToolbox  // key codes for the shortcut recorder
 import GloamCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -57,6 +58,8 @@ struct SettingsView: View {
     private var general: some View {
         Section("General") {
             Toggle("Open at login", isOn: Binding(get: { model.launchesAtLogin }, set: model.setLaunchAtLogin))
+            LabeledContent("Toggle Gloam") { ShortcutRecorder(combo: $model.toggleShortcut) }
+                .help("A keyboard shortcut that works anywhere, whichever app is in front")
             if Updates.updater != nil {
                 Toggle("Check for updates automatically", isOn: $checksForUpdates)
                     .onChange(of: checksForUpdates) { _, on in Updates.checksAutomatically = on }
@@ -320,6 +323,100 @@ private struct LegendKey: View {
 }
 
 private enum LocationChoice { case timeZone, city, choose }
+
+/// Records the global on/off shortcut (`ToggleShortcut`), as macOS's own recorders do: click, hold
+/// the modifiers (they show as you press them), press the key. A plain letter isn't refused
+/// silently: the hint below says what's missing and recording carries on. Esc cancels, Delete
+/// removes the shortcut; keys another app's global shortcut uses too are saved with a warning.
+private struct ShortcutRecorder: View {
+    @Binding var combo: KeyCombo?
+    @State private var recording = false
+    @State private var held = ""            // modifiers held right now, while recording
+    @State private var problem: String?     // why the last press wasn't taken
+    @State private var monitor: Any?
+    @State private var window: NSWindow?  // Settings: only its key presses are recorded
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 6) {
+                Button(recording ? (held.isEmpty ? String(localized: "Press a shortcut") : held + "…")
+                       : combo?.label ?? String(localized: "Record Shortcut")) {
+                    recording ? stop(keeping: true) : start()
+                }
+                .monospacedDigit()
+                if let combo, !recording {
+                    Button { record(nil) } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .help("Remove the shortcut")
+                        .accessibilityLabel(String(localized: "Remove the shortcut \(combo.label)"))
+                }
+            }
+            if let note = problem ?? (recording ? String(localized: "Hold ⌃, ⌥ or ⌘ and press a key — Esc cancels") : nil) {
+                Text(note).font(.caption).foregroundStyle(problem == nil ? .secondary : Color.orange)
+            }
+        }
+        .onDisappear { stop(keeping: true) }
+    }
+
+    private func start() {
+        problem = nil
+        held = ""
+        recording = true
+        window = NSApp.keyWindow
+        ToggleShortcut.shared.register(nil)  // pressing the old one now records, not toggles
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+            guard event.window === window else { return event }  // the popover's keys stay its own
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if event.type == .flagsChanged {
+                held = KeyCombo.symbols(flags)
+                return nil
+            }
+            let bare = flags.intersection([.command, .option, .control, .shift]).isEmpty
+            if event.keyCode == UInt16(kVK_Escape) {
+                stop(keeping: true)
+            } else if bare, event.keyCode == UInt16(kVK_Delete) || event.keyCode == UInt16(kVK_ForwardDelete) {
+                stop(keeping: false)
+                record(nil)
+            } else if let new = KeyCombo(event) {
+                stop(keeping: false)
+                record(new)
+            } else {
+                problem = String(localized: "Add ⌃, ⌥ or ⌘ to the key")  // a bare key would swallow typing
+                NSSound.beep()
+            }
+            return nil
+        }
+    }
+
+    /// Ends recording; `keeping` puts the shortcut there was back.
+    private func stop(keeping: Bool) {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        held = ""
+        guard recording else { return }
+        recording = false
+        if keeping {
+            problem = nil
+            ToggleShortcut.shared.register(combo)
+        }
+    }
+
+    private func record(_ new: KeyCombo?) {
+        let label = new?.label ?? ""
+        switch ToggleShortcut.shared.register(new) {
+        case .alone:
+            combo = new
+            problem = nil
+        case .shared:
+            combo = new
+            problem = String(localized: "\(label) is also another app's shortcut; both react")
+        case .failed:
+            problem = String(localized: "macOS wouldn't take \(label); try another")
+            ToggleShortcut.shared.register(combo)
+        }
+    }
+}
 
 /// Reports whether the window's form has scrolled from the top. SwiftUI on macOS 14 has no
 /// scroll-offset callback, so it watches the form's NSScrollView, found from the window: a

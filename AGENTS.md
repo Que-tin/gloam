@@ -13,8 +13,9 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   fraction of the level found), `Location` (zone.tab), `EnginePolicy` (gamma vs overlay per chip),
   `Command` (`gloam://` toggle/on/off/open), `DisplayIdentity` (reused ids, EDID pairing).
 - `Sources/Gloam/App/` — `GloamApp` (`@main`: single instance, `--uninstall`, `Windows`, URLs, debug
-  flags `--showcase --at --snapshot --capture --film --onboarded --off --floor --exit-after`), `MenuBarPanel`
-  (status item: click popover, right-click menu), `Updates` (Sparkle). `Model/AppModel` — settings, clock, target tint.
+  flags `--showcase --at --snapshot --capture --film --onboarded --off --focus-paused --floor --exit-after`), `MenuBarPanel`
+  (status item: click popover, right-click menu), `Updates` (Sparkle), `Intents` (Shortcuts, Focus filter;
+  `build-app.sh` builds their metadata), `ToggleShortcut` (global hotkey). `Model/AppModel` — settings, clock, target tint.
 - `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `GammaEngine`, `OverlayEngine`,
   `Displays`, `RoomLight` (sensor), `Backlight`, `SavedDims` (crash recovery), `Redraw` (a frame now),
   `DDC` (monitors over DDC/CI, paired by EDID via core `DisplayIdentity`; verified on one monitor).
@@ -68,7 +69,7 @@ swift run Gloam --film DIR             # popover frames while switching off and 
 - Ticks (5 s; 60 s when nothing is due or the screens sleep) write the tint and read backlights;
   2 Hz only while the popover is open, and a read before any write keeps key presses adopted.
   Only user actions fade; the gamma table is rewritten only if something overwrote it. A timed
-  pause (right-click "Pause") ends itself (`resumeAt`); app pauses don't.
+  pause (right-click "Pause") ends itself (`resumeAt`); app and Focus pauses don't.
 - Deliberately absent: an "Always" mode, presets, a daytime tint, per-stage tuning, a timeline or
   Kelvin numbers in the popover (Settings has the graph), naming rival apps in the app.
 - The brand avoids eyes, sun-over-horizon and plain discs (other apps' marks). Anything

@@ -159,7 +159,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     private func refreshIcon() {
         let model = AppModel.shared
         withObservationTracking {
-            let mode: GloamGlyph.Mode = !model.enabled ? .off : model.excludedFrontmost != nil ? .aside : .running
+            let mode: GloamGlyph.Mode = !model.enabled ? .off : model.excludedFrontmost != nil || model.pausedByFocus ? .aside : .running
             // Cached images: assign only when it changes (this re-runs on every model change).
             let image = GloamGlyph.cached(mode: mode, depth: model.eveningDepth)
             if item.button?.image !== image { item.button?.image = image }
@@ -168,6 +168,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
             let label = !model.enabled
                 ? model.resumeAt.map { String(localized: "Gloam, paused until \(Format.time($0))") } ?? String(localized: "Gloam, off")
                 : model.excludedFrontmost.map { String(localized: "Gloam, paused for \($0.name)") }
+                    ?? (model.pausedByFocus ? String(localized: "Gloam, paused by your Focus") : nil)
                     ?? String(localized: "Gloam, \(model.stage.title)")
             if item.button?.accessibilityLabel() != label { item.button?.setAccessibilityLabel(label) }
             let tip = !model.enabled ? model.resumeAt.map { String(localized: "Gloam is paused until \(Format.time($0))") } : nil

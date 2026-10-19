@@ -45,15 +45,16 @@ struct PopoverView: View {
         VStack(spacing: 0) {
             header.padding(.bottom, 12)
             // Off, the controls stay live: reaching for one means "this, now", so it turns Gloam
-            // back on (disabled controls read as broken). Paused for an app, nothing they did
-            // would show, so they rest.
+            // back on (disabled controls read as broken). Paused for an app or by a Focus, nothing
+            // they did would show, so they rest.
             dial
                 .disabled(!canTakeOver)
             DimmingLadder(dimming: dimming, kelvin: current.kelvin, core: core)
                 .padding(.top, 20)
                 .disabled(!canTakeOver)
             // One status row at most: a hand setting (unless it resets nothing), a pause for the
-            // app in front, or a timed pause, each with its way back.
+            // app in front, a timed pause (before a Focus's, so its Resume stays in reach), or a
+            // Focus's pause, which also ends with the Focus.
             if let manual = model.manual, !model.matchesAutomatic(manual) {
                 statusRow(model.manualUntil.map { String(localized: "Manual until \(Format.time($0))") } ?? String(localized: "Manual"),
                           String(localized: "Auto"), "arrow.counterclockwise") { model.manual = nil }
@@ -65,6 +66,11 @@ struct PopoverView: View {
             } else if !model.enabled, let resume = model.resumeAt {
                 statusRow(String(localized: "Paused until \(Format.time(resume))"), String(localized: "Resume"), "play.fill") {
                     model.enabled = true
+                }
+            } else if model.enabled, model.pausedByFocus {  // switched off, "Off" says it all
+                // Lifted until the Focus next comes on; its filter pauses again then.
+                statusRow(String(localized: "Paused by your Focus"), String(localized: "Resume"), "play.fill") {
+                    model.pausedByFocus = false
                 }
             }
             updateRow
@@ -141,7 +147,7 @@ struct PopoverView: View {
 
     /// The controls can set a tint: Gloam is on or can be switched on by them, and no app in
     /// front is holding it off (and Welcome is done, though the popover only exists after it).
-    private var canTakeOver: Bool { model.hasOnboarded && model.excludedFrontmost == nil }
+    private var canTakeOver: Bool { model.hasOnboarded && model.excludedFrontmost == nil && !model.pausedByFocus }
 
     /// A hand setting; when Gloam is off, the first move turns it back on.
     private func takeOver(_ tint: Tint) {
@@ -154,18 +160,15 @@ struct PopoverView: View {
     // MARK: Words
 
     private var orb: (title: String, caption: String) {
-        // Numbers only, never a word ("off", "aside" read as broken): an app that pauses Gloam
-        // shows its 100 % and says why.
-        if let app = model.excludedFrontmost {
-            return (blueText, String(localized: "paused for \(app.name)"))
-        }
-        return (blueText, String(localized: "blue light"))
+        // Always a number and "blue light", never a word ("off", "aside" read as broken), nor why
+        // it's paused: the header and the status row below already say that.
+        (blueText, String(localized: "blue light"))
     }
 
     private var stageTitle: String {
         // "Paused" for anything that ends by itself (a timed pause); "Off" for the switch.
         if !model.enabled { return model.resumeAt == nil ? String(localized: "Off") : String(localized: "Paused") }
-        if model.excludedFrontmost != nil { return String(localized: "Paused") }
+        if model.excludedFrontmost != nil || model.pausedByFocus { return String(localized: "Paused") }
         return model.stage.title
     }
 
@@ -184,15 +187,16 @@ struct PopoverView: View {
             }
         }
         .overlay {
-            // Dot and word fade as one, each pair centred on its own: fading only the word left
-            // the dot jumping to the new width over the old word.
+            // The word rolls into the next as the orb's numbers do (a fade read as a flicker beside
+            // them); the dot glides along as its width changes. Reduce Motion: no roll.
             HStack(spacing: 6) {
                 Circle().fill(Color.kelvin(model.display.effective.kelvin)).frame(width: 5, height: 5)
                     .shadow(color: .kelvin(model.display.effective.kelvin), radius: 3)
                     .opacity(0.35 + 0.65 * core)
                 LampLabel(text: stageTitle, opacity: 0.75)
+                    .contentTransition(reduceMotion ? .identity : .numericText())
             }
-            .swapFade(stageTitle)
+            .animation(reduceMotion ? nil : .snappy(duration: 0.35), value: stageTitle)
             .offset(x: -5)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Now: \(stageTitle)")
