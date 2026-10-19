@@ -114,6 +114,6 @@ struct WelcomeView: View {
     /// The app icon; a source run (no bundle) falls back to the README's copy.
     private static let icon: NSImage = {
         if Bundle.main.bundleIdentifier != nil { return NSApp.applicationIconImage }
-        return NSImage(contentsOfFile: "docs/icon.png") ?? NSApp.applicationIconImage
+        return NSImage(contentsOfFile: "assets/icon.png") ?? NSApp.applicationIconImage
     }()
 }

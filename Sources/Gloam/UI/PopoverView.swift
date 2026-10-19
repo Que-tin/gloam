@@ -173,10 +173,9 @@ struct PopoverView: View {
 
     private var header: some View {
         HStack {
-            Text("gloam")
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(Lamp.ink.opacity(0.92))
-                .tracking(-0.2)
+            Wordmark()
+                .fill(Lamp.ink.opacity(0.92))
+                .frame(width: 15 * Wordmark.aspect, height: 15)
                 .accessibilityHidden(true)
             Spacer()
             HStack(spacing: 10) {

@@ -1,8 +1,13 @@
 <p align="center">
-  <img src="docs/icon.png" alt="Gloam" width="128" height="128">
+  <img src="assets/icon.png" alt="Gloam" width="128" height="128">
 </p>
 
-<h1 align="center">Gloam</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-on-dark.svg">
+    <img src="assets/wordmark-on-light.svg" alt="Gloam" width="220">
+  </picture>
+</h1>
 
 <p align="center">
   <strong>A blue light filter for your Mac: warms and dims the screen from sunset to bedtime,<br>
@@ -11,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/popover-2115.png" alt="Gloam during wind-down" width="300">
+  <img src="docs/screenshots/popover-2115.png" alt="Gloam during wind-down" width="340">
 </p>
 
 ## Install
@@ -41,7 +46,7 @@ Settings shows your evening as a graph: drag bedtime, wake and how warm and dim 
 <details>
   <summary>Welcome and Settings</summary>
   <p align="center">
-    <img src="docs/screenshots/welcome.png" alt="The welcome window" width="380">
+    <img src="docs/screenshots/welcome.png" alt="The welcome window" width="415">
     <img src="docs/screenshots/settings.png" alt="Settings" width="380">
   </p>
 </details>

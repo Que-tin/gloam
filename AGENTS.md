@@ -23,7 +23,8 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   `EveningGraph` (Settings' evening, also its control), `CitySearch`, `Theme` (colours, names, formats).
 - `.github/workflows/` — `ci` (tests, disk image), `release` (a pushed `v*` tag → signed GitHub release).
 - `Tests/GloamCoreTests/` — Swift Testing suites; `scripts/` — `build-app.sh` (app + dmg),
-  `make-icon.swift`, `make-dmg-background.swift`, `scrub-dmg-layout.swift`, `snapshots.sh`; `Resources/Info.plist` (template; `build-app.sh` fills `__VERSION__`); `docs/`.
+  `make-icon.swift`, `make-dmg-background.swift`, `scrub-dmg-layout.swift`, `make-social-preview.swift`, `snapshots.sh`; `Resources/Info.plist` (template; `build-app.sh` fills `__VERSION__`); `docs/` (science, screenshots);
+  `assets/` (icon, wordmark SVGs on dark and light, which `UI/Wordmark` draws too; the social preview).
 
 ## Commands
 
