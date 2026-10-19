@@ -63,7 +63,7 @@ Settings shows your evening as a graph: drag bedtime, wake and how warm and dim 
 | Follows the sun | ✓ | ✓ | ✓ |
 | Deepens toward bedtime | ✓ | ✓ (from wake time) | – |
 | Shows how much blue light reaches you | ✓ | – | – |
-| Scripting | URL scheme | – | Shortcuts |
+| Scripting | Shortcuts, URL scheme | – | Shortcuts |
 | Dims external monitors in hardware (DDC/CI) | ✓ | – | – |
 | Open source | ✓ (MIT) | – | – |
 
