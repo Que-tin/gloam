@@ -27,8 +27,10 @@
    Security**, scroll down and click **Open Anyway**. You only do this once. (Gloam isn't part of
    Apple's paid developer program, so macOS can't check it for you.)
 
+Or with [Homebrew](https://brew.sh): `brew install --cask que-tin/tap/gloam`.
+
 Needs macOS 14 or later, Apple silicon or Intel. Gloam updates itself (see below). To remove it,
-run `/Applications/Gloam.app/Contents/MacOS/Gloam --uninstall`, then delete the app.
+quit Gloam and drag it to the Bin (with Homebrew: `brew uninstall --cask gloam`).
 
 ## What it does
 
