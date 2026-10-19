@@ -419,62 +419,13 @@ struct LampDial: View {
                 if !orbCaption.isEmpty {
                     Text(orbCaption)
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .lineLimit(2)  // "paused for Adobe Lightroom Classic"
-                        .multilineTextAlignment(.center)
-                        .minimumScaleFactor(0.8)
                         .opacity(0.85)
-                        .frame(width: r * 1.8)
-                        .contentTransition(.opacity)  // "blue light" ↔ "paused for …"
-                        .animation(reduceMotion ? nil : .default, value: orbCaption)
                 }
             }
             .foregroundStyle(ink.opacity(core > 0.5 ? 0.92 : 0.75))
             .blendMode(etched ? .multiply : .normal)
             .offset(y: 2)
     }
-}
-
-/// Replaces content when `key` changes by fading the old out, then the new in: a crossfade of
-/// two words overprints them halfway. Changes in quick succession (a drag) swap instantly, so
-/// the reading keeps up instead of stacking fades. Reduce Motion: always instant.
-struct SwapFade: ViewModifier {
-    let key: String
-    /// When the key last changed, kept outside SwiftUI's state so the body can tell, for the
-    /// very change it renders, whether it came quickly after the previous one. (State updated
-    /// in onChange arrives one change late.)
-    private final class Pace {
-        var key: String?, last = Date.distantPast, rapid = false
-        func note(_ new: String) -> Bool {
-            guard let key, key != new else {
-                // Settled again: any redraw after a pause re-arms the fade, so the reading on
-                // screen leaves with a fade too, not with the instant swap of the last drag.
-                if Date().timeIntervalSince(last) > 0.4 { rapid = false }
-                key = new
-                return rapid
-            }
-            rapid = Date().timeIntervalSince(last) < 0.4
-            (self.key, last) = (new, Date())
-            return rapid
-        }
-    }
-    @State private var pace = Pace()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        let rapid = pace.note(key)
-        return ZStack {
-            content
-                .id(key)
-                .transition(reduceMotion || rapid ? .identity : .asymmetric(
-                    insertion: .opacity.animation(.easeOut(duration: 0.2).delay(0.15)),
-                    removal: .opacity.animation(.easeIn(duration: 0.15))))
-        }
-        .animation(reduceMotion || rapid ? nil : .default, value: key)
-    }
-}
-
-extension View {
-    func swapFade(_ key: String) -> some View { modifier(SwapFade(key: key)) }
 }
 
 // MARK: - Dimming ladder
