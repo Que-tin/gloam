@@ -23,8 +23,9 @@
 
 1. Download **Gloam.dmg** from [Releases](https://github.com/Que-tin/gloam/releases/latest), open it and
    drag Gloam into Applications.
-2. Open Gloam. macOS blocks the first launch because Gloam isn't notarized (that needs a paid Apple
-   developer account): open **System Settings › Privacy & Security** and click **Open Anyway**.
+2. Open Gloam. The first time, macOS asks you to confirm it: open **System Settings › Privacy &
+   Security**, scroll down and click **Open Anyway**. You only do this once. (Gloam isn't part of
+   Apple's paid developer program, so macOS can't check it for you.)
 
 Needs macOS 14 or later, Apple silicon or Intel. Gloam updates itself (see below). To remove it,
 run `/Applications/Gloam.app/Contents/MacOS/Gloam --uninstall`, then delete the app.
@@ -66,22 +67,65 @@ Settings shows your evening as a graph: drag bedtime, wake and how warm and dim 
 
 ## Good to know
 
-- **One tinting app at a time.** Turn off any other app that tints the screen; two at once flicker.
 - **Updates itself.** Gloam checks GitHub for new versions about once a day and installs them when
   you say so (switch it off in Settings, or use **Check for Updates…** in the right-click menu).
-- **Private.** No tracking and no location permission: sunset comes from your time zone. The only
-  network use is the update check and an optional city search, which sends the name to Apple Maps.
 - **Shortcuts, Spotlight and Focus:** "Set Gloam" and "Pause Gloam" actions in Shortcuts, and a Focus
   filter that pauses Gloam while a Focus is on (System Settings › Focus; a Focus with it starts
-  Gloam if it isn't running). A keyboard shortcut to
-  turn it on or off can be set in Settings, and `open gloam://toggle` (or `on`, `off`, `open`) works too.
-- **Not medical.** Gloam reduces evening melanopic light (CIE S 026); it doesn't claim to improve
-  sleep. The research behind every default: [docs/science.md](docs/science.md).
+  Gloam if it isn't running). A keyboard shortcut to turn it on or off can be set in Settings, and
+  `open gloam://toggle` (or `on`, `off`, `open`) works too.
 
-**Known issues:** hardware dimming of external monitors is verified on one monitor so far (hubs,
-docks and DisplayLink fall back to software). Gloam uses private macOS interfaces that an update
-can break; it then falls back to software dimming. Intel Macs and macOS 14–15 aren't tested on
-hardware yet.
+## Questions
+
+<details>
+<summary><b>Can I use Gloam together with Night Shift, f.lux or similar apps?</b></summary>
+
+Better not: they all change your screen's colours, and two at the same time could make the screen
+flicker. Turn the other one off while using Gloam.
+</details>
+
+<details>
+<summary><b>My external monitor doesn't dim properly</b></summary>
+
+Many monitors let Gloam turn their brightness down directly, just like their own buttons do. Some
+don't, especially when they're connected through a hub, dock or adapter, and most TVs. Gloam then
+darkens the picture instead, but not all the way, so dark scenes stay visible. Connecting the
+monitor straight to your Mac often helps. If yours still doesn't dim, please open an
+[issue](https://github.com/Que-tin/gloam/issues).
+</details>
+
+<details>
+<summary><b>Colours look off in photo editing apps or videos</b></summary>
+
+That's the warm tint. To pause Gloam for one app, right-click the Gloam icon in the menu bar while
+that app is open and choose **Always Pause for …**. Gloam then steps aside whenever that app is in
+front. You can also pause Gloam for an hour or until morning from the same menu.
+</details>
+
+<details>
+<summary><b>Text leaves a blurry trail when I scroll</b></summary>
+
+Some screens get sluggish when they're very dim, and light text on a dark background smears. Gloam
+never dims your Mac's own screen that far. On a monitor, make the night a little lighter in Gloam's
+Settings (drag the dashed lines in the graph down), or turn on **Avoid smearing** for that monitor:
+Gloam then tries to keep out of the range where it smears. If text still smears, please open an
+[issue](https://github.com/Que-tin/gloam/issues).
+</details>
+
+<details>
+<summary><b>Will Gloam help me sleep?</b></summary>
+
+Gloam isn't a medical product, so it doesn't promise better sleep. What it does: in the evening it
+reduces the kind of screen light that tells your body it's still daytime. A dimmer room and less
+screen time before bed help even more. The research behind it is in [docs/science.md](docs/science.md).
+</details>
+
+<details>
+<summary><b>Does Gloam collect any data?</b></summary>
+
+No. There's no account and no tracking. Gloam only goes online to check for updates (you can turn
+that off in Settings) and, if you search for a city in Settings, to look that city up with Apple
+Maps. It never asks for your location: it works out sunset from your Mac's time zone.
+</details>
 
 ## Build from source
 
