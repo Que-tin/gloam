@@ -30,16 +30,21 @@ jobs:
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
-          mkdir -p .build/release
-          cp .build/Gloam.dmg .build/release/
+          # A folder of its own: .build/release is SwiftPM's products folder, and generate_appcast
+          # lists every archive it finds there.
+          mkdir -p .build/appcast
+          cp .build/Gloam.dmg .build/appcast/
           printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast \
             --ed-key-file - --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/" \
-            .build/release
+            .build/appcast
+          # A key that doesn't match SUPublicEDKey only warns and leaves the image unsigned, which
+          # every installed copy would then refuse without a word: fail here instead.
+          grep -q 'sparkle:edSignature=' .build/appcast/appcast.xml || { echo "appcast.xml is unsigned: check SPARKLE_PRIVATE_KEY" >&2; exit 1; }
       - name: Publish
         # gh uploads to a draft and publishes last, so no installed copy sees a release without
         # its appcast.xml.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$TAG" .build/release/Gloam.dmg .build/release/appcast.xml \
+          gh release create "$TAG" .build/appcast/Gloam.dmg .build/appcast/appcast.xml \
             --repo "$GITHUB_REPOSITORY" --title "Gloam ${TAG#v}" --generate-notes

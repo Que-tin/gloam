@@ -1,10 +1,10 @@
 #!/bin/sh
-# Builds a release Gloam.app (universal arm64 + x86_64) into .build/, and Gloam.dmg to ship it in.
+# Builds a release Gloam.app (Apple silicon only) into .build/, and Gloam.dmg to ship it in.
 # Signed ad hoc: without a paid Apple developer account it can't be notarized (README › Install).
 set -eu
 
 cd "$(dirname "$0")/.."
-VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)}"
+VERSION="${VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || true)}"
 VERSION="${VERSION:-0.1.0}"
 # CFBundleVersion must be dot-separated integers: v1.2.0-rc1 → 1.2.0.
 VERSION="${VERSION#v}"
@@ -12,17 +12,21 @@ VERSION="$(printf '%s' "$VERSION" | sed -E 's/^([0-9]+(\.[0-9]+){0,2}).*/\1/')"
 case "$VERSION" in ''|*[!0-9.]*) echo "Unusable version: $VERSION" >&2; exit 1 ;; esac
 APP=.build/Gloam.app
 
-swift build -c release --arch arm64 --arch x86_64
-BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/Gloam"
+swift build -c release --arch arm64
+BIN="$(swift build -c release --arch arm64 --show-bin-path)/Gloam"
 
 swift scripts/make-icon.swift .build/icon
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN" "$APP/Contents/MacOS/Gloam"
 # Sparkle (updates) ships as a framework the app carries; the binary looks for it there.
-mkdir -p "$APP/Contents/Frameworks"
 ditto "$(dirname "$BIN")/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+# Sparkle comes universal; its Intel half (about 1 MB) is dead weight in an Apple silicon app.
+# lipo, as `ditto --arch` leaves frameworks whole. (Before signing, which this would break.)
+find "$APP/Contents/Frameworks/Sparkle.framework" -type f -perm -u+x | while read -r f; do
+    if lipo -archs "$f" 2>/dev/null | grep -q x86_64; then lipo -thin arm64 "$f" -output "$f"; fi
+done
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/Gloam"
 # Without debug symbols: their map names every object file by absolute path, the builder's home
 # folder included, in an app anyone can download. (Before signing, which strip would break.)
@@ -31,7 +35,7 @@ cp .build/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sed "s/__VERSION__/$VERSION/g" Resources/Info.plist > "$APP/Contents/Info.plist"
 # App Intents (Shortcuts, Spotlight, Focus filters, `Intents.swift`): macOS reads them from
 # Metadata.appintents, which Xcode extracts from the compiler's const values and SwiftPM doesn't;
-# Apple's own extractor, on the arm64 pass (the metadata is the same for both).
+# Apple's own extractor.
 INTENTS="$(mktemp -d)"
 find "$(dirname "$BIN")/../../Intermediates.noindex" -path '*/Gloam.build/Release/Gloam-p.build/Objects-normal/arm64/*.swiftconstvalues' > "$INTENTS/consts"
 find "$PWD/Sources/Gloam" -name '*.swift' > "$INTENTS/sources"
@@ -127,7 +131,8 @@ if [ -f "$LAYOUT_FILE" ]; then
 else
     STYLE="plain (no $LAYOUT_FILE, and Finder automation not allowed)"
 fi
-hdiutil create -volname Gloam -srcfolder "$STAGE" -fs HFS+ -format UDZO -quiet .build/Gloam.dmg
+# LZMA (ULMO): a quarter smaller than the usual zlib (UDZO); macOS has opened it since 10.15.
+hdiutil create -volname Gloam -srcfolder "$STAGE" -fs HFS+ -format ULMO -quiet .build/Gloam.dmg
 rm -rf "$STAGE"
 echo "Disk image: $STYLE"
 echo "Built $APP and .build/Gloam.dmg ($VERSION)"
