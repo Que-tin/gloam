@@ -327,7 +327,7 @@ struct LampDial: View {
             if !caption.isEmpty { LampLabel(text: caption) }
         }
         .fixedSize()
-        .help("\(Format.kelvin(kelvin)). Changing it holds until morning (or, by day, until evening).")
+        .help("\(Format.kelvin(kelvin)). Changing it moves tonight's warmth by that much; it follows the evening until the morning, or Auto.")
     }
 
     /// Flattened into one layer: 49 capsules redrawn every frame of a fade or drag.
@@ -370,8 +370,9 @@ struct LampDial: View {
                 .frame(width: 14, height: 14)
                 .overlay(Circle().strokeBorder(.white.opacity(ring ? 1 : 0.7), lineWidth: ring ? 1.5 : 0.6))
                 .shadow(color: color, radius: 5)
-                .scaleEffect(active && !reduceMotion ? 1.2 : 1)
-                .animation(reduceMotion ? nil : .snappy, value: active)
+                // Scoped to the scale: keyed on `active`, the animation also caught the knob's move
+                // on a click (same update), and the dot sprang in across the dial from off the ring.
+                .animation(reduceMotion ? nil : .snappy) { $0.scaleEffect(active && !reduceMotion ? 1.2 : 1) }
         }
         // While the lamp is unlit: present, but not glowing.
         .opacity(0.55 + 0.45 * max(core, active ? 1 : 0))
@@ -499,6 +500,7 @@ struct DimmingLadder: View {
 
     var body: some View {
         let c = Color.kelvin(kelvin)
+        let lit = litCells  // once per redraw, not once per cell (the binding reads the screens)
         VStack(spacing: 7) {
             HStack {
                 LampLabel(text: String(localized: "Dimming"))
@@ -512,7 +514,7 @@ struct DimmingLadder: View {
             GeometryReader { geo in
                 HStack(spacing: 3) {
                     ForEach(0..<Self.cells, id: \.self) { i in
-                        let on = i < litCells
+                        let on = i < lit
                         let level = 1 - 0.65 * Double(i + 1) / Double(Self.cells)
                         RoundedRectangle(cornerRadius: 2, style: .continuous)
                             .fill(on ? c.opacity(level * (0.5 + 0.5 * core)) : .white.opacity(0.07))
