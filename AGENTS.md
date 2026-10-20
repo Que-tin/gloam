@@ -65,12 +65,16 @@ swift run Gloam --film DIR             # popover frames while switching off and 
   tried and dropped. A move by day is held until the plan reaches 10 %, then rides from there
   (worked out, not settled when seen). A move onto the plan stores nothing; bedtime or wake moved
   tonight move tonight's shifts' end with them; a pause ending in the morning drops a shrinking one.
-- Popover controls are positions on the schedule's fixed scales: the scale never moves under the
-  brightness keys (a press moves the ladder only by the press); no notices. Dimming: each screen
-  takes the position the same share of the way to its own darkest (its light floor against its
-  day level; past 1, key presses only, on to black), so a dimmer screen is dimmed less. Warmth
-  isn't mapped (a built-in's night went 4100 K): each screen shows it up to its smear limit, so
-  steps past that limit change nothing there. Off or paused, the first step only switches on.
+- Popover controls are positions: the ladder's scale never moves under the brightness keys (a
+  press moves it only by the press); no notices. Dimming: each screen takes the position the same
+  share of the way to its own darkest (its light floor against its day level; past 1, key presses
+  only, on to black), so a dimmer screen is dimmed less. Warmth: the dial spans the popover
+  screen's own warm range (100 % = its smear limit at the user's brightness; a monitor without one,
+  the whole scale), the plan at its share of it, at most 100 %, so the plan looks as clamped
+  before; the dial's shift is that share's distance, taken on each screen's own range. On the fixed
+  scale a MacBook's limit sat a quarter of the way along and the rest did nothing. The knob moves
+  with brightness only while the plan sits below the limit. Off or paused, the controls show 0 %
+  and daylight, and a move switches on from there by hand (every other screen at 0: nothing jumps).
 - Tint gains use each display's own colour space (sRGB on P3 turns warm white red); private APIs
   (`RoomLight`/`Backlight`) return nil for "no change".
 - Built-in, Apple and DDC/CI displays are dimmed by backlight relative to the level found

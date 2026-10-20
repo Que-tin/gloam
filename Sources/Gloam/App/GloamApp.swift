@@ -451,7 +451,7 @@ enum Debug {
             try? await Task.sleep(for: .seconds(1.5))
             let model = AppModel.shared
             model.hasOnboarded = true
-            model.setWarmth(0.6)
+            model.setWarmth(0.6, on: MenuBarPanel.shared.screenID ?? CGMainDisplayID())
             try? await Task.sleep(for: .seconds(1.5))
             var frame = 0
             @MainActor func roll(_ seconds: Double) async {

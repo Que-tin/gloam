@@ -31,7 +31,7 @@ final class AppModel {
                 saveWarmth()  // at once, with `offByHand`: a crash within the second brought it back
             }
             save(enabled, "enabled")
-            update(fade: 1)
+            update(fade: switchingInPlace ? 0 : 1)
             // After this change settles, so a timed pause (`pause`) is announced as one.
             DispatchQueue.main.async { [self] in
                 AccessibilityNotification.Announcement(enabled ? String(localized: "Gloam on")
@@ -76,12 +76,17 @@ final class AppModel {
     /// Switched off by hand (the switch, the menu, the shortcut, Shortcuts), not paused: on again,
     /// it starts on Auto (`enabled`). Saved, so a quit in between doesn't bring the moves back.
     private var offByHand: Bool { didSet { save(offByHand, "offByHand") } }
+    /// Switched on by a control moved while off: nothing changes on screen, so at once.
+    @ObservationIgnored private var switchingInPlace = false
     @ObservationIgnored private var warmthSave: Task<Void, Never>?
+    /// The dial's shift from the plan's warmth, on each screen's own warm range: the display
+    /// applies it (`DisplayController.setWarmthShift`), as it does the screens' dimming shifts.
     var warmthShift: Shift? {
         didSet {
             guard warmthShift != oldValue else { return }
             saveWarmthSoon()
-            update(fade: warmthShift == nil ? 0.5 : 0.15)
+            display.setWarmthShift(warmthShift, over: warmthShift == nil ? 0.5 : 0.15)
+            wakeTickIfDue()
         }
     }
     /// The room's light, smoothed; nil when no sensor can see it.
@@ -148,6 +153,7 @@ final class AppModel {
         }
         hasOnboarded = Self.load("hasOnboarded") ?? false
         display = DisplayController(engine: engine)
+        display.setWarmthShift(warmthShift, over: 0)
         applyDisplaySettings()
         display.displaysDidChange = { [weak self] in self?.wakeTickIfDue() }
         readRoom()
@@ -286,19 +292,12 @@ final class AppModel {
         return excludedApps.first { $0.bundleID == id }
     }
 
-    /// What the screen should show once any fade completes: the plan, its warmth shifted by the
-    /// dial. Each screen's dimming shift is the display's (`DisplayController.shifts`).
-    /// Settings' preview with the dial's move, as tonight will show it; else what's asked.
-    var target: Tint { preview.map(withWarmthShift) ?? asked }
+    /// What the screen should show once any fade completes: the plan, or Settings' preview. The
+    /// moves by hand (dimming per screen, the dial's warmth) are the display's, on top of it.
+    var target: Tint { preview ?? asked }
 
     /// The target without Settings' preview: what the popover's dial shows while previewing.
-    var asked: Tint { isHeld ? .neutral : withWarmthShift(automatic) }
-
-    private func withWarmthShift(_ plan: Tint) -> Tint {
-        guard let warmthShift else { return plan }
-        let w = min(1, max(0, warmthShift.position(plan: Light.warmth(plan.kelvin), now: now)))
-        return Tint(kelvin: Light.kelvin(warmth: w), brightness: plan.brightness)
-    }
+    var asked: Tint { isHeld ? .neutral : automatic }
 
     /// The schedule's tint now, limits and room light included.
     var automatic: Tint { schedule.tint(at: now, place.coordinate, roomLux: autoDimming ? roomLux : nil) }
@@ -319,7 +318,7 @@ final class AppModel {
     /// step): "Manual · Auto". A shift dragged back onto the plan, or on a screen that's gone,
     /// doesn't count.
     var hasShifts: Bool {
-        if let warmthShift, abs(warmthShift.offset(plan: Light.warmth(automatic.kelvin), now: now)) >= Self.halfNotch { return true }
+        if display.warmthShows(threshold: Self.halfNotch) { return true }
         return display.showsShift
     }
 
@@ -328,28 +327,55 @@ final class AppModel {
 
     /// "Auto": every screen and the warmth back on the plan.
     func backToPlan() {
+        Debug.log("auto")
         display.clearShifts()
         warmthShift = nil
     }
 
-    /// The dial moved: the warmth shift from the plan's warmth now. Off, the first move turns
-    /// Gloam on.
+    /// The dial moved with the popover open on screen `id`: `w` is a position on that screen's warm
+    /// range, the shift taken from the plan's share of it. Off, the move switches Gloam on with it
+    /// (`takeOverFromOff`).
     /// Not during Settings' preview: measured from the preview, it landed wrong after.
-    func setWarmth(_ w: Double) {
+    func setWarmth(_ w: Double, on id: CGDirectDisplayID) {
         guard preview == nil else { return }
-        if !enabled { enabled = true }
+        guard enabled else { return takeOverFromOff(warmth: w, on: id) }
         refreshClock()
-        let c = warmthClock
-        warmthShift = Shift.make(to: w, at: c.planDone ? 0 : Light.warmth(automatic.kelvin), now: c.now, until: c.until)
+        Debug.log("dial \(id) to \(String(format: "%.3f", w)) plan \(String(format: "%.3f", display.dialPlan(id)))")
+        warmthShift = warmthShift(to: w, on: id)
     }
 
-    /// The ladder moved with the popover open on this screen. Off, the first move turns Gloam on.
+    /// The ladder moved with the popover open on this screen. Off, the move switches Gloam on
+    /// with it (`takeOverFromOff`).
     func setDimming(_ d: Double, on id: CGDirectDisplayID) {
         guard preview == nil else { return }
-        if !enabled { enabled = true }
+        guard enabled else { return takeOverFromOff(dimming: d, on: id) }
         refreshClock()
         display.shift(id, to: d)
         wakeTickIfDue()
+    }
+
+    private func warmthShift(to w: Double, on id: CGDirectDisplayID) -> Shift? {
+        let c = warmthClock
+        return Shift.make(to: w, at: c.planDone ? 0 : display.dialPlan(id), now: c.now, until: c.until)
+    }
+
+    /// A control moved while off (or on a timed pause): on, by hand, at once and in place. Every
+    /// screen first holds what the controls showed (the ladder at 0, the dial at daylight), then
+    /// the control moves as any move does. Faded in with the plan instead, the controls first
+    /// ran under the plan, then jumped to the move. "Manual · Auto" offers the plan.
+    private func takeOverFromOff(dimming: Double? = nil, warmth: Double? = nil, on id: CGDirectDisplayID) {
+        refreshClock()
+        Debug.log("on from a control: dimming \(dimming.map { "\($0)" } ?? "-") warmth \(warmth.map { "\($0)" } ?? "-")")
+        offByHand = false  // switched on by a move: the moves stay
+        let plan = automatic, c = warmthClock
+        display.startFromOff(plan: plan)
+        warmthShift = Shift.make(to: 0, at: c.planDone ? 0 : display.warmestShare(plan), now: c.now, until: c.until)
+        display.setWarmthShift(warmthShift, over: 0)  // held there at once, not eased
+        switchingInPlace = true
+        enabled = true
+        switchingInPlace = false
+        if let dimming { setDimming(dimming, on: id) }
+        if let warmth { setWarmth(warmth, on: id) }
     }
 
     /// A timed pause from the clock as it is now: on the minute's tick `now` can be a minute old,
@@ -372,6 +398,7 @@ final class AppModel {
             enabled = true
             pausedByFocus = false
         case .off:
+            Debug.log("off by hand")
             enabled = false
             offByHand = true
         case .open: break  // handled by the app delegate: the model doesn't open windows
@@ -488,9 +515,7 @@ final class AppModel {
         // do (`DisplayController.shiftsWanted`); faded back in, "Until Morning" ending at wake
         // warmed the screens again.
         if wanted, !display.shiftsWanted, warmthShift?.isShrinking(now) == true {
-            display.shiftsWanted = wanted
-            warmthShift = nil  // updates again
-            return
+            warmthShift = nil
         }
         display.shiftsWanted = wanted
         display.previewing = preview != nil

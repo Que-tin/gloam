@@ -4,11 +4,11 @@
 // Moving them shifts that screen (or every screen's warmth) away from the plan, and the shift rides
 // along with the evening until its morning ends it (`Shift`); "Auto" hands back at once.
 //
-// Both controls are positions on fixed scales (the schedule's own, as in Settings), so the scales
-// never move when the user's brightness does (a key press moves the ladder by the press alone):
-// ends that followed the screen made the knobs wander, and nobody could tell why. Each screen
-// takes the ladder's position the same share of the way to its own darkest; the dial's warmth it
-// shows as far as its smear limit allows.
+// Both controls are positions. The ladder's scale is the schedule's own, as in Settings, and never
+// moves when the user's brightness does (a key press moves it by the press alone): ends that
+// followed the screen made the knob wander, and nobody could tell why. Each screen takes it the
+// same share of the way to its own darkest. The dial spans the popover screen's warm range (to
+// its smear limit at the user's brightness), so all of it does something on a MacBook too.
 
 import GloamCore
 import SwiftUI
@@ -23,15 +23,16 @@ struct PopoverView: View {
     /// When the dial was last turned by hand (`current`).
     @State private var turnedAt = Date.distantPast
 
-    /// The warmth the dial shows: what is asked of the screens this instant (following the fades,
-    /// so the knob glides with them: switching on and off, Auto). While it is being turned, what
-    /// was asked at once: following the 0.15 s ease, the knob lagged the finger and a drag compared
-    /// against the lagging value, a detent firing twice per notch. Keyed on the hand rather than
-    /// on a warmth shift existing: with one, switching off snapped the knob instead of gliding; a
-    /// turn onto the plan (no shift) lagged again. Not Settings' "Preview tonight": the knob stays
-    /// at what's asked without it (the plan and the dial's shift), and rests.
-    private var current: Tint {
-        model.preview == nil && Date().timeIntervalSince(turnedAt) >= 0.6 ? model.display.shown : model.asked
+    /// The dial's position on the popover screen's warm range: what the screens show this instant
+    /// (following the fades, so the knob glides with them: switching on and off, Auto). While it
+    /// is being turned, where it is heading: following the 0.15 s ease, the knob lagged the finger
+    /// and a drag compared against the lagging value, a detent firing twice per notch. Keyed on
+    /// the hand rather than on a warmth shift existing: with one, switching off snapped the knob
+    /// instead of gliding; a turn onto the plan (no shift) lagged again. Not Settings' "Preview
+    /// tonight": the knob stays at what's asked without it (the plan and the dial's shift), and rests.
+    private var dialPosition: Double {
+        if model.preview != nil { return model.display.dialPosition(screen, asked: model.asked) }
+        return model.display.dialPosition(screen, heading: Date().timeIntervalSince(turnedAt) < 0.6)
     }
     /// The screen whose dimming the ladder shows and moves: the one the popover is open on (its
     /// menu bar's), or, switched off in Settings, the main tinted one (named, so it's clear).
@@ -91,7 +92,7 @@ struct PopoverView: View {
                 LampLabel(text: screenName, opacity: 0.5).lineLimit(1).padding(.top, 14)
                     .accessibilityHidden(true)  // the ladder says it: "Dimming, <screen>"
             }
-            DimmingLadder(dimming: dimming, kelvin: current.kelvin, core: core,
+            DimmingLadder(dimming: dimming, kelvin: glow.kelvin, core: core,
                           editable: model.display.canDim(screen),  // else nothing to dim
                           beyond: model.display.ladderPosition(screen) > 1, screenName: screenName,
                           unavailable: ladderUnavailable)
@@ -139,7 +140,7 @@ struct PopoverView: View {
     private var dial: some View {
         // The orb turns Gloam visibly on (a Focus's pause lifted too); the header's switch is
         // only the switch.
-        LampDial(fraction: warmth, kelvinAt: { Light.kelvin(warmth: $0) }, shown: glow,
+        LampDial(fraction: warmth, kelvinAt: { model.display.kelvin(share: $0, on: screen) }, shown: glow,
                  core: core, bloom: bloom, orbTitle: Self.blueText(blueShare),
                  onPower: model.enabled ? nil : { model.run(.on) },
                  editable: canTakeOver,
@@ -171,23 +172,23 @@ struct PopoverView: View {
 
     // MARK: Editing
 
-    /// The warmth asked for, on the schedule's scale (100 % = its warmest): never pegged at a
-    /// screen's limit, so a touch never turns the screen cooler. Past that limit (smear) the screen
-    /// shows its warmest and the steps change nothing there.
+    /// The warmth on the popover screen's own range: 0 % daylight, 100 % the warmest that screen
+    /// shows at the user's brightness (its smear limit; a monitor without one, the whole scale).
+    /// The plan sits at its share of it, at most 100 %: on the fixed scale a MacBook's limit sat a
+    /// quarter of the way along, and the rest of the dial did nothing. Off, the dial shows
+    /// daylight, and a move switches Gloam on from there (`AppModel.setWarmth`).
     private var warmth: Binding<Double> {
-        Binding(get: { Light.warmth(current.kelvin) },
+        Binding(get: { dialPosition },
                 set: { w in
                     guard canTakeOver else { return }
-                    // A step (arrows, scroll, VoiceOver) taken from what is asked, not from the
-                    // knob: mid-fade, from where it is heading rather than mid-way. Off, the first
-                    // step only switches on, at Auto: a "turn on", not a move from the cool end.
-                    let knob = Light.warmth(current.kelvin)
+                    // A step (arrows, scroll, VoiceOver) taken from where the dial is heading, not
+                    // from the knob: mid-fade, not from mid-way.
+                    let knob = dialPosition
                     let step = abs(w - knob) <= 0.021
-                    if step, model.isHeld { model.enabled = true; return }
-                    let base = Light.warmth(model.asked.kelvin)
-                    let fromAsked = step && model.display.isFading
+                    let base = model.display.dialPosition(screen, heading: true)
+                    let fromHeading = step && model.enabled && model.display.isFading
                     turnedAt = Date()
-                    model.setWarmth(fromAsked ? min(1, max(0, base + w - knob)) : w)
+                    model.setWarmth(fromHeading ? min(1, max(0, base + w - knob)) : w, on: screen)
                 })
     }
 
@@ -202,12 +203,9 @@ struct PopoverView: View {
                                                 : model.display.ladderPosition(screen, asked: model.asked))
                 },
                 set: { d in
+                    // Off, the ladder shows 0 and a move switches Gloam on from there
+                    // (`AppModel.setDimming`).
                     guard canTakeOver else { return }
-                    // Off, the first step (arrows, scroll, VoiceOver) only switches on, at Auto: a
-                    // "turn on", not a move from 0 (the untinted screen). A click or drag on a cell
-                    // still sets that cell.
-                    let ladder = min(1, model.display.ladderPosition(screen))
-                    if model.isHeld && abs(d - ladder) <= 0.051 { model.enabled = true; return }
                     model.setDimming(d, on: screen)
                 })
     }
