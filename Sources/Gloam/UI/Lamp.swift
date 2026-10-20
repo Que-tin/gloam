@@ -296,8 +296,11 @@ struct LampDial: View {
                 let new = Self.fraction(angle: angle, previous: fraction)
                 guard new != fraction else { return }
                 let tick = { (f: Double) in Int(f * Double(Self.ticks - 1)) }
-                if tick(new) != tick(fraction) { Lamp.detent() }
+                let before = tick(fraction)
                 fraction = new
+                // Only for a notch the knob really passed (read back, as the ladder's): held at
+                // an end, every drag event past it buzzed.
+                if tick(fraction) != before { Lamp.detent() }
             }
     }
 
