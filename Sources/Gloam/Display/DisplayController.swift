@@ -126,21 +126,32 @@ final class DisplayController {
             guard shiftsWanted, !oldValue else { return }
             let live = shifts.filter { !$0.value.isShrinking(clock.now) }
             if live.count != shifts.count { shifts = live }
+            if warmthShift?.isShrinking(warmthClock.now) == true { warmthShift = nil }
         }
     }
     /// The shifts show (`shiftsWanted` as of the last `show`): set there with the plan, so both
     /// ease as one. From false: a launch fades the shifts in with the plan (shown at once, a saved
     /// shift showed alone before the plan came).
     @ObservationIgnored private var shiftsShown = false
-    /// The dial's warmth shift (the model's), one for every screen: each takes it on its own warm
-    /// range (`warmthShare`), so it moves a MacBook's screen as far along what it can show as a
-    /// monitor's.
-    @ObservationIgnored private var warmthShift: Shift?
+    /// The dial's warmth shift, one for every screen: each takes it on its own warm range
+    /// (`warmthShare`), so it moves a MacBook's screen as far along what it can show as a
+    /// monitor's. It rides along with the evening and shrinks to nothing with the morning, after
+    /// which it goes, so a tweak never quietly becomes the new every-night. Saved with the
+    /// screens' shifts.
+    @ObservationIgnored private(set) var warmthShift: Shift? = DisplayController.loadWarmth() {
+        didSet { if warmthShift != oldValue { saveShiftsSoon() } }
+    }
+    /// What a warmth shift chosen now belongs to: its morning ends with the plan's warmth, which
+    /// can end apart from its dimming (`Schedule.morningEnd`). Set by the model before `clock`.
+    @ObservationIgnored var warmthClock = ShiftClock.idle
     /// The model's clock and what a shift chosen now belongs to (`ShiftClock`): set by the model,
     /// about once a second. Shifts move with it in the morning while the plan may stand still
     /// (neutral already, its fade-out under way): pushed then, or they waited for their expiry.
     @ObservationIgnored var clock = ShiftClock.idle {
-        didSet { if animator == nil, shifts.values.contains(where: { $0.isShrinking(clock.now) }) { push() } }
+        didSet {
+            guard animator == nil else { return }
+            if shifts.values.contains(where: { $0.isShrinking(clock.now) }) || warmthShift?.isShrinking(warmthClock.now) == true { push() }
+        }
     }
     private var lightFloor: Double {
         BacklightDim.floorLight + (BacklightDim.deepestFloorLight - BacklightDim.floorLight) * consent.dimming
@@ -426,8 +437,14 @@ final class DisplayController {
         }
     }
 
-    /// The model's dial shift changed: eased there over `duration` (0: at once).
-    func setWarmthShift(_ new: Shift?, over duration: Double) {
+    /// The dial turned to `w` on screen `id`'s warm range: a shift from the plan's share of it
+    /// there (`dialPlan`), eased there briefly.
+    func turnDial(_ id: CGDirectDisplayID, to w: Double) {
+        let c = warmthClock
+        setWarmthShift(Shift.make(to: w, at: c.planDone ? 0 : dialPlan(id), now: c.now, until: c.until), over: 0.15)
+    }
+
+    private func setWarmthShift(_ new: Shift?, over duration: Double) {
         guard new != warmthShift else { return }
         animate(displays.map(\.id), over: duration)
         warmthShift = new
@@ -488,35 +505,42 @@ final class DisplayController {
         push()
     }
 
-    /// A control moved while Gloam is off: every tinted screen holds what it shows now, undimmed,
-    /// against the plan it is about to show (`plan`), so switching on changes nothing on screen;
-    /// the control's own move follows (`AppModel.takeOverFromOff`).
+    /// A control moved while Gloam is off: every tinted screen holds what it shows now, undimmed
+    /// and at daylight, against the plan it is about to show (`plan`), so switching on changes
+    /// nothing on screen; the control's own move follows (`AppModel.takeOverFromOff`). The dial's
+    /// shift to 0 from the warmest screen's plan holds them all at daylight.
     func startFromOff(plan: Tint) {
         for display in displays where tinted(display.uuid) {
             let p = shiftPlan(Light.dimming(plan.brightness), for: display.id)
             shifts[display.uuid] = newShift(to: 0, plan: p)
         }
+        let c = warmthClock
+        warmthShift = Shift.make(to: 0, at: c.planDone ? 0 : warmestShare(plan), now: c.now, until: c.until)
         saveShifts()
     }
 
     /// Every shift gone at once: Gloam switched on again after an off by hand, when none shows.
     func dropShifts() {
-        guard !shifts.isEmpty else { return }
+        guard !shifts.isEmpty || warmthShift != nil else { return }
         shifts = [:]
+        warmthShift = nil
         saveShifts()
     }
 
-    /// Every screen back on the plan ("Auto"), eased over half a second.
+    /// Every screen and the warmth back on the plan ("Auto"), eased over half a second.
     func clearShifts() {
         animate(displays.map(\.id), over: 0.5)
         shifts = [:]
+        warmthShift = nil
         push()
     }
 
     /// Shifts whose morning has ended go, whether or not Gloam saw it (asleep, quit, the lid shut).
     func expireShifts() {
         let live = shifts.filter { !$0.value.expired(clock.now) }
-        guard live.count != shifts.count else { return }
+        let warmth = warmthShift.flatMap { $0.expired(warmthClock.now) ? nil : $0 }
+        guard live.count != shifts.count || warmth != warmthShift else { return }
+        warmthShift = warmth
         Debug.log("expired shifts \(Set(shifts.keys).subtracting(live.keys)) at \(clock.now)")
         shifts = live
         push()
@@ -538,9 +562,11 @@ final class DisplayController {
     }
 
     /// Bedtime or wake moved tonight: shifts belonging to this evening end with its new morning.
-    func retimeShifts(from oldUntil: Date, to newUntil: Date) {
-        guard oldUntil != newUntil else { return }
-        shifts = shifts.mapValues { $0.retimed(from: oldUntil, to: newUntil, now: clock.now) }
+    /// `old`: the clocks' ends before the change (`clock`, `warmthClock` hold the new ones).
+    func retimeShifts(from old: (dimming: Date, warmth: Date)) {
+        guard old.dimming != clock.until || old.warmth != warmthClock.until else { return }
+        shifts = shifts.mapValues { $0.retimed(from: old.dimming, to: clock.until, now: clock.now) }
+        warmthShift = warmthShift?.retimed(from: old.warmth, to: warmthClock.until, now: warmthClock.now)
         push()
     }
 
@@ -557,6 +583,11 @@ final class DisplayController {
         shiftSave?.cancel()
         shiftSave = nil
         UserDefaults.standard.set(try? JSONEncoder().encode(shifts), forKey: "dimShifts")
+        UserDefaults.standard.set(warmthShift.flatMap { try? JSONEncoder().encode($0) }, forKey: "warmthShift")
+    }
+
+    private static func loadWarmth() -> Shift? {
+        UserDefaults.standard.data(forKey: "warmthShift").flatMap { try? JSONDecoder().decode(Shift.self, from: $0) }
     }
 
     private static func loadShifts() -> [String: Shift] {
