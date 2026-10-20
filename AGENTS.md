@@ -8,7 +8,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
 
 - `Sources/GloamCore/` — pure logic, no AppKit, fully unit-tested: `Schedule` (stages → `Tint`;
   `evening(around:)` gives the night as dates, DST-safe; bedtime/wake as `ClockTime`),
-  `ColorTemperature` (Kelvin → gains, `Tint`), `SolarPosition`, `Melanopic` ("blue" light),
+  `ColorTemperature` (Kelvin → gains, `Tint`), `Light` (the controls' warmth and dimming scales), `SolarPosition`, `Melanopic` ("blue" light),
   `Smear` (the floor that stops built-in LCDs smearing), `BacklightDim` (a screen's backlight:
   position ↔ light from its day level, readings as moves), `Shift` (a hand-set move from the plan
   and when it ends, `ShiftClock`), `Location` (zone.tab), `EnginePolicy` (gamma vs overlay per

@@ -439,3 +439,17 @@ private let p3: LinearRGB = { c in
         #expect(EnginePolicy.resolve(.gamma, chip: "Apple M5 Max") == .gamma)
     }
 }
+
+@Suite struct LightTests {
+    // The controls' scales and the settings' allowances are one scale: a value survives the round trip.
+    @Test func scalesRoundTrip() {
+        for w in stride(from: 0.0, through: 1.0, by: 0.125) {
+            #expect(abs(Light.warmth(Light.kelvin(warmth: w)) - w) < 1e-12)
+            #expect(abs(Light.dimming(Light.brightness(dimming: w)) - w) < 1e-12)
+            var s = Schedule()
+            s.warmthAllowance = w
+            s.dimmingAllowance = w
+            #expect(abs(s.warmthAllowance - w) < 1e-9 && abs(s.dimmingAllowance - w) < 1e-9)
+        }
+    }
+}

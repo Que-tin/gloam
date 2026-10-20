@@ -122,7 +122,7 @@ public struct Schedule: Codable, Equatable, Sendable {
     /// the setting does what it says instead of stopping where the recommended night would.
     public var pastRecommended: (warmth: Double, dimming: Double) {
         let r = Self.recommendedNight
-        let warmth = (Kelvin.mired(warmest) - Kelvin.mired(r.kelvin)) / (Self.mired.warm - Kelvin.mired(r.kelvin))
+        let warmth = (Kelvin.mired(warmest) - Kelvin.mired(r.kelvin)) / (Kelvin.mired(Stage.kelvinRange.lowerBound) - Kelvin.mired(r.kelvin))
         let dimming = (r.brightness - darkest) / (r.brightness - Stage.brightnessRange.lowerBound)
         return ((0.0...1.0).clamp(warmth), (0.0...1.0).clamp(dimming))
     }
@@ -130,16 +130,15 @@ public struct Schedule: Codable, Equatable, Sendable {
     /// Warmest as a slider, 0 (daylight) … 1 (ember), mired-even like the popover's dial; the
     /// recommended night sits a little past half.
     public var warmthAllowance: Double {
-        get { (Kelvin.mired(warmest) - Self.mired.cool) / (Self.mired.warm - Self.mired.cool) }
-        set { warmest = 1e6 / (Self.mired.cool + (0.0...1.0).clamp(newValue) * (Self.mired.warm - Self.mired.cool)) }
+        get { Light.warmth(warmest) }
+        set { warmest = Light.kelvin(warmth: newValue) }
     }
-    private static let mired = (cool: Kelvin.mired(Stage.kelvinRange.upperBound), warm: Kelvin.mired(Stage.kelvinRange.lowerBound))
 
     /// Dimmest as a slider, 0 (full brightness) … 1 (30 %, the deepest there is), linear in
     /// brightness; the recommended night is 64 %.
     public var dimmingAllowance: Double {
-        get { (1 - darkest) / (1 - Stage.brightnessRange.lowerBound) }
-        set { darkest = 1 - (0.0...1.0).clamp(newValue) * (1 - Stage.brightnessRange.lowerBound) }
+        get { Light.dimming(darkest) }
+        set { darkest = Light.brightness(dimming: newValue) }
     }
 
     public init() {}
