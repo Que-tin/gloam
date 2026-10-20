@@ -362,7 +362,7 @@ final class DisplayController {
     func clearShifts() {
         for uuid in shifts.keys {
             guard let id = displays.first(where: { $0.uuid == uuid })?.id else { shifts[uuid] = nil; continue }
-            fadeShift(uuid, id, to: nil, over: 1)
+            fadeShift(uuid, id, to: nil, over: 0.5)
         }
     }
 

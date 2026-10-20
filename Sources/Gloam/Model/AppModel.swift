@@ -69,7 +69,7 @@ final class AppModel {
         didSet {
             guard warmthShift != oldValue else { return }
             save(warmthShift, "warmthShift")
-            update(fade: warmthShift == nil ? 1 : 0.15)
+            update(fade: warmthShift == nil ? 0.5 : 0.15)
         }
     }
     /// The room's light, smoothed; nil when no sensor can see it.
