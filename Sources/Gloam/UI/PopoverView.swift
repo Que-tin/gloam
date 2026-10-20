@@ -22,9 +22,11 @@ struct PopoverView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The warmth the dial shows: what is asked of the screens this instant (following the fades,
-    /// so the knob glides with them). Not Settings' "Preview tonight": the knob stays at what's
-    /// asked without it (the plan and the dial's shift), and rests.
-    private var current: Tint { model.preview == nil ? model.display.shown : model.asked }
+    /// so the knob glides with them, back to the plan on Auto too). Turned by hand, what was asked
+    /// at once: following the 0.15 s ease, the knob lagged the finger and a drag compared against
+    /// the lagging value, a detent firing twice per notch. Not Settings' "Preview tonight": the
+    /// knob stays at what's asked without it (the plan and the dial's shift), and rests.
+    private var current: Tint { model.preview == nil && model.warmthShift == nil ? model.display.shown : model.asked }
     /// The screen whose dimming the ladder shows and moves: the one the popover is open on (its
     /// menu bar's), or, switched off in Settings, the main tinted one (named, so it's clear).
     private var screen: CGDirectDisplayID {
