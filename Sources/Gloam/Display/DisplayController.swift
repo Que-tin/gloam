@@ -355,7 +355,7 @@ final class DisplayController {
     /// The ladder moved with the popover open on this screen: its shift, eased there briefly.
     func shift(_ id: CGDirectDisplayID, to position: Double) {
         guard let uuid = uuidFor(id) else { return }
-        fadeShift(uuid, id, to: position, over: 0.15)
+        fadeShift(uuid, id, to: position, over: 0.15, showingGoal: true)
     }
 
     /// Every screen back on the plan ("Auto"), eased over a second.
@@ -386,7 +386,10 @@ final class DisplayController {
 
     /// Moves a screen's shift to `goal` (nil: back on the plan) frame by frame, so the ladder and
     /// Auto ease like the rest of Gloam's changes; a key press is written as it is, with no fade.
-    private func fadeShift(_ uuid: String, _ id: CGDirectDisplayID, to goal: Double?, over duration: Double) {
+    /// `showingGoal`: the ladder's own move, shown where it is heading (`ladderPosition`); Auto's
+    /// return glides on the ladder as on the dial.
+    private func fadeShift(_ uuid: String, _ id: CGDirectDisplayID, to goal: Double?, over duration: Double,
+                           showingGoal: Bool = false) {
         shiftFades[uuid]?.cancel()
         let plan = shiftPlan(for: id), start = Date()
         let from = shifts[uuid]?.position(plan: plan, now: clock.now) ?? plan
@@ -403,7 +406,7 @@ final class DisplayController {
                 try? await Task.sleep(for: .milliseconds(16), tolerance: .milliseconds(4))
             }
         }
-        shiftGoals[uuid] = end
+        shiftGoals[uuid] = showingGoal ? end : nil  // an earlier ladder move's goal mustn't stay
     }
 
     /// A shift chosen now: tonight's until the morning is done; after it, the coming evening's.
