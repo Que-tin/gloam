@@ -56,8 +56,9 @@ swift run Gloam --film DIR             # popover frames while switching off and 
   buttons shift that screen, the popover's ladder the screen it opens on, the dial every screen's
   warmth. The last move wins; the shift keeps its distance from the plan all evening (never past
   the floor unless chosen there) and shrinks by the clock in the morning, ending 10 min after the
-  plan (longer for a far or late one: 30 min per ladder unit), whether or not Gloam saw it; pauses fade it out and back, a
-  crash or an update keeps it, "Auto" clears it. A key press sets the day level instead in the
+  plan (longer for a far or late one: 30 min per ladder unit), whether or not Gloam saw it; pauses
+  fade it out and back, a crash or an update keeps it, "Auto" or switching off by hand clears it
+  (on again is Auto), and Settings' preview shows it. A key press sets the day level instead in the
   evening's first minutes (under 10 % shown) and once the morning's plan is done; above the day
   level it becomes the day level. Never written back. Holding a press until morning, bending the
   night's curve through it, or shrinking it with the plan's fall (room light amplified it) were
@@ -69,7 +70,7 @@ swift run Gloam --film DIR             # popover frames while switching off and 
   takes the position the same share of the way to its own darkest (its light floor against its
   day level; past 1, key presses only, on to black), so a dimmer screen is dimmed less. Warmth
   isn't mapped (a built-in's night went 4100 K): each screen shows it up to its smear limit, so
-  steps past that limit change nothing there.
+  steps past that limit change nothing there. Off or paused, the first step only switches on.
 - Tint gains use each display's own colour space (sRGB on P3 turns warm white red); private APIs
   (`RoomLight`/`Backlight`) return nil for "no change".
 - Built-in, Apple and DDC/CI displays are dimmed by backlight relative to the level found

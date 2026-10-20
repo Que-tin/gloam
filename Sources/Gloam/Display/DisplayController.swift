@@ -49,10 +49,25 @@ final class DisplayController {
     /// not another app and must not count toward the interference notice.
     @ObservationIgnored private var quietUntil = Date.distantPast
     /// Per-display strength 0…1, looked up by display UUID. 0 leaves a display alone.
-    @ObservationIgnored var strength: (String) -> Double = { _ in 1 } { didSet { push() } }
+    @ObservationIgnored private(set) var strength: (String) -> Double = { _ in 1 }
     /// External displays (by UUID) held to the smear floor at the user's request. Their backlight
     /// can't be read, so for them the floor doesn't ease. Built-in displays are always held.
-    @ObservationIgnored var smearGuarded: (String) -> Bool = { _ in false } { didSet { push() } }
+    @ObservationIgnored private(set) var smearGuarded: (String) -> Bool = { _ in false }
+
+    /// Settings' per-display strength and smear guard, applied with one push (each its own push
+    /// wrote every screen twice per slider event).
+    func configure(strength: @escaping (String) -> Double, smearGuarded: @escaping (String) -> Bool) {
+        self.strength = strength
+        self.smearGuarded = smearGuarded
+        // A screen switched off in Settings loses tonight's shift: kept, it came back when the
+        // screen was switched on again and wrote a press made meanwhile straight back.
+        let live = shifts.filter { strength($0.key) > 0 }
+        if live.count != shifts.count {
+            shifts = live
+            saveShifts()
+        }
+        push()
+    }
     /// Told after the screens change: a new one can end the model's quiet (all others at 0).
     @ObservationIgnored var displaysDidChange: () -> Void = {}
     /// How far the user's settings go past the recommended night (`Schedule.pastRecommended`):
@@ -96,9 +111,11 @@ final class DisplayController {
         didSet { if shifts != oldValue { saveShiftsSoon() } }
     }
     @ObservationIgnored private var shiftSave: Task<Void, Never>?
-    /// Off, paused or previewing, every screen shows the plan alone (the model's neutral, or
-    /// Settings' preview). Set by the model before its `show`, which fades the shifts out or in
-    /// with the tint (`shiftWeight`): switched at once, a pause first jumped by the shift.
+    /// Settings' "Preview tonight" is on: the shifts show on it, but no press makes a new one.
+    @ObservationIgnored var previewing = false
+    /// Off or paused, every screen shows the plan alone (the model's neutral); Settings' preview
+    /// shows them, as tonight will. Set by the model before its `show`, which fades the shifts out
+    /// or in with the tint (`shiftWeight`): switched at once, a pause first jumped by the shift.
     /// Coming back (a pause ended, the preview closed) in the morning, a shift already shrinking
     /// goes: faded back in, a pause "Until Morning" ending at wake dimmed the screen again.
     @ObservationIgnored var shiftsWanted = true {
@@ -394,7 +411,16 @@ final class DisplayController {
         fadeShift(uuid, id, to: position, over: 0.15, showingGoal: true)
     }
 
-    /// Every screen back on the plan ("Auto"), eased over a second.
+    /// Every shift gone at once: Gloam switched on again after an off by hand, when none shows.
+    func dropShifts() {
+        shiftFades.values.forEach { $0.cancel() }
+        shiftFades = [:]
+        guard !shifts.isEmpty else { return }
+        shifts = [:]
+        saveShifts()
+    }
+
+    /// Every screen back on the plan ("Auto"), eased over half a second.
     func clearShifts() {
         for uuid in shifts.keys {
             guard let id = displays.first(where: { $0.uuid == uuid })?.id else { shifts[uuid] = nil; continue }
@@ -524,7 +550,11 @@ final class DisplayController {
         let woke = self.asleep && !asleep
         self.asleep = asleep
         changedAt = Date()
-        if woke { doubtful.formUnion(monitors.keys) }  // as `displaysChangedSoon`: the probe follows
+        if woke {
+            doubtful.formUnion(monitors.keys)  // as `displaysChangedSoon`: the probe follows
+            // A reprobe still out answers for before the wake: its answer mustn't clear this doubt.
+            reprobing = false
+        }
         if woke { easeFromApplied() }
         repace()
     }
@@ -556,6 +586,9 @@ final class DisplayController {
         guard asleep, CGDisplayIsAsleep(main) == 0 else { return }
         asleep = false
         changedAt = Date()
+        // As a wake heard: the monitors' handles are in doubt until a probe finds them again.
+        reprobing = false
+        displaysChangedSoon()
         easeFromApplied()
         repace()
     }
@@ -774,6 +807,9 @@ final class DisplayController {
 
     /// A press found inside a write (`setBacklight`): one more push once this one is through.
     @ObservationIgnored private var pushAgain = false
+    /// Inside `push`: `store` leaves `refreshEffective` to its end, and only there does a press
+    /// found mid-write ask for another (`pushAgain`).
+    @ObservationIgnored private var pushing = false
     /// A write held back for being too close to the last one (`setBacklight`), sent by this push.
     @ObservationIgnored private var deferredPush: Task<Void, Never>?
     /// A press macOS may still be animating (its keys ease over ~0.2 s): nothing is written to that
@@ -795,7 +831,11 @@ final class DisplayController {
         // Quitting: `restore` has written what stays; a monitor's answer or a held-back write
         // pushing after it dimmed the screens again on the way out.
         guard !resumedAtLaunch, !restoring else { return }
-        defer { if pushAgain { pushAgain = false; push() } }
+        pushing = true
+        defer {
+            pushing = false
+            if pushAgain { pushAgain = false; push() }
+        }
         var tints: [CGDirectDisplayID: Tint] = [:], stepping: Set<CGDirectDisplayID> = []
         for display in displays {
             let s = strength(display.uuid)
@@ -889,15 +929,15 @@ final class DisplayController {
             // Written anyway, the old level went out a moment before the new one, and the panel
             // stayed on the old one (two writes 2 ms apart): every press undone, and the next read
             // taking that for another press, back and forth. Worked out again after this push.
-            if shift(for: id) != before { pushAgain = true; return }
+            // Outside a push (`restore`'s release) nothing pushes again: written as asked there.
+            if shift(for: id) != before, pushing { pushAgain = true; return }
             // A settled press that moved on from where it was adopted mid-animation by less than
             // `same` counts (an own write can't explain it: nothing was written while it settled).
             // Left alone, the write put back the mid-animation level over the end of the press.
             if settled, let light, let written, abs(light - written) > 0.0005, let dim = dims[id],
-               let uuid = uuidOf[id], shiftsWanted {
+               let uuid = uuidOf[id], shiftsWanted, !previewing {
                 shifts[uuid] = newShift(to: dim.position(of: light), plan: shiftPlan(planShown(for: id), for: id))
-                pushAgain = true
-                return
+                if pushing { pushAgain = true; return }
             }
         }
         guard var dim = dims[id] else { return }
@@ -1004,7 +1044,7 @@ final class DisplayController {
     private func store(_ dim: BacklightDim, for id: CGDirectDisplayID) {
         guard dims[id] != dim else { return }
         dims[id] = dim
-        refreshEffective()
+        if !pushing { refreshEffective() }  // a push ends with it, once for every screen
         // Every display in `dims` came through `follow` or `restart`, after `uuidOf` was set.
         guard let uuid = uuidOf[id], let startedOrEnded = saved.set(dim.isDimming ? dim : nil, for: uuid) else { return }
         // Starting or ending dimming is saved at once; steps in between at most once a second
@@ -1187,11 +1227,13 @@ final class DisplayController {
                 if monitor.isFailing {
                     // Not read while it refuses writes; sent its level again instead (a monitor
                     // asleep at the morning restore would otherwise stay dim all day).
-                    guard Date() >= retryAt[id] ?? .distantPast, let asked = requested[id] else { continue }
-                    monitorReadAt[id] = Date()
-                    // With its release flag: retried as a release, a shift holding the screen at its day
-                    // level ended the dimming, and the next press became the day level.
-                    setBacklight(id, position: asked.position, release: asked.release)  // a failed answer sets the next retry (`backOff`)
+                    guard Date() >= retryAt[id] ?? .distantPast, requested[id] != nil, !readingFirst.contains(id) else { continue }
+                    // Read first, then the push after the answer sends the step (with its release
+                    // flag, `requested`) from what the monitor shows: sent from `written`, a level
+                    // from before the failure, a button press made meanwhile was stepped over and
+                    // lost. A read that fails still pushes, so the write is retried all the same
+                    // (a failed answer sets the next retry, `backOff`).
+                    readFirst(id, monitor)
                 } else if !readingFirst.contains(id) {
                     readFirst(id, monitor)
                 }
@@ -1278,7 +1320,9 @@ final class DisplayController {
         guard let light, var dim = dims[id],
               Date().timeIntervalSince(backlightWritten[id] ?? .distantPast) > 1,
               light > 0.001 || Date().timeIntervalSince(changedAt) > 5 else { return }
-        guard shiftsWanted || !dim.isDimming else {
+        // Off, paused, or Settings' preview: a press is only taken as what the panel shows. Measured
+        // from the preview, a shift landed wrong after it.
+        guard shiftsWanted && !previewing || !dim.isDimming else {
             dim.resume(at: light)
             return store(dim, for: id)
         }
@@ -1302,10 +1346,16 @@ final class DisplayController {
         if move != .none, monitors[id] == nil, !restoring { settling[id] = Date().addingTimeInterval(0.35) }
         switch move {
         case .none: return
-        case .shift(let to):
+        case .shift(let pressed):
             endShiftFade(uuid)
             shiftGoals[uuid] = nil  // the press is where the screen is now
-            let chosen = newShift(to: to, plan: shiftPlan(plan, for: id))
+            // Mid-way through the shifts fading in (Gloam switched on, a pause ended), the screen
+            // shows only part of a shift (`shiftWeight`): taken as a whole shift, the next write
+            // put back part of what was pressed. Scaled up, it shows exactly the press now.
+            let p = shiftPlan(plan, for: id)
+            let w = max(0.2, shiftWeight)
+            let to = w < 1 ? min(2, max(0, p + (pressed - p) / w)) : pressed
+            let chosen = newShift(to: to, plan: p)
             // In the morning's tail it fades with the shift it replaces, not into the next evening.
             shifts[uuid] = upThroughFade && clock.planDone ? fading.flatMap {
                 Shift.make(to: to, at: shiftPlan(plan, for: id), now: clock.now, until: $0.until) } : chosen

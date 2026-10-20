@@ -179,13 +179,15 @@ struct PopoverView: View {
                 set: { w in
                     guard canTakeOver else { return }
                     // A step (arrows, scroll, VoiceOver) taken from what is asked, not from the
-                    // knob: off, from the plan's own warmth rather than the cool end the untinted
-                    // screen shows; mid-fade, from where it is heading rather than mid-way.
+                    // knob: mid-fade, from where it is heading rather than mid-way. Off, the first
+                    // step only switches on, at Auto: a "turn on", not a move from the cool end.
                     let knob = Light.warmth(current.kelvin)
-                    let base = Light.warmth((model.isHeld ? model.automatic : model.asked).kelvin)
-                    let step = (model.isHeld || model.display.isFading) && abs(w - knob) <= 0.021
+                    let step = abs(w - knob) <= 0.021
+                    if step, model.isHeld { model.enabled = true; return }
+                    let base = Light.warmth(model.asked.kelvin)
+                    let fromAsked = step && model.display.isFading
                     turnedAt = Date()
-                    model.setWarmth(step ? min(1, max(0, base + w - knob)) : w)
+                    model.setWarmth(fromAsked ? min(1, max(0, base + w - knob)) : w)
                 })
     }
 
@@ -201,12 +203,12 @@ struct PopoverView: View {
                 },
                 set: { d in
                     guard canTakeOver else { return }
-                    // Off, a step starts from the plan, not from 0 (the untinted screen): "dimmer"
-                    // turned Gloam on brighter than the plan.
+                    // Off, the first step (arrows, scroll, VoiceOver) only switches on, at Auto: a
+                    // "turn on", not a move from 0 (the untinted screen). A click or drag on a cell
+                    // still sets that cell.
                     let ladder = min(1, model.display.ladderPosition(screen))
-                    let plan = min(1, model.display.ladderPosition(screen, asked: model.automatic))
-                    let step = model.isHeld && abs(d - ladder) <= 0.051
-                    model.setDimming(step ? min(1, max(0, plan + d - ladder)) : d, on: screen)
+                    if model.isHeld && abs(d - ladder) <= 0.051 { model.enabled = true; return }
+                    model.setDimming(d, on: screen)
                 })
     }
 
@@ -234,7 +236,9 @@ struct PopoverView: View {
             Spacer()
             HStack(spacing: 10) {
                 SettingsButton()
-                PowerSwitch(on: $model.enabled, kelvin: glow.kelvin)
+                // Off is by hand here (`run(.off)`): on again, the evening starts on Auto.
+                PowerSwitch(on: Binding(get: { model.enabled }, set: { $0 ? (model.enabled = true) : model.run(.off) }),
+                            kelvin: glow.kelvin)
             }
         }
         .overlay {

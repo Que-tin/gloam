@@ -102,9 +102,9 @@ struct SettingsView: View {
             // and up here it leaves the legend its width.
             HStack {
                 Text("Evening")
-                Spacer()
                 // Everything the graph sets, back to the evidence-based defaults; only offered
-                // when something differs.
+                // when something differs. At the left, by the title: beside Done it was pressed by
+                // mistake (the destructive one away from the confirming one, as macOS puts them).
                 if !isDefault {
                     LampPill(title: String(localized: "Reset"), symbol: "arrow.counterclockwise") {
                         model.schedule = Schedule()
@@ -112,6 +112,7 @@ struct SettingsView: View {
                     .fixedSize()
                     .help(String(localized: "Back to a \(Format.time(Schedule().bedtime)) bedtime, \(Format.time(Schedule().wake)) wake-up and the recommended Warmest and Dimmest"))
                 }
+                Spacer()
                 // While on, the screen shows the night the limits allow, so they're never set blind
                 // (by day, with a shift, even with Gloam off). Only this starts it: a preview
                 // that also jumped in mid-drag of a limit was confusing.

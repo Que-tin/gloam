@@ -23,11 +23,11 @@ struct SavedDims {
         entries[uuid].flatMap { Date().timeIntervalSince($0.at) < Self.kept ? $0.dim : nil }
     }
 
+    var isEmpty: Bool { entries.isEmpty }
+
     /// Saved within the last few hours: a panel anywhere on that night's curve is still Gloam's
     /// (a crash mid-fade). Older, only exactly what was written is: days on, the user's own level
     /// (auto-brightness, the keys) could fall on the curve, and the old baseline came back.
-    var isEmpty: Bool { entries.isEmpty }
-
     func isRecent(_ uuid: String) -> Bool {
         entries[uuid].map { Date().timeIntervalSince($0.at) < 6 * 3600 } ?? false
     }

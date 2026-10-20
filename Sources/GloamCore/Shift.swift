@@ -172,17 +172,30 @@ extension Schedule {
     /// so the caller can cache it.
     public func shiftClock(at date: Date, _ c: Coordinate, end: (Evening) -> Date,
                            calendar: Calendar = .current) -> ShiftClock {
+        withoutActuallyEscaping(end) { shiftClocks(at: date, c, ends: [$0], calendar: calendar).clocks[0] }
+    }
+
+    /// One `ShiftClock` per morning end (dimming's and warmth's), from the same evenings: each
+    /// `evening(around:)` is a sun scan, worked out once a tick rather than once per clock.
+    /// `tonight` is the evening around `date`.
+    public func shiftClocks(at date: Date, _ c: Coordinate, ends: [(Evening) -> Date],
+                            calendar: Calendar = .current) -> (clocks: [ShiftClock], tonight: Evening) {
         let tonight = evening(around: date, c, calendar: calendar)
         // A calendar day back, not 24 h: the day before the clocks go back is 25 h long, and 24 h
         // back landed in tonight's own evening (no morning done, for ten minutes once a year).
         let dayBefore = calendar.date(byAdding: .day, value: -1, to: tonight.wake) ?? tonight.wake.addingTimeInterval(-86400)
         let last = evening(around: dayBefore.addingTimeInterval(-60), c, calendar: calendar)
-        let lastEnd = end(last), tonightEnd = end(tonight)
-        if date < tonightEnd {
-            return ShiftClock(now: date, until: tonightEnd.addingTimeInterval(Shift.fadeOut),
-                              planDone: last.wake < tonight.wake && date < lastEnd.addingTimeInterval(Shift.fadeOut))
+        var next: Evening?
+        let clocks = ends.map { end -> ShiftClock in
+            let lastEnd = end(last), tonightEnd = end(tonight)
+            if date < tonightEnd {
+                return ShiftClock(now: date, until: tonightEnd.addingTimeInterval(Shift.fadeOut),
+                                  planDone: last.wake < tonight.wake && date < lastEnd.addingTimeInterval(Shift.fadeOut))
+            }
+            let following = next ?? evening(around: tonight.wake.addingTimeInterval(60), c, calendar: calendar)
+            next = following
+            return ShiftClock(now: date, until: end(following).addingTimeInterval(Shift.fadeOut), planDone: true)
         }
-        let next = evening(around: tonight.wake.addingTimeInterval(60), c, calendar: calendar)
-        return ShiftClock(now: date, until: end(next).addingTimeInterval(Shift.fadeOut), planDone: true)
+        return (clocks, tonight)
     }
 }
