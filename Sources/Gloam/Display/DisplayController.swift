@@ -704,16 +704,21 @@ final class DisplayController {
     /// Screens off (the Mac may stay awake for hours): no backlight is read or written, a tint only
     /// to clear it (`push`), and the popover's poll stops. macOS usually resets the tables on
     /// wake, and the wake pushes anyway.
+    /// The monitors' handles are put in doubt by `displaysChangedSoon`, which the same wake
+    /// notification calls.
     private func screens(asleep: Bool) {
-        let woke = self.asleep && !asleep
+        if self.asleep && !asleep { return woke() }
         self.asleep = asleep
         changedAt = Date()
-        if woke {
-            doubtful.formUnion(monitors.keys)  // as `displaysChangedSoon`: the probe follows
-            // A reprobe still out answers for before the wake: its answer mustn't clear this doubt.
-            reprobing = false
-        }
-        if woke { easeFromApplied() }
+        repace()
+    }
+
+    private func woke() {
+        asleep = false
+        changedAt = Date()
+        // A reprobe still out answers for before the wake: its answer mustn't clear the doubt.
+        reprobing = false
+        easeFromApplied()
         repace()
     }
 
@@ -742,13 +747,9 @@ final class DisplayController {
     /// written all evening.
     private func wakeIfMissed() {
         guard asleep, CGDisplayIsAsleep(main) == 0 else { return }
-        asleep = false
-        changedAt = Date()
         // As a wake heard: the monitors' handles are in doubt until a probe finds them again.
-        reprobing = false
         displaysChangedSoon()
-        easeFromApplied()
-        repace()
+        woke()
     }
     /// The clock ticks slowly: nothing tinted, nothing due within the minute and a bit.
     @ObservationIgnored private var idle = false
