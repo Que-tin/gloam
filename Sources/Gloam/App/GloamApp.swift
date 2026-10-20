@@ -109,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? SMAppService.mainApp.unregister()
             // A screen still dimmed from a crash is put back by the next launch, from what's saved:
             // cleared now, that record is gone, so say so rather than leave it dim without a word.
-            let stillDimmed = (UserDefaults.standard.data(forKey: "dimmedBacklights")?.count ?? 0) > 2  // "{}" is none
+            let stillDimmed = !SavedDims.load().isEmpty  // what a launch would still put back
             UserDefaults.standard.removePersistentDomain(forName: id)
             // And every file Gloam leaves in the Library (Sparkle's downloads and web storage, the
             // settings file itself), so nothing of it stays behind.
@@ -119,7 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             print("Gloam: \(others.isEmpty ? "" : "running copy quit; ")\(login == .enabled ? "login item removed" : "no login item to remove"); settings and caches cleared.")
             if stillDimmed {
-                print("Gloam: a screen may still be dimmed from a crash; set its brightness with the keys.")
+                print("Gloam: a screen may still be dimmed by Gloam; set its brightness with the keys or the monitor's buttons.")
             }
             exit(0)
         }

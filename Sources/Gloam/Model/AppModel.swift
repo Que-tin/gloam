@@ -219,8 +219,10 @@ final class AppModel {
     var isHeld: Bool { !enabled || !hasOnboarded || pausedAside || awaitingFocus }
 
     /// At launch, until the Focus filter's state is read (a second at most, `endLaunchHold`): a
-    /// relaunch while a pausing Focus is on faded into the evening, then out again.
-    @ObservationIgnored private var awaitingFocus = !Debug.isShowcase
+    /// relaunch while a pausing Focus is on faded into the evening, then out again. Nothing is
+    /// shown meanwhile (`update`): handed the hold's neutral, the display released a backlight it
+    /// had resumed dimmed, then faded back down. Observed: the popover's caption waits on it.
+    private var awaitingFocus = !Debug.isShowcase
 
     /// The launch read of the Focus filter came back (or took too long): the evening may start.
     func endLaunchHold() {
@@ -415,7 +417,7 @@ final class AppModel {
             missedReads = 0
             readRoom()
         }
-        display.show(target, duration: fade)
+        if !awaitingFocus || preview != nil { display.show(target, duration: fade) }
         wakeTickIfDue()
     }
 

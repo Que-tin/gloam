@@ -20,8 +20,9 @@ struct PopoverView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// What the controls show: the hand setting, else what is asked of the screen this instant
-    /// (before its limits; following the fades, so the knobs glide with them).
-    private var current: Tint { model.manual ?? model.display.shown }
+    /// (before its limits; following the fades, so the knobs glide with them). Not Settings'
+    /// "Preview tonight": the knobs stay at what's asked, and a move starts from there.
+    private var current: Tint { model.manual ?? (model.preview == nil ? model.display.shown : model.automatic) }
     /// Blue light reaching you once the screen gets where it is going, after its limits, rounded
     /// to 5% (the estimate is good to about that). Said as what's left ("20%") rather than what's
     /// saved ("−80%"). The destination rather than every step of a fade, so a switch reads as one
@@ -132,7 +133,7 @@ struct PopoverView: View {
     /// shows its warmest and the steps change nothing there.
     private var warmth: Binding<Double> {
         Binding(get: { Light.warmth(current.kelvin) },
-                set: { takeOver(Tint(kelvin: Light.kelvin(warmth: $0), brightness: asked.brightness)) })
+                set: { w in takeOver { Tint(kelvin: Light.kelvin(warmth: w), brightness: $0.brightness) } })
     }
 
     /// A position on the schedule's scale: each screen takes it the same share of the way to its
@@ -140,7 +141,7 @@ struct PopoverView: View {
     /// user's brightness keys.
     private var dimming: Binding<Double> {
         Binding(get: { Light.dimming(current.brightness) },
-                set: { takeOver(Tint(kelvin: asked.kelvin, brightness: Light.brightness(dimming: $0))) })
+                set: { d in takeOver { Tint(kelvin: $0.kelvin, brightness: Light.brightness(dimming: d)) } })
     }
 
     /// The controls can set a tint: Gloam is on or can be switched on by them, and no app in
@@ -152,11 +153,13 @@ struct PopoverView: View {
     /// it into the other (a turn of the dial at 22:30 while off left the night undimmed).
     private var asked: Tint { model.manual ?? model.automatic }
 
-    /// A hand setting; when Gloam is off, the first move turns it back on.
-    private func takeOver(_ tint: Tint) {
+    /// A hand setting, the moved control's value over what's `asked`; when Gloam is off, the
+    /// first move turns it back on, first: its update reads the room afresh, and the other
+    /// control's value comes from that (built before, it dimmed as if the room were dark).
+    private func takeOver(_ tint: (Tint) -> Tint) {
         guard canTakeOver else { return }
         if !model.enabled { model.enabled = true }
-        model.manual = tint
+        model.manual = tint(asked)
     }
 
     // MARK: Words

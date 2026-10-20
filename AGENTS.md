@@ -73,8 +73,8 @@ swift run Gloam --film DIR             # popover frames while switching off and 
   `nextExpiry`) write the tint and read backlights; 2 Hz only while the popover is open. A read
   before writing keeps key presses adopted; a monitor is read with nothing sent until it answers
   (`readFirst`), before a step once its reading is a few seconds old (in a fade, once at its start).
-  Only user actions fade, apart from the tick's brief glide over a visible step (room light); the
-  gamma table is rewritten only if something overwrote it. A timed pause (right-click "Pause",
+  Ticks write at once, apart from a brief glide over a visible step; launches, wakes and clock
+  changes ease. The gamma table is rewritten only if something overwrote it. A timed pause (right-click "Pause",
   Shortcuts' Pause Gloam) ends itself (`resumeAt`); app and Focus pauses don't.
 - Deliberately absent: an "Always" mode, presets, a daytime tint, per-stage tuning, a timeline or
   Kelvin numbers shown in the popover (only its tooltip and VoiceOver give them; Settings has the

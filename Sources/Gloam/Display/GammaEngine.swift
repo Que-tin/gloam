@@ -12,6 +12,7 @@
 // its ColorSync profile; see ColorTemperature.swift for why sRGB gains look wrong on P3.
 
 import CoreGraphics
+import Foundation
 import GloamCore
 
 final class GammaEngine: TintEngine {
@@ -31,7 +32,11 @@ final class GammaEngine: TintEngine {
     /// whenever the table may have changed under Gloam (overwritten, reconfigured, reset).
     private var gains: [CGDirectDisplayID: RGB] = [:]
     /// What `displaysChanged` dropped, for a display whose table turns out to be untouched.
-    private var previous: [CGDirectDisplayID: (calibration: Ramp, tint: Ramp)] = [:]
+    private struct Kept { var calibration, tint: Ramp; var at: Date }
+    private var previous: [CGDirectDisplayID: Kept] = [:]
+    /// A display away longer than this comes back to a table that isn't last night's: its entry
+    /// goes rather than wait to overwrite whatever another app wrote meanwhile.
+    private static let keptFor: TimeInterval = 86_400
 
     func apply(_ tints: [CGDirectDisplayID: Tint]) {
         let active = tints.filter { !$0.value.isNeutral }
@@ -78,6 +83,7 @@ final class GammaEngine: TintEngine {
     /// and nothing knew it was Gloam's. Tinted displays keep theirs for `capture`.
     private func settlePrevious(except tinting: Set<CGDirectDisplayID>) {
         for (id, kept) in previous where !tinting.contains(id) {
+            if Date().timeIntervalSince(kept.at) > Self.keptFor { previous[id] = nil; continue }
             guard CGDisplayIsOnline(id) != 0, let read = table(id, size: Int(CGDisplayGammaTableCapacity(id))) else { continue }
             if Self.isTint(read, kept) { write(kept.calibration, gain: .white, to: id) }
             previous[id] = nil
@@ -107,7 +113,7 @@ final class GammaEngine: TintEngine {
     /// otherwise forget what the first one kept.
     func displaysChanged() {
         for (id, base) in calibration where tinted.contains(id) {
-            if let tint = lastWrite[id] { previous[id] = (base, tint) }
+            if let tint = lastWrite[id] { previous[id] = Kept(calibration: base, tint: tint, at: Date()) }
         }
         tinted = []
         lastWrite = [:]
@@ -162,7 +168,8 @@ final class GammaEngine: TintEngine {
         let ramp: Ramp
         // A wake doesn't always reset the table: one still showing Gloam's own last write is
         // Gloam's tint, and capturing it as the calibration would tint everything twice.
-        if let read, let kept = previous.removeValue(forKey: id), Self.isTint(read, kept) {
+        if let read, let kept = previous.removeValue(forKey: id),
+           Date().timeIntervalSince(kept.at) <= Self.keptFor, Self.isTint(read, kept) {
             ramp = kept.calibration
         } else if let read, read.top.allSatisfy({ $0 > 0.92 }) {
             ramp = read  // a calibration curve ends near full output; a warm or dimmed table doesn't
@@ -184,13 +191,17 @@ final class GammaEngine: TintEngine {
         return Ramp(red: Array(r.prefix(k)), green: Array(g.prefix(k)), blue: Array(b.prefix(k)))
     }
 
-    /// Gloam's tint, entry for entry, or as macOS hands it back resampled or slightly changed: its
-    /// top within 0.01 of the tint's, where the tint's top isn't the calibration's (so a profile
-    /// macOS put back can't pass for it). Matching only exact copies, a resampled table kept last
-    /// night's warmth all day.
-    private static func isTint(_ read: Ramp, _ kept: (calibration: Ramp, tint: Ramp)) -> Bool {
+    /// Gloam's tint, entry for entry, or as macOS hands it back slightly changed (the whole curve
+    /// within 0.01) or resampled to another size (its top within 0.01 of the tint's, where the
+    /// tint's top isn't the calibration's, so a profile macOS put back can't pass for it).
+    /// Matching only exact copies, a resampled table kept last night's warmth all day; matching
+    /// the top alone at the same size could take another app's warm table for Gloam's.
+    private static func isTint(_ read: Ramp, _ kept: Kept) -> Bool {
         if same(read, kept.tint) { return true }
         let near = { (a: [CGGammaValue], b: [CGGammaValue]) in zip(a, b).allSatisfy { abs($0 - $1) <= 0.01 } }
+        if read.red.count == kept.tint.red.count {
+            return near(read.red, kept.tint.red) && near(read.green, kept.tint.green) && near(read.blue, kept.tint.blue)
+        }
         return near(read.top, kept.tint.top) && !near(kept.tint.top, kept.calibration.top)
     }
 

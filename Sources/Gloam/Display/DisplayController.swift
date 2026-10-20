@@ -72,8 +72,11 @@ final class DisplayController {
     @ObservationIgnored private var consentKnown = false
     /// Launched with a backlight still dimmed (after an update, a crash): nothing is pushed until
     /// the model's first target, which then shows at once. Pushed from the neutral start, the
-    /// backlight went to full brightness first and faded back down.
+    /// backlight went to full brightness first and faded back down. Monitors are found later (the
+    /// probe) and hold the same way if that's before the first target.
     @ObservationIgnored private var resumedAtLaunch = false
+    /// The model has shown a target: from then on a resumed display is simply pushed.
+    @ObservationIgnored private var firstTargetShown = false
     private var lightFloor: Double {
         BacklightDim.floorLight + (BacklightDim.deepestFloorLight - BacklightDim.floorLight) * consent.dimming
     }
@@ -102,9 +105,10 @@ final class DisplayController {
     /// change queued one) cleared it, and the release went through the dead handle after all.
     @ObservationIgnored private var reprobeWanted = false
     @ObservationIgnored private var reprobing = false
-    /// Followed monitors that missed the probe after a change, until the reprobe: nothing is sent
-    /// or read through their old handle meanwhile. A release written there "got through" to a
-    /// dead service, and the reprobe then took the still-dimmed level as the day's.
+    /// Followed monitors whose handle may be dead: every one from a wake or display change until
+    /// the probe answers for it, and those it missed until the reprobe. Nothing is sent or read
+    /// through the old handle meanwhile: a release written there "got through" to a dead service,
+    /// and the probe then took the still-dimmed level as the day's.
     @ObservationIgnored private var doubtful: Set<CGDirectDisplayID> = []
     /// When each monitor was last read (a probe's first reading counts): DDC is slow, so each is
     /// read on its own pace (`pollBacklights`), freshly before its first dimming step, before a
@@ -264,15 +268,6 @@ final class DisplayController {
         engine = Self.make(resolvedEngine)
         adoptBacklights()
         pollBacklights()
-        if resumedAtLaunch {
-            // The model shows its first target straight after launch; should none come, pushes resume.
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(3))
-                guard let self, self.resumedAtLaunch else { return }
-                self.resumedAtLaunch = false
-                self.push()
-            }
-        }
         let workspace = NSWorkspace.shared.notificationCenter
         tasks = [
             (NotificationCenter.default, NSApplication.didChangeScreenParametersNotification),
@@ -296,6 +291,7 @@ final class DisplayController {
         let woke = self.asleep && !asleep
         self.asleep = asleep
         changedAt = Date()
+        if woke { doubtful.formUnion(monitors.keys) }  // as `displaysChangedSoon`: the probe follows
         if woke { easeFromApplied() }
         repace()
     }
@@ -317,7 +313,18 @@ final class DisplayController {
     /// `idle` (the slow tick) also slows the monitors' reads.
     func tickBacklights(idle: Bool) {
         self.idle = idle
+        wakeIfMissed()
         pollBacklights()
+    }
+
+    /// The screens' wake can go missing (the model checks too): asleep for good, nothing was
+    /// written all evening.
+    private func wakeIfMissed() {
+        guard asleep, CGDisplayIsAsleep(main) == 0 else { return }
+        asleep = false
+        changedAt = Date()
+        easeFromApplied()
+        repace()
     }
     /// The clock ticks slowly: nothing tinted, nothing due within the minute and a bit.
     @ObservationIgnored private var idle = false
@@ -379,9 +386,16 @@ final class DisplayController {
     /// sends ~120 targets a second, and restarting each time meant the fade never got past its
     /// first frame, so the screen only caught up on release. Retargets ease out (no slow start).
     func show(_ target: Tint, duration requested: Double) {
+        firstTargetShown = true
         if resumedAtLaunch {
+            // Pushed even if it equals `shown` (neutral by day): the held pushes never ran, and a
+            // backlight resumed dimmed must be released, or it stayed at last night's level.
             resumedAtLaunch = false
-            return show(target, duration: 0)
+            fadeTask?.cancel()
+            fadeTask = nil
+            fade = nil
+            shown = target
+            return push()
         }
         // A monitor takes about a step every 0.1 s: a fade shorter than its steps left the last
         // ones landing after the signal had stopped, each a visible dip. Half again for the eased
@@ -533,7 +547,14 @@ final class DisplayController {
         for display in displays where tints[display.id] == nil && backlight(display.id) != nil {
             setBacklight(display.id, fraction: 1)
         }
-        if !asleep || tints.values.allSatisfy(\.isNeutral) { applied = shown }
+        // What the screens show. Nothing pushed, nothing shown. Asleep, the tables go neutral below
+        // but a dimmed backlight waits for the wake: kept dim here, so the wake fades it up.
+        if !tints.isEmpty {
+            if !asleep { applied = shown }
+            else if tints.values.allSatisfy(\.isNeutral) {
+                applied = dims.values.contains(where: \.isDimming) ? Tint(kelvin: Tint.neutral.kelvin, brightness: applied.brightness) : shown
+            }
+        }
         if !asleep {
             engine.apply(tints)
             // A monitor steps its own brightness at once; the signal evening it out must show now too.
@@ -641,11 +662,7 @@ final class DisplayController {
     private func monitorAnswered(_ id: CGDirectDisplayID, _ monitor: DDC, light: Double, fraction: Double, ok: Bool) {
         guard monitors[id] === monitor else { return }  // a replaced handle's late answer
         if inFlight[id] == light { inFlight[id] = nil }
-        if !ok, retryAt[id] == nil {
-            // Paced from the first failure: unpaced, a fade re-sent it every frame, ~200 ms of I2C each.
-            retryDelay[id] = retryDelay[id] ?? 10
-            retryAt[id] = Date().addingTimeInterval(retryDelay[id] ?? 10)
-        }
+        if !ok { backOff(id) }
         guard ok, var dim = dims[id] else { return }
         retryAt[id] = nil
         retryDelay[id] = nil
@@ -655,6 +672,15 @@ final class DisplayController {
         // The next step, and the signal eased to what the monitor shows now (a running fade
         // pushes every frame anyway).
         if fadeTask == nil { push() }
+    }
+
+    /// A failed write holds the next until its retry time, 10 s doubling to 5 minutes: unpaced, a
+    /// fade re-sent it every frame (~200 ms of I2C each). Only once the last one has passed.
+    private func backOff(_ id: CGDirectDisplayID) {
+        guard Date() >= retryAt[id] ?? .distantPast else { return }
+        let delay = retryDelay[id].map { min(300, $0 * 2) } ?? 10
+        retryDelay[id] = delay
+        retryAt[id] = Date().addingTimeInterval(delay)
     }
 
     /// Every change to `dims` goes through here: unchanged values aren't written (each write
@@ -692,15 +718,28 @@ final class DisplayController {
             // deepest floor any consent allows decides then.
             left.step = step
             left.lightFloor = consentKnown ? lightFloor : BacklightDim.deepestFloorLight
-            if left.resumes(at: light) {
+            if saved.isRecent(uuid) ? left.resumes(at: light) : left.written.map({ left.same(light, $0) }) == true {
                 // Mid-fade the panel isn't at what was saved: continue from where it is.
-                if !consentKnown { resumedAtLaunch = true }
+                if !firstTargetShown { holdForFirstTarget() }
                 left.lightFloor = lightFloor
                 left.resume(at: light)
                 return store(left, for: id)
             }
         }
         restart(id, at: light, step: step)
+    }
+
+    /// Holds pushes until the model's first target (`resumedAtLaunch`); should none come within
+    /// 3 s, what's there is pushed.
+    private func holdForFirstTarget() {
+        guard !resumedAtLaunch else { return }
+        resumedAtLaunch = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, self.resumedAtLaunch else { return }
+            self.resumedAtLaunch = false
+            self.push()
+        }
     }
 
     /// Follows a display afresh from the light it shows now, as its baseline.
@@ -782,8 +821,7 @@ final class DisplayController {
                 // the new baseline, dimmed again by the same fraction (recorded like any write).
                 dim.step = monitor.step
                 guard !dim.same(monitor.initial, w) else { continue }
-                restart(id, at: monitor.initial, step: monitor.step)
-                setBacklight(id, fraction: dim.fraction)
+                restart(id, at: monitor.initial, step: monitor.step)  // the push below dims it as asked now
             } else if var dim = dims[id] {
                 // Followed but not dimmed: its level may have changed while it was away (another
                 // machine, a KVM), and dimming must start from what it shows now.
@@ -833,10 +871,7 @@ final class DisplayController {
                     // asleep at the morning restore would otherwise stay dim all day).
                     guard Date() >= retryAt[id] ?? .distantPast, let fraction = requested[id] else { continue }
                     monitorReadAt[id] = Date()
-                    setBacklight(id, fraction: fraction)  // before the next retry time, which would hold it
-                    let delay = min(300, (retryDelay[id] ?? 10) * 2)
-                    retryDelay[id] = delay
-                    retryAt[id] = Date().addingTimeInterval(delay)
+                    setBacklight(id, fraction: fraction)  // a failed answer sets the next retry (`backOff`)
                 } else if !readingFirst.contains(id) {
                     readFirst(id, monitor)
                 }
@@ -931,6 +966,9 @@ final class DisplayController {
     private func displaysChangedSoon() {
         quietUntil = Date().addingTimeInterval(10)
         changedAt = Date()
+        // After a wake or replug a monitor's I2C service is a new one, and writes through the old
+        // handle "succeed" into nothing: none until the probe answers (`adopt`).
+        doubtful.formUnion(monitors.keys)
         // A screen back with a tint an earlier change left (lid opened in the morning) is cleared
         // as it arrives, not 250 ms later on screen. Not while tinting: the push puts tonight's on.
         if shown.isNeutral { engine.settleKept() }
@@ -963,10 +1001,7 @@ final class DisplayController {
         }
         // Normally cleared by the screens' wake; also here, so a missed notification can't stop
         // backlights being read for good.
-        if asleep, CGDisplayIsAsleep(main) == 0 {
-            asleep = false
-            easeFromApplied()
-        }
+        wakeIfMissed()
         retryAt = [:]
         retryDelay = [:]
         levelReadAt = [:]
@@ -974,7 +1009,7 @@ final class DisplayController {
         reprobed = false
         reprobeWanted = false
         reprobing = false
-        doubtful = []
+        doubtful = Set(monitors.keys)  // until the probe below answers for each
         silent.subtract(displays.map(\.uuid).filter { !known.contains($0) })  // reconnected: ask again
         engine.displaysChanged()
         redraw.displaysChanged()
