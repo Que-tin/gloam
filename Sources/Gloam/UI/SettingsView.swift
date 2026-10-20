@@ -102,16 +102,6 @@ struct SettingsView: View {
             // and up here it leaves the legend its width.
             HStack {
                 Text("Evening")
-                // Everything the graph sets, back to the evidence-based defaults; only offered
-                // when something differs. At the left, by the title: beside Done it was pressed by
-                // mistake (the destructive one away from the confirming one, as macOS puts them).
-                if !isDefault {
-                    LampPill(title: String(localized: "Reset"), symbol: "arrow.counterclockwise") {
-                        model.schedule = Schedule()
-                    }
-                    .fixedSize()
-                    .help(String(localized: "Back to a \(Format.time(Schedule().bedtime)) bedtime, \(Format.time(Schedule().wake)) wake-up and the recommended Warmest and Dimmest"))
-                }
                 Spacer()
                 // While on, the screen shows the night the limits allow, so they're never set blind
                 // (by day, with a shift, even with Gloam off). Only this starts it: a preview
@@ -121,6 +111,20 @@ struct SettingsView: View {
                     model.preview = model.preview == nil ? night : nil
                 }
                 .fixedSize()
+            }
+        } footer: {
+            // Everything the graph sets, back to the evidence-based defaults; only offered when
+            // something differs. A plain push button at the bottom left, as macOS settings offer
+            // it: a pill beside Done (and then by the title) was pressed by mistake, as small grey
+            // text it went unseen, and a pill at the bottom read as a second Preview.
+            if !isDefault {
+                HStack {
+                    Button(String(localized: "Restore Defaults")) { model.schedule = Schedule() }
+                        .buttonStyle(.bordered)
+                        .help(String(localized: "Back to a \(Format.time(Schedule().bedtime)) bedtime, \(Format.time(Schedule().wake)) wake-up and the recommended Warmest and Dimmest"))
+                    Spacer()
+                }
+                .padding(.top, 4)
             }
         }
         .onChange(of: model.schedule) { if model.preview != nil { model.preview = night } }
