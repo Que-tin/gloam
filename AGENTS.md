@@ -34,7 +34,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
 swift test                             # core tests
 swift run Gloam --showcase --at 22:30  # popover in a window at 22:30 (debug; never tints)
 swift run Gloam --onboarded --at 21:00 --speed 60  # really tints, clock from 21:00 at 60× (quit installed Gloam first)
-swift run Gloam --film DIR             # popover frames while switching off and on (--capture: stills)
+swift run Gloam --capture DIR          # photographs of the real popover, Welcome and Settings
 ./scripts/snapshots.sh                 # regenerate docs/screenshots (never tints the screen)
 ./scripts/build-app.sh                 # .build/Gloam.app + Gloam.dmg, Apple silicon, ad-hoc signed
 ```

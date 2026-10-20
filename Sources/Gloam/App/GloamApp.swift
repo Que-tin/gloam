@@ -321,27 +321,22 @@ enum Windows {
 
 /// Debug-build launch flags for screenshots and UI work; inert in release builds.
 ///   --capture DIR     photograph the real popover, Welcome and Settings windows, then quit
-///   --film DIR        frames of the real popover switching off and on again, then quit
 ///   --at HH:MM        run the app's clock at that time of day
 ///   --speed N         run the app's clock N times as fast (with --at, from then): an evening and
 ///                     its morning in minutes, really tinted (quit the installed Gloam first)
 ///   --onboarded, --off   start as if set up / switched off
-///   --focus-paused       start as if a Focus filter paused Gloam
 ///   --showcase [welcome]  show the popover (or the welcome view) in an ordinary window
 ///   --snapshot PATH   render the showcase to PATH and quit (never touches the screen)
-///   --floor F         built-in smear floor as a signal fraction (default 0.8; 0 = none), to
-///                     calibrate it: scroll light-on-dark text and move the dial and ladder
-///   --exit-after S    quit normally after S seconds (restoring the screen), for scripted checks
 ///   --log-brightness  every backlight read, write and shift, to /tmp/gloam-brightness.log (to see
 ///                     why a press moved; written line by line, so a Ctrl-C loses nothing)
 enum Debug {
     /// Flags that keep a run off the screen. In release builds too: the bundled app must recognise
     /// a debug copy started with one, and not quit for it (`AppDelegate.isShowcase`).
-    static let offScreenFlags = ["--showcase", "--snapshot", "--capture", "--film"]
+    static let offScreenFlags = ["--showcase", "--snapshot", "--capture"]
 
     #if DEBUG
     static let isSnapshot = CommandLine.arguments.contains("--snapshot")
-    static let isCapture = CommandLine.arguments.contains("--capture") || CommandLine.arguments.contains("--film")
+    static let isCapture = CommandLine.arguments.contains("--capture")
     /// Showcase and capture runs never tint the real screen.
     static let isShowcase = CommandLine.arguments.contains(where: offScreenFlags.contains)
     static let logsBrightness = CommandLine.arguments.contains("--log-brightness")
@@ -387,16 +382,7 @@ enum Debug {
         }
         if args.contains("--onboarded") { AppModel.shared.hasOnboarded = true }
         if args.contains("--off") { AppModel.shared.enabled = false }
-        if args.contains("--focus-paused") { AppModel.shared.pausedByFocus = true }  // as a Focus filter would
-        if let floor = value("--floor").flatMap(Double.init) {
-            DisplayController.smearFloor = pow((0.0...1.0).clamp(floor), Kelvin.displayGamma)
-            AppModel.shared.update(fade: 0)
-        }
-        if let seconds = value("--exit-after").flatMap(Double.init) {
-            Task { try? await Task.sleep(for: .seconds(seconds)); NSApp.terminate(nil) }
-        }
         if let dir = value("--capture") { capture(into: dir); return }
-        if let dir = value("--film") { film(into: dir); return }
         guard args.contains("--showcase") else { return }
         let welcome = value("--showcase") == "welcome"
         if let path = value("--snapshot") {
@@ -438,34 +424,6 @@ enum Debug {
                 shoot(settings, "settings-scrolled")
             }
             exit(0)  // skip the termination handshake; nothing to save in a capture run
-        }
-    }
-
-    /// Frames of the real popover while Gloam is switched off and on again, as the switch does
-    /// it, with the dial moved first (its footer goes with the switch): animation work is
-    /// checked frame by frame instead of by eye. Frames are ~40 ms apart, numbered in order.
-    private static func film(into dir: String) {
-        Task {
-            MenuBarPanel.shared.open()
-            try? await Task.sleep(for: .seconds(1.5))
-            let model = AppModel.shared
-            model.hasOnboarded = true
-            model.setWarmth(0.6, on: MenuBarPanel.shared.screenID ?? CGMainDisplayID())
-            try? await Task.sleep(for: .seconds(1.5))
-            var frame = 0
-            @MainActor func roll(_ seconds: Double) async {
-                let end = Date().addingTimeInterval(seconds)
-                while Date() < end, let panel = MenuBarPanel.shared.panelWindow {
-                    writePNG(panel, to: "\(dir)/" + String(format: "frame-%03d.png", frame))
-                    frame += 1
-                    try? await Task.sleep(for: .milliseconds(40))
-                }
-            }
-            model.enabled = false
-            await roll(2.2)
-            model.enabled = true
-            await roll(1.6)
-            exit(0)
         }
     }
 

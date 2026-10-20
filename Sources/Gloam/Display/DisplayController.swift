@@ -246,8 +246,8 @@ final class DisplayController {
     /// bright backlight: clean with the signal at 80% (61% of the light), heavy at 55%. The floor
     /// is on the luminance of the tinted white, and it eases with the user's slider: trails fade at
     /// a low backlight, measured on one panel (docs/science.md). Deeper evenings are
-    /// the backlight's. Changed only by the debug `--floor` flag, to calibrate it on screen.
-    static var smearFloor = pow(0.8, Kelvin.displayGamma)
+    /// the backlight's.
+    static let smearFloor = pow(0.8, Kelvin.displayGamma)
 
     /// What the main display shows after its light floor and smear floor, live through fades:
     /// the colour of the popover's orb glow. Stored, and set only when it changes: the popover reads it many
