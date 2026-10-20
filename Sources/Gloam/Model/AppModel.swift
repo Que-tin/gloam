@@ -1,5 +1,6 @@
 // The app's single source of truth: settings, the clock, and what the screen should show.
-// Views read from it; every change funnels through `update` to the DisplayController.
+// Views read from it. The plan reaches the DisplayController through `update`; moves by hand
+// (the ladder, the dial) go to it directly, as shifts on top of the plan.
 
 import AppKit
 import GloamCore
@@ -68,17 +69,16 @@ final class AppModel {
             update(fade: 1)
         }
     }
-    /// The dial's move away from the plan's warmth tonight (`Shift`, on the warmth scale): it rides
-    /// along with the evening and shrinks to nothing with the morning, after which it goes, so a
-    /// tweak never quietly becomes the new every-night. Saved, so a crash or an update keeps it.
     /// Switched off by hand (the switch, the menu, Shortcuts), not paused: on again,
     /// it starts on Auto (`enabled`). Saved, so a quit in between doesn't bring the moves back.
     private var offByHand: Bool { didSet { save(offByHand, "offByHand") } }
     /// Switched on by a control moved while off: nothing changes on screen, so at once.
     @ObservationIgnored private var switchingInPlace = false
     @ObservationIgnored private var warmthSave: Task<Void, Never>?
-    /// The dial's shift from the plan's warmth, on each screen's own warm range: the display
-    /// applies it (`DisplayController.setWarmthShift`), as it does the screens' dimming shifts.
+    /// The dial's move away from the plan's warmth tonight (`Shift`), on each screen's own warm
+    /// range: it rides along with the evening and shrinks to nothing with the morning, after which
+    /// it goes, so a tweak never quietly becomes the new every-night. Saved, so a crash or an
+    /// update keeps it. The display applies it (`DisplayController.setWarmthShift`).
     var warmthShift: Shift? {
         didSet {
             guard warmthShift != oldValue else { return }

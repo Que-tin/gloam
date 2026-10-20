@@ -5,8 +5,10 @@
 // Displays whose backlight macOS controls (built-in, Apple displays), and monitors that answer
 // DDC/CI, are dimmed by backlight, relative to the level found there (`BacklightDim`); the rest
 // by signal. Each screen shows the plan (the target tint) plus its own shift (`Shift`): the
-// brightness keys, its buttons, or the ladder moved it away from the plan tonight. A dimmed backlight outlives the process (gamma tables don't), so what each one was
-// dimmed from is saved as it changes (`SavedDims`), and a launch after a crash puts it back.
+// brightness keys, its buttons, or the ladder moved it away from the plan tonight; the dial's
+// warmth shift applies to every screen, on each one's own warm range. A dimmed backlight
+// outlives the process (gamma tables don't), so what each one was dimmed from is saved as it
+// changes (`SavedDims`), and a launch after a crash puts it back.
 // Each built-in display's slider level (the user's, not Gloam's dimming) also eases its smear floor.
 
 import AppKit
@@ -38,7 +40,7 @@ extension TintEngine {
 
 @Observable
 final class DisplayController {
-    /// The global tint on screen this instant, mid-fade included; the UI marker follows it.
+    /// The plan on screen this instant, mid-fade included: each display shows it with its shifts.
     private(set) var shown = Tint.neutral
     private(set) var displays: [DisplayInfo] = Displays.current()
     /// Something else keeps rewriting the screen's colours, so it and Gloam take turns.
@@ -249,13 +251,12 @@ final class DisplayController {
     /// the backlight's.
     static let smearFloor = pow(0.8, Kelvin.displayGamma)
 
-    /// What the main display shows after its light floor and smear floor, live through fades:
-    /// the colour of the popover's orb glow. Stored, and set only when it changes: the popover reads it many
-    /// times a redraw, and a computed value redrew it on every unrelated change.
-    private(set) var effective = Tint.neutral
-    /// The same for every display, by id: the popover glows with the screen it is open on.
+    /// What each display shows after its shifts and its light and smear floors, live through
+    /// fades: the popover's glow, for the screen it is open on. Stored, and set only when it
+    /// changes: the popover reads it many times a redraw, and a computed value redrew it on every
+    /// unrelated change.
     private(set) var effectives: [CGDirectDisplayID: Tint] = [:]
-    func effective(on id: CGDirectDisplayID) -> Tint { effectives[id] ?? effective }
+    func effective(on id: CGDirectDisplayID) -> Tint { effectives[id] ?? effectives[main] ?? .neutral }
     /// The main display, kept from the last display change: `CGMainDisplayID` and
     /// `CGDisplayIsBuiltin` are WindowServer round-trips, and the popover asks per frame.
     @ObservationIgnored private var main = CGMainDisplayID()
@@ -324,12 +325,10 @@ final class DisplayController {
     }
 
     private func refreshEffective() {
-        // As tinted as the main display's own setting (Settings › Displays) has it: switched off
-        // there, the orb, its glow and the blue-light reading show an untinted screen.
+        // Each as tinted as its own setting (Settings › Displays) has it: switched off there,
+        // the orb, its glow and the blue-light reading show an untinted screen.
         var all: [CGDirectDisplayID: Tint] = [:]
         for display in displays { all[display.id] = adjusted(levelsNow(display.id), for: display.id) }
-        let e = all[main] ?? adjusted(levels(shown, for: main), for: main)
-        if e != effective { effective = e }
         if all != effectives { effectives = all }
     }
 
@@ -536,7 +535,7 @@ final class DisplayController {
     /// The ladder's position for a screen: the plan plus its shift as they show now, so the
     /// ladder glides with switching on and off and with Auto (the plan where the fade was heading
     /// with the shift as it showed mid-way made it jump part-way first). Past 1 when a press took
-    /// it below the floor (`ladderBeyond`); the ladder shows 100 % there. `asked`: that tint with
+    /// it below the floor (`DimmingLadder.beyond`); the ladder shows 100 % there. `asked`: that tint with
     /// the shift in full, for Settings' preview (the screens show the preview, not the plan).
     func ladderPosition(_ id: CGDirectDisplayID, asked: Tint? = nil) -> Double {
         // The ladder's own move, where it is heading until the screen gets there: read from the

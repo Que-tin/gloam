@@ -20,7 +20,7 @@ struct PopoverView: View {
     @State private var core = 0.0
     @State private var bloom = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// When the dial was last turned by hand (`current`).
+    /// When the dial was last turned by hand (`dialPosition`).
     @State private var turnedAt = Date.distantPast
 
     /// The dial's position on the popover screen's warm range: what the screens show this instant
