@@ -14,6 +14,10 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
 
     /// Created on first use: before Start there is no menu-bar icon at all.
     private lazy var item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    /// The screen whose menu bar the item is on, as the panel last opened (or nil: the showcase,
+    /// before Start): the popover's ladder dims that one. Taken at `open`, so reading it never
+    /// creates the status item.
+    private(set) var screenID: CGDirectDisplayID?
     private var panel: LampPanel?
     private var outsideClicks: Any?
 
@@ -102,6 +106,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
 
     func open() {
         guard panel == nil, let button = item.button, let buttonWindow = button.window else { return }
+        screenID = buttonWindow.screen?.displayID
         AppModel.shared.refreshNow()
         AppModel.shared.display.watchingClosely = true  // follow brightness keys at 2 Hz while visible
         let panel = LampPanel()

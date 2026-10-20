@@ -52,28 +52,6 @@ import Testing
         #expect(s.stage(at: cal.date(from: DateComponents(year: 2026, month: 12, day: 10, hour: 23, minute: 0))!, berlin, calendar: cal) == .windDown)
     }
 
-    // A hand setting lasts to the next phase: evening and night until morning (first of sunrise
-    // and wake), day until evening (first of sunset and bedtime).
-    @Test func manualHoldsToTheNextPhase() {
-        let s = Schedule(), cal = berlinCalendar
-        func at(_ m: Int, _ d: Int, _ h: Int, _ min: Int = 0) -> Date {
-            cal.date(from: DateComponents(year: 2026, month: m, day: d, hour: h, minute: min))!
-        }
-        func clock(_ d: Date) -> DateComponents { cal.dateComponents([.day, .hour, .minute], from: d) }
-        // Winter evening, after sunset (before bedtime): until morning, wake 07:00 (before sunrise).
-        #expect(clock(s.manualHold(after: at(12, 10, 21), berlin, calendar: cal)) == DateComponents(day: 11, hour: 7, minute: 0))
-        // After bedtime: the same morning.
-        #expect(clock(s.manualHold(after: at(12, 10, 23, 30), berlin, calendar: cal)) == DateComponents(day: 11, hour: 7, minute: 0))
-        // Summer, light before wake: on to the evening (sunset 21:3x, before bedtime).
-        let summer = s.manualHold(after: at(6, 21, 5, 30), berlin, calendar: cal)
-        #expect(cal.component(.day, from: summer) == 21 && cal.component(.hour, from: summer) == 21)
-        // Winter day: until sunset.
-        #expect(cal.component(.hour, from: s.manualHold(after: at(12, 10, 11), berlin, calendar: cal)) == 15)
-        // Summer night after midnight: until sunrise (04:4x, before wake).
-        let dawn = s.manualHold(after: at(6, 21, 1), berlin, calendar: cal)
-        #expect(cal.component(.hour, from: dawn) == 4)
-    }
-
     // How far past the recommended night: 0 at it or lighter, 1 at ember / 30 %.
     @Test func pastRecommended() {
         var s = Schedule()

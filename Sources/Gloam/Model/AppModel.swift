@@ -21,7 +21,6 @@ final class AppModel {
 
     var enabled: Bool {
         didSet {
-            if !enabled { manual = nil }  // a hand setting must not come back on re-enable
             resumeAt = nil  // switching by hand ends a timed off; `pause(untilMorning:)` sets it after
             save(enabled, "enabled")
             update(fade: 1)
@@ -38,6 +37,7 @@ final class AppModel {
             saveSoon()
             display.consent = schedule.pastRecommended  // past the recommended night, the floors ease
             if schedule.bedtime != oldValue.bedtime || schedule.wake != oldValue.wake { stagesMoved() }
+            morningEnds = [:]  // when its plan ends may move with Dimmest or Warmest too
             if preview == nil { update(fade: 0.35) }
         }
     }
@@ -62,16 +62,16 @@ final class AppModel {
             update(fade: 1)
         }
     }
-    /// A hand setting from the popover. It holds to the next phase, morning or evening
-    /// ("Manual until 7:00"), then automatic takes over again, so a tweak never quietly
-    /// becomes the new every-night.
-    var manual: Tint? {
+    /// The dial's move away from the plan's warmth tonight (`Shift`, on the warmth scale): it rides
+    /// along with the evening and shrinks to nothing with the morning, after which it goes, so a
+    /// tweak never quietly becomes the new every-night. Saved, so a crash or an update keeps it.
+    var warmthShift: Shift? {
         didSet {
-            if manual != nil && oldValue == nil { holdManualUntilNextChange() }
-            update(fade: manual == nil ? 1 : 0.15)
+            guard warmthShift != oldValue else { return }
+            save(warmthShift, "warmthShift")
+            update(fade: warmthShift == nil ? 1 : 0.15)
         }
     }
-    private(set) var manualUntil: Date?
     /// The room's light, smoothed; nil when no sensor can see it.
     private(set) var roomLux: Double?
     @ObservationIgnored let roomLight = RoomLight()
@@ -88,8 +88,15 @@ final class AppModel {
     /// Mirrors SMAppService, which isn't observable; refreshed whenever it may have changed.
     private(set) var launchesAtLogin = AppModel.loginItemEnabled
     private static var loginItemEnabled: Bool { SMAppService.mainApp.status == .enabled }
-    /// Shifts the app's clock; only set by the debug `--at` flag.
+    /// Shifts the app's clock, and runs it faster: only set by the debug `--at` and `--speed`
+    /// flags. Fades and ticks stay in real time; the schedule, pauses and holds follow this clock.
     @ObservationIgnored static var clockOffset: TimeInterval = 0
+    @ObservationIgnored static var clockSpeed = 1.0
+    @ObservationIgnored static var clockStart = Date()
+    /// The app's clock now (`clockOffset`, `clockSpeed`).
+    static func clock() -> Date {
+        clockStart.addingTimeInterval(Date().timeIntervalSince(clockStart) * clockSpeed + clockOffset)
+    }
 
     @ObservationIgnored let display: DisplayController
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
@@ -107,7 +114,7 @@ final class AppModel {
         // A timed off that ended while Gloam was quit: on from the start, quietly (assigned
         // here, before init completes, so no didSet announces or saves it).
         let resume: Date? = Self.load("resumeAt")
-        let expired = resume.map { $0 <= Date() } ?? false
+        let expired = resume.map { $0 <= Self.clock() } ?? false
         enabled = expired || (Self.load("enabled") ?? true)
         resumeAt = expired ? nil : resume
         schedule = Self.load("schedule") ?? Schedule()
@@ -120,6 +127,7 @@ final class AppModel {
         excludedApps = Self.load("excludedApps") ?? []
         autoDimming = Self.load("autoDimming") ?? true
         toggleShortcut = Self.load("toggleShortcut")
+        warmthShift = Self.load("warmthShift")
         frontmost = NSWorkspace.shared.frontmostApplication.flatMap {
             $0.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : $0
         }
@@ -173,10 +181,13 @@ final class AppModel {
             while !Task.isCancelled {
                 guard let quiet = self?.isQuiet else { return }
                 self?.tickingSlowly = quiet
-                var every: Duration = quiet ? .seconds(60) : .seconds(5)
-                // A timed pause or hand setting ends when it says, not at the next slow tick.
+                // Faster with `--speed`, so a debug morning eases rather than jumps.
+                // Not under 1.25 s: a reading within a second of a write is the write itself, so
+                // writing faster than that left a key press nothing to be read from.
+                var every: Duration = .seconds(max(1.25, (quiet ? 60 : 5) / Self.clockSpeed))
+                // A timed pause ends when it says, not at the next slow tick.
                 if let due = self?.nextExpiry, let now = self?.now {
-                    every = min(every, .seconds(max(1, due.timeIntervalSince(now))))
+                    every = min(every, .seconds(max(1.25, due.timeIntervalSince(now) / Self.clockSpeed)))
                 }
                 try? await Task.sleep(for: every, tolerance: every / 5)
                 guard !Task.isCancelled, let self else { return }
@@ -260,11 +271,17 @@ final class AppModel {
         return excludedApps.first { $0.bundleID == id }
     }
 
-    /// What the screen should show once any fade completes.
-    var target: Tint {
-        if let preview { return preview }
+    /// What the screen should show once any fade completes: the plan, its warmth shifted by the
+    /// dial. Each screen's dimming shift is the display's (`DisplayController.shifts`).
+    var target: Tint { preview ?? asked }
+
+    /// The target without Settings' preview: what the popover's dial shows while previewing.
+    var asked: Tint {
         if isHeld { return .neutral }
-        return manual ?? automatic
+        let plan = automatic
+        guard let warmthShift else { return plan }
+        let w = min(1, max(0, warmthShift.position(plan: Light.warmth(plan.kelvin), now: now)))
+        return Tint(kelvin: Light.kelvin(warmth: w), brightness: plan.brightness)
     }
 
     /// The schedule's tint now, limits and room light included.
@@ -282,15 +299,41 @@ final class AppModel {
     /// Checked on every update and tick; the tick wakes for it (`nextExpiry`), so it ends on time.
     private(set) var resumeAt: Date? { didSet { save(resumeAt, "resumeAt") } }
 
-    /// A tint within half a step of either popover control of what automatic asks (a dial nudge is
-    /// 2 % of the warmth scale and a scroll notch 1 %, a ladder cell 5 % of the dimming scale):
-    /// "Auto" would reset nothing.
-    /// Compared as asked, on the controls' fixed scales, not as the main screen shows it: a setting
-    /// the main screen can't show (past its smear limit, or nothing to dim) may still show on
-    /// another, and was cleared from under it.
-    func matchesAutomatic(_ tint: Tint) -> Bool {
-        abs(Light.warmth(tint.kelvin) - Light.warmth(automatic.kelvin)) < 0.005
-            && abs(Light.dimming(tint.brightness) - Light.dimming(automatic.brightness)) < 0.025
+    /// Something moved by hand tonight shows (the dial by half a notch, a screen by half a ladder
+    /// step): "Manual · Auto". A shift dragged back onto the plan, or on a screen that's gone,
+    /// doesn't count.
+    var hasShifts: Bool {
+        if let warmthShift, abs(warmthShift.offset(plan: Light.warmth(automatic.kelvin), now: now)) >= Self.halfNotch { return true }
+        return display.showsShift
+    }
+
+    /// Half a step of the dial (49 ticks over its scale): a warmth shift under it doesn't show.
+    static let halfNotch = 0.5 / 48
+
+    /// "Auto": every screen and the warmth back on the plan.
+    func backToPlan() {
+        display.clearShifts()
+        warmthShift = nil
+    }
+
+    /// The dial moved: the warmth shift from the plan's warmth now. Off, the first move turns
+    /// Gloam on.
+    /// Not during Settings' preview: measured from the preview, it landed wrong after.
+    func setWarmth(_ w: Double) {
+        guard preview == nil else { return }
+        if !enabled { enabled = true }
+        refreshClock()
+        let c = warmthClock
+        warmthShift = Shift.make(to: w, at: c.planDone ? 0 : Light.warmth(automatic.kelvin), now: c.now, until: c.until)
+    }
+
+    /// The ladder moved with the popover open on this screen. Off, the first move turns Gloam on.
+    func setDimming(_ d: Double, on id: CGDirectDisplayID) {
+        guard preview == nil else { return }
+        if !enabled { enabled = true }
+        refreshClock()
+        display.shift(id, to: d)
+        wakeTickIfDue()
     }
 
     /// A timed pause from the clock as it is now: on the minute's tick `now` can be a minute old,
@@ -339,11 +382,16 @@ final class AppModel {
     /// Nothing on screen and nothing due for a minute: the clock can tick slowly. A user action
     /// (Gloam on, an app switch, the dial) updates at once, whatever the tick.
     /// Every display switched off in Settings counts too: nothing is tinted all night. Held
-    /// (off or paused), a hand setting waits too: lifting the pause updates at once.
+    /// (off or paused), a shift waits too: lifting the pause updates at once.
+    /// A shift held by day shows the same all day: it doesn't keep the clock fast. One shrinking
+    /// in the morning does (stepped a minute at a time, it showed).
     private var isQuiet: Bool {
-        screensAsleep || !display.displays.isEmpty && display.displays.allSatisfy { strength(for: $0) <= 0 }
-            || target.isNeutral
-            && (isHeld || manual == nil && schedule.tint(at: now.addingTimeInterval(80), place.coordinate).isNeutral)
+        if screensAsleep || !display.displays.isEmpty && display.displays.allSatisfy({ strength(for: $0) <= 0 }) { return true }
+        if preview != nil { return false }
+        if isHeld { return true }
+        let shifts = Array(display.shifts.values) + (warmthShift.map { [$0] } ?? [])
+        return automatic.isNeutral && shifts.allSatisfy { $0.isHeld && !$0.isShrinking(now) }
+            && schedule.tint(at: now.addingTimeInterval(80), place.coordinate).isNeutral
     }
 
     private func tick() {
@@ -357,9 +405,7 @@ final class AppModel {
         expireHolds()
         // Before the comparison below: a key press since the last tick moves what's on screen.
         display.tickBacklights(idle: tickingSlowly)
-        // Brought back to what automatic asks (the schedule caught up with it), a hand setting is
-        // automatic again: the knobs don't move.
-        if let manual, matchesAutomatic(manual) { self.manual = nil }
+        settleShifts()
         display.keepAlive()
         guard !display.isFading else { return }
         // The room reading appearing or going (lid opened or closed) eases instead of jumping. A
@@ -409,7 +455,7 @@ final class AppModel {
 
     func update(fade: Double) {
         refreshClock()
-        expireHolds()  // after a wake, an expired hand setting or pause must not come back first
+        expireHolds()  // after a wake, an expired pause must not come back first
         // Leaving a quiet stretch (a pause lifted, Gloam back on): the room as it is now, unsmoothed,
         // or the first fade goes to a minute-old (or no) room reading and eases back after.
         if tickingSlowly, !isQuiet {
@@ -417,6 +463,17 @@ final class AppModel {
             missedReads = 0
             readRoom()
         }
+        settleShifts()
+        let wanted = !isHeld && preview == nil
+        // Back from a pause in the morning: a warmth shift already shrinking goes, as the screens'
+        // do (`DisplayController.shiftsWanted`); faded back in, "Until Morning" ending at wake
+        // warmed the screens again.
+        if wanted, !display.shiftsWanted, warmthShift?.isShrinking(now) == true {
+            display.shiftsWanted = wanted
+            warmthShift = nil  // updates again
+            return
+        }
+        display.shiftsWanted = wanted
         if !awaitingFocus || preview != nil { display.show(target, duration: fade) }
         wakeTickIfDue()
     }
@@ -434,42 +491,64 @@ final class AppModel {
     /// at the next tick, which may be a minute off.
     func refreshNow() { tick() }
 
-    /// When the next hold ends by itself: a hand setting's expiry, or a timed pause's.
-    private var nextExpiry: Date? {
-        [manual == nil ? nil : manualUntil, enabled ? nil : resumeAt].compactMap { $0 }.min()
-    }
+    /// When a timed pause ends by itself.
+    private var nextExpiry: Date? { enabled ? nil : resumeAt }
 
-    /// Ends a hand setting or a timed pause whose time has come.
+    /// Ends a timed pause whose time has come.
     private func expireHolds() {
-        if manual != nil, let until = manualUntil, now >= until { manual = nil }
         if !enabled, let resume = resumeAt, now >= resume { enabled = true }
     }
 
-    /// A hand setting holds to the next phase, morning or evening (`Schedule.manualHold`).
-    private func holdManualUntilNextChange() {
-        refreshClock()
-        manualUntil = schedule.manualHold(after: now, place.coordinate)
+    /// Shifts whose morning has ended go (also after a night Gloam slept through).
+    private func settleShifts() {
+        display.expireShifts()
+        if let warmthShift, warmthShift.expired(now) { self.warmthShift = nil }
     }
 
-    /// Bedtime, wake, the place or the time zone changed: the stages move, and a running hand
-    /// setting's end with them.
+    /// What a dimming or warmth shift chosen now belongs to (`ShiftClock`), set with the clock.
+    @ObservationIgnored private var warmthClock = ShiftClock.idle
+    /// When each evening's plan ends in the morning (`Schedule.morningEnd`), by its wake: worked
+    /// out once (a scan of the night), not on every tick.
+    @ObservationIgnored private var morningEnds: [Date: (dimming: Date, warmth: Date)] = [:]
+
+    private func morningEnd(_ e: Schedule.Evening, warmth: Bool) -> Date {
+        let c = place.coordinate
+        let ends = morningEnds[e.wake] ?? {
+            let found = (dimming: schedule.morningEnd(of: e, c, warmth: false), warmth: schedule.morningEnd(of: e, c, warmth: true))
+            if morningEnds.count > 8 { morningEnds = [:] }
+            morningEnds[e.wake] = found
+            return found
+        }()
+        return warmth ? ends.warmth : ends.dimming
+    }
+
+    /// Bedtime, wake, the place or the time zone changed: the stages move.
+    /// Shifts chosen tonight end with tonight's new morning: kept on the old one, a later wake
+    /// faded them out in the middle of the night, an earlier one left them dimming after it.
     private func stagesMoved() {
+        let old = (dimming: display.clock.until, warmth: warmthClock.until)
         clockedAt = nil
+        morningEnds = [:]
         refreshClock()  // now, not at the next tick: Settings' graph shows the night `eveningWake` names
-        if manual != nil { holdManualUntilNextChange() }
+        display.retimeShifts(from: old.dimming, to: display.clock.until)
+        if let shift = warmthShift, old.warmth > now, shift.until >= old.warmth, shift.until < old.warmth.addingTimeInterval(3600) {
+            warmthShift = shift.retimed(by: warmthClock.until.timeIntervalSince(old.warmth))
+        }
     }
 
     /// Moves the clock to now, and with it the stage and what comes next. Skipped within a
     /// second of the last move: a drag updates ~120 times a second, and moving `now` that often
     /// would redraw every view that reads it.
     private func refreshClock() {
-        let date = Date().addingTimeInterval(Self.clockOffset)
+        let date = Self.clock()
         let inUse = customPlace?.keepsTime(of: .current, at: date) ?? false
         if inUse != customPlaceInUse { customPlaceInUse = inUse }
         let coordinate = place.coordinate
         guard abs(date.timeIntervalSince(now)) >= 1 || coordinate != clockedAt else { return }
         now = date
         clockedAt = coordinate
+        display.clock = schedule.shiftClock(at: date, coordinate, end: { self.morningEnd($0, warmth: false) })
+        warmthClock = schedule.shiftClock(at: date, coordinate, end: { self.morningEnd($0, warmth: true) })
         let current = schedule.stage(at: date, coordinate)
         if current != stage { stage = current }
         let next = schedule.upcoming(after: date, coordinate, count: 1).first

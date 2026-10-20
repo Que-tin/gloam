@@ -113,7 +113,7 @@ struct SettingsView: View {
                     .help(String(localized: "Back to a \(Format.time(Schedule().bedtime)) bedtime, \(Format.time(Schedule().wake)) wake-up and the recommended Warmest and Dimmest"))
                 }
                 // While on, the screen shows the night the limits allow, so they're never set blind
-                // (by day, with a hand setting, even with Gloam off). Only this starts it: a preview
+                // (by day, with a shift, even with Gloam off). Only this starts it: a preview
                 // that also jumped in mid-drag of a limit was confusing.
                 LampPill(title: model.preview != nil ? String(localized: "Done") : String(localized: "Preview tonight"),
                          symbol: model.preview != nil ? "checkmark" : "eye") {

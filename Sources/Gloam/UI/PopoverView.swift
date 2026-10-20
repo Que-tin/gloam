@@ -1,12 +1,14 @@
 // The menu-bar window: a lamp. The orb glows with what the screen really shows and says how
-// much blue light reaches you once it gets there. The dial and ladder show the warmth and
-// dimming asked for, so they move with the automatic easing; moving them takes over by hand
-// until the next morning, or by day the next evening (Settings sets every night). "Auto" hands back.
+// much blue light reaches you once it gets there. The dial shows the warmth asked for, the ladder
+// the dimming of the screen the popover is open on: the plan, plus what was moved by hand tonight.
+// Moving them shifts that screen (or every screen's warmth) away from the plan, and the shift rides
+// along with the evening until its morning ends it (`Shift`); "Auto" hands back at once.
 //
-// Both controls are positions on fixed scales (the schedule's own, as in Settings), so neither
-// moves when the user's brightness does: ends that followed the screen made the knobs wander,
-// and nobody could tell why. Each screen takes the ladder's position the same share of the way
-// to its own darkest; the dial's warmth it shows as far as its smear limit allows.
+// Both controls are positions on fixed scales (the schedule's own, as in Settings), so the scales
+// never move when the user's brightness does (a key press moves the ladder by the press alone):
+// ends that followed the screen made the knobs wander, and nobody could tell why. Each screen
+// takes the ladder's position the same share of the way to its own darkest; the dial's warmth it
+// shows as far as its smear limit allows.
 
 import GloamCore
 import SwiftUI
@@ -19,19 +21,47 @@ struct PopoverView: View {
     @State private var bloom = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// What the controls show: the hand setting, else what is asked of the screen this instant
-    /// (before its limits; following the fades, so the knobs glide with them). Not Settings'
-    /// "Preview tonight": the knobs stay at what's asked, and a move starts from there.
-    private var current: Tint { model.manual ?? (model.preview == nil ? model.display.shown : model.automatic) }
+    /// The warmth the dial shows: what is asked of the screens this instant (following the fades,
+    /// so the knob glides with them). Not Settings' "Preview tonight": the knob stays at what's
+    /// asked without it (the plan and the dial's shift), and rests.
+    private var current: Tint { model.preview == nil ? model.display.shown : model.asked }
+    /// The screen whose dimming the ladder shows and moves: the one the popover is open on (its
+    /// menu bar's), or, switched off in Settings, the main tinted one (named, so it's clear).
+    private var screen: CGDirectDisplayID {
+        let tinted = model.display.displays.filter { model.strength(for: $0) > 0 }
+        let here = MenuBarPanel.shared.screenID ?? CGMainDisplayID()
+        if tinted.contains(where: { $0.id == here }) { return here }
+        return tinted.first { $0.id == CGMainDisplayID() }?.id ?? tinted.first?.id ?? here
+    }
+    /// Named over the ladder when more than one screen is tinted, or when it moves another screen
+    /// than the popover's own (that one is switched off in Settings): which one it moves. Two of
+    /// the same model are numbered, in the order macOS lists them.
+    private var screenName: String? {
+        let tinted = model.display.displays.filter { model.strength(for: $0) > 0 }
+        let here = MenuBarPanel.shared.screenID ?? CGMainDisplayID()
+        guard tinted.count > 1 || screen != here, let mine = tinted.first(where: { $0.id == screen }) else { return nil }
+        let twins = tinted.filter { $0.name == mine.name }
+        guard twins.count > 1, let i = twins.firstIndex(where: { $0.id == screen }) else { return mine.name }
+        return String(localized: "\(mine.name) (\(i + 1))", comment: "Two monitors of the same model: Studio Display (2)")
+    }
+    /// Why the ladder can't act, said in its help: every screen switched off in Settings.
+    private var ladderUnavailable: String? {
+        model.display.displays.contains { model.strength(for: $0) > 0 } ? nil
+            : String(localized: "Every screen is switched off in Settings.")
+    }
     /// Blue light reaching you once the screen gets where it is going, after its limits, rounded
     /// to 5% (the estimate is good to about that). Said as what's left ("20%") rather than what's
     /// saved ("−80%"). The destination rather than every step of a fade, so a switch reads as one
     /// change of number, faded, instead of twenty.
     /// Counted against the screen as it was by day (`lightSinceDay`), so the user's own brightness
-    /// counts too, while by day it still reads 100 %.
+    /// counts too, while by day it still reads 100 %. The ladder's screen: the two never disagree.
     private var blueShare: Double {
-        Melanopic.relative(model.display.onMain(model.target), in: model.display.mainColourSpace) * model.display.lightSinceDay
+        let strength = model.display.displays.first { $0.id == screen }.map { model.strength(for: $0) } ?? 1
+        return Melanopic.relative(model.display.onScreen(.mix(.neutral, model.target, strength), screen),
+                                  in: model.display.colourSpace(of: screen)) * model.display.lightSinceDay(on: screen)
     }
+    /// What the popover's screen shows: the orb's glow, the panel's and the header's colours.
+    private var glow: Tint { model.display.effective(on: screen) }
     private var bluePercent: Int { Int((blueShare * 20).rounded()) * 5 }
     /// The orb's number. Under 5 % it says so ("<5 %"): a plain "5 %" suggested more could be
     /// taken away, and "0 %" would claim none is left, which no screen that's on can do.
@@ -45,20 +75,25 @@ struct PopoverView: View {
         VStack(spacing: 0) {
             header.padding(.bottom, 12)
             // Off, the controls stay live: reaching for one means "this, now", so it turns Gloam
-            // back on (disabled controls read as broken). Paused for an app or by a Focus, nothing
-            // they did would show, so they rest.
+            // back on (disabled controls read as broken). Paused for an app or by a Focus, or during
+            // Settings' preview, nothing they did would show, so they rest.
             dial
                 .disabled(!canTakeOver)
+            if let screenName {
+                LampLabel(text: screenName, opacity: 0.5).lineLimit(1).padding(.top, 14)
+                    .accessibilityHidden(true)  // the ladder says it: "Dimming, <screen>"
+            }
             DimmingLadder(dimming: dimming, kelvin: current.kelvin, core: core,
-                          editable: model.display.canDim)  // else nothing to dim
-                .padding(.top, 20)
+                          editable: model.display.canDim(screen),  // else nothing to dim
+                          beyond: model.display.ladderPosition(screen) > 1, screenName: screenName,
+                          unavailable: ladderUnavailable)
+                .padding(.top, screenName == nil ? 20 : 6)
                 .disabled(!canTakeOver)
-            // One status row at most: a hand setting (unless it resets nothing), a pause for the
-            // app in front, a timed pause (before a Focus's, so its Resume stays in reach), or a
-            // Focus's pause, which also ends with the Focus.
-            if let manual = model.manual, !model.matchesAutomatic(manual) {
-                statusRow(model.manualUntil.map { String(localized: "Manual until \(Format.time($0))") } ?? String(localized: "Manual"),
-                          String(localized: "Auto"), "arrow.counterclockwise") { model.manual = nil }
+            // One status row at most: something moved by hand tonight, a pause for the app in
+            // front, a timed pause (before a Focus's, so its Resume stays in reach), or a Focus's
+            // pause, which also ends with the Focus.
+            if model.hasShifts, !model.isHeld, model.preview == nil {
+                statusRow(String(localized: "Manual"), String(localized: "Auto"), "arrow.counterclockwise") { model.backToPlan() }
                     .help("Back to automatic")
             } else if let app = model.excludedFrontmost {
                 statusRow(String(localized: "Paused for \(app.name)"), String(localized: "Stop pausing"), "play.fill") {
@@ -84,7 +119,7 @@ struct PopoverView: View {
         .padding(.top, 18)
         .padding(.bottom, 20)
         .frame(width: 300)
-        .background(LampSurface(glow: model.display.effective, lit: max(core, 0.25)))
+        .background(LampSurface(glow: glow, lit: max(core, 0.25)))
         .environment(\.colorScheme, .dark)
         .onAppear {
             core = lampLit ? 1 : 0
@@ -96,7 +131,7 @@ struct PopoverView: View {
     private var dial: some View {
         // The orb turns Gloam visibly on (a Focus's pause lifted too); the header's switch is
         // only the switch.
-        LampDial(fraction: warmth, kelvinAt: { Light.kelvin(warmth: $0) }, shown: model.display.effective,
+        LampDial(fraction: warmth, kelvinAt: { Light.kelvin(warmth: $0) }, shown: glow,
                  core: core, bloom: bloom, orbTitle: blueText,
                  onPower: model.enabled ? nil : { model.run(.on) },
                  editable: canTakeOver,
@@ -133,34 +168,20 @@ struct PopoverView: View {
     /// shows its warmest and the steps change nothing there.
     private var warmth: Binding<Double> {
         Binding(get: { Light.warmth(current.kelvin) },
-                set: { w in takeOver { Tint(kelvin: Light.kelvin(warmth: w), brightness: $0.brightness) } })
+                set: { w in if canTakeOver { model.setWarmth(w) } })
     }
 
-    /// A position on the schedule's scale: each screen takes it the same share of the way to its
-    /// own darkest, so 100 % is as dim as this screen goes and the ladder never moves under the
-    /// user's brightness keys.
+    /// This screen's position on the schedule's scale, plan plus its shift: it takes it the same
+    /// share of the way to its own darkest, so 100 % is as dim as this screen goes; a key press
+    /// moves it by the press alone. Below the floor (a press there) it shows 100 %.
     private var dimming: Binding<Double> {
-        Binding(get: { Light.dimming(current.brightness) },
-                set: { d in takeOver { Tint(kelvin: $0.kelvin, brightness: Light.brightness(dimming: d)) } })
+        Binding(get: { min(1, model.display.ladderPosition(screen)) },
+                set: { d in if canTakeOver { model.setDimming(d, on: screen) } })
     }
 
-    /// The controls can set a tint: Gloam is on or can be switched on by them, and no app in
-    /// front is holding it off (and Welcome is done, though the popover only exists after it).
-    private var canTakeOver: Bool { model.hasOnboarded && !model.pausedAside }
-
-    /// What the controls start from: the hand setting, else what automatic asks. Not what's
-    /// shown: off, paused or mid-fade that's neutral or half-way, and a move on one control copied
-    /// it into the other (a turn of the dial at 22:30 while off left the night undimmed).
-    private var asked: Tint { model.manual ?? model.automatic }
-
-    /// A hand setting, the moved control's value over what's `asked`; when Gloam is off, the
-    /// first move turns it back on, first: its update reads the room afresh, and the other
-    /// control's value comes from that (built before, it dimmed as if the room were dark).
-    private func takeOver(_ tint: (Tint) -> Tint) {
-        guard canTakeOver else { return }
-        if !model.enabled { model.enabled = true }
-        model.manual = tint(asked)
-    }
+    /// The controls can move: Gloam is on or can be switched on by them, and no app in front is
+    /// holding it off (and Welcome is done, though the popover only exists after it).
+    private var canTakeOver: Bool { model.hasOnboarded && !model.pausedAside && model.preview == nil }
 
     // MARK: Words
 
@@ -182,15 +203,15 @@ struct PopoverView: View {
             Spacer()
             HStack(spacing: 10) {
                 SettingsButton()
-                PowerSwitch(on: $model.enabled, kelvin: model.display.effective.kelvin)
+                PowerSwitch(on: $model.enabled, kelvin: glow.kelvin)
             }
         }
         .overlay {
             // The word rolls into the next as the orb's numbers do (a fade read as a flicker beside
             // them); the dot glides along as its width changes. Reduce Motion: no roll.
             HStack(spacing: 6) {
-                Circle().fill(Color.kelvin(model.display.effective.kelvin)).frame(width: 5, height: 5)
-                    .shadow(color: .kelvin(model.display.effective.kelvin), radius: 3)
+                Circle().fill(Color.kelvin(glow.kelvin)).frame(width: 5, height: 5)
+                    .shadow(color: .kelvin(glow.kelvin), radius: 3)
                     .opacity(0.35 + 0.65 * core)
                 LampLabel(text: stageTitle, opacity: 0.75)
                     .contentTransition(reduceMotion ? .identity : .numericText())

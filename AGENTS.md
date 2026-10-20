@@ -9,9 +9,10 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
 - `Sources/GloamCore/` — pure logic, no AppKit, fully unit-tested: `Schedule` (stages → `Tint`;
   `evening(around:)` gives the night as dates, DST-safe; bedtime/wake as `ClockTime`),
   `ColorTemperature` (Kelvin → gains, `Tint`), `SolarPosition`, `Melanopic` ("blue" light),
-  `Smear` (the floor that stops built-in LCDs smearing), `BacklightDim` (backlight dimming as a
-  fraction of the level found), `Location` (zone.tab), `EnginePolicy` (gamma vs overlay per chip),
-  `Command` (`gloam://` toggle/on/off/open), `DisplayIdentity` (reused ids, EDID pairing).
+  `Smear` (the floor that stops built-in LCDs smearing), `BacklightDim` (a screen's backlight:
+  position ↔ light from its day level, readings as moves), `Shift` (a hand-set move from the plan
+  and when it ends, `ShiftClock`), `Location` (zone.tab), `EnginePolicy` (gamma vs overlay per
+  chip), `Command` (`gloam://` toggle/on/off/open), `DisplayIdentity` (reused ids, EDID pairing).
 - `Sources/Gloam/App/` — `GloamApp` (`@main`: single instance, `--uninstall`, `Windows`, URLs, debug
   flags: see `Debug`), `MenuBarPanel` (status item: click popover, right-click menu), `Updates` (Sparkle), `Intents` (Shortcuts, Focus filter;
   `build-app.sh` builds their metadata), `ToggleShortcut` (global hotkey). `Model/AppModel` — settings, clock, target tint.
@@ -32,6 +33,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
 ```sh
 swift test                             # core tests
 swift run Gloam --showcase --at 22:30  # popover in a window at 22:30 (debug; never tints)
+swift run Gloam --onboarded --at 21:00 --speed 60  # really tints, clock from 21:00 at 60× (quit installed Gloam first)
 swift run Gloam --film DIR             # popover frames while switching off and on (--capture: stills)
 ./scripts/snapshots.sh                 # regenerate docs/screenshots (never tints the screen)
 ./scripts/build-app.sh                 # .build/Gloam.app + Gloam.dmg, Apple silicon, ad-hoc signed
@@ -49,16 +51,28 @@ swift run Gloam --film DIR             # popover frames while switching off and 
   menu-bar icon appears with Start). Bedtime and wake are clock times, never stages, set only in
   Settings (bedtime 20:00–03:00, wake 04:00–12:00, quarter hours: a night-time sleep, ≥ 8 h awake);
   dimming never starts before sunset. Stages are fixed; only Warmest and Dimmest (where Night goes)
-  are settings. The popover's dial and ladder override until the next morning (first of sunrise
-  and wake) or evening (first of sunset and bedtime); per-stage values were cut ("Auto" got unclear).
-- Popover controls are positions on the schedule's fixed scales, so they never move under the
-  user's brightness keys; no notices. Dimming: each screen takes the position the same share of
-  the way to its own darkest (`Stage.brightness(_:darkest:)`, from where tonight began), so a
-  dimmer screen is dimmed less. Warmth isn't mapped (a built-in's night went 4100 K): each
-  screen shows it up to its smear limit, so steps past that limit change nothing there.
+  are settings; per-stage values were cut ("Auto" got unclear).
+- By hand, a screen shows the plan plus its shift (`Shift`): the brightness keys or a monitor's
+  buttons shift that screen, the popover's ladder the screen it opens on, the dial every screen's
+  warmth. The last move wins; the shift keeps its distance from the plan all evening (never past
+  the floor unless chosen there) and shrinks by the clock in the morning, ending 10 min after the
+  plan (longer for a far or late one: 30 min per ladder unit), whether or not Gloam saw it; pauses fade it out and back, a
+  crash or an update keeps it, "Auto" clears it. A key press sets the day level instead in the
+  evening's first minutes (under 10 % shown) and once the morning's plan is done; above the day
+  level it becomes the day level. Never written back. Holding a press until morning, bending the
+  night's curve through it, or shrinking it with the plan's fall (room light amplified it) were
+  tried and dropped. A move by day is held until the plan reaches 10 %, then rides from there
+  (worked out, not settled when seen). A move onto the plan stores nothing; bedtime or wake moved
+  tonight move tonight's shifts' end with them; a pause ending in the morning drops a shrinking one.
+- Popover controls are positions on the schedule's fixed scales: the scale never moves under the
+  brightness keys (a press moves the ladder only by the press); no notices. Dimming: each screen
+  takes the position the same share of the way to its own darkest (its light floor against its
+  day level; past 1, key presses only, on to black), so a dimmer screen is dimmed less. Warmth
+  isn't mapped (a built-in's night went 4100 K): each screen shows it up to its smear limit, so
+  steps past that limit change nothing there.
 - Tint gains use each display's own colour space (sRGB on P3 turns warm white red); private APIs
   (`RoomLight`/`Backlight`) return nil for "no change".
-- Built-in, Apple and DDC/CI displays are dimmed by backlight as a fraction of the level found
+- Built-in, Apple and DDC/CI displays are dimmed by backlight relative to the level found
   (`BacklightDim`): key presses and auto-brightness are adopted, never fought; quitting (or, after a
   crash, the next launch) restores. The rest: signal, never below 30%.
 - A built-in LCD never draws a white under `DisplayController.smearFloor` of daylight white's light,
@@ -69,14 +83,14 @@ swift run Gloam --film DIR             # popover frames while switching off and 
   (unstylable, can't be opened or captured); Settings isn't a SwiftUI `Settings` scene. Dark. One
   app owns the gamma table; interference is detected generically, never by app name.
 - Ticks (5 s; 60 s when nothing is due, the screens sleep, every screen is switched off in
-  Settings, or a pause holds a hand setting; early for a pause or hand setting that ends,
-  `nextExpiry`) write the tint and read backlights; 2 Hz only while the popover is open. A read
-  before writing keeps key presses adopted; a monitor is read with nothing sent until it answers
-  (`readFirst`), before a step once its reading is a few seconds old (in a fade, once at its start).
-  Ticks write at once, apart from a brief glide over a visible step; launches, wakes and clock
-  changes ease. The gamma table is rewritten only if something overwrote it. A timed pause (right-click "Pause",
-  Shortcuts' Pause Gloam) ends itself (`resumeAt`); app and Focus pauses don't.
-- Deliberately absent: an "Always" mode, presets, a daytime tint, per-stage tuning, a timeline or
+  Settings, Gloam is held, or only held shifts show; early for a timed pause that ends,
+  `nextExpiry`; `--speed` divides them, to 1.25 s at least) write the tint and read backlights; 2 Hz only while the popover is open. Backlights
+  are read before a push works out positions, so key presses are adopted, never written over; a monitor is read with nothing sent until it answers
+  (`readFirst`), before a step once its reading is a few seconds old (in a fade, once at its
+  start). Ticks write at once, apart from a brief glide over a visible step; launches, wakes and
+  clock changes ease. The gamma table is rewritten only if something overwrote it. A timed pause
+  (right-click "Pause", Shortcuts' Pause Gloam) ends itself (`resumeAt`); app and Focus pauses don't.
+- Deliberately absent: an "Always" mode, presets, a scheduled daytime tint, per-stage tuning, a timeline or
   Kelvin numbers shown in the popover (only its tooltip and VoiceOver give them; Settings has the
   graph), naming rival apps in the app.
 - The brand avoids eyes, sun-over-horizon and plain discs (other apps' marks). Anything

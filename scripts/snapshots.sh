@@ -18,6 +18,9 @@ render() {
   kill "$watchdog" 2>/dev/null || true
 }
 
+# A start from Gloam's defaults: an earlier debug run's settings (a shift from `--speed`, say)
+# would show up as "Manual" in the pictures.
+defaults delete Gloam >/dev/null 2>&1 || true
 rm -f "$OUT"/popover-*.png
 for at in 13:00 19:30 21:15 23:30; do
   render --showcase --onboarded --at "$at" --snapshot "$OUT/popover-$(echo "$at" | tr -d :).png"

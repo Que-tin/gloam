@@ -74,8 +74,8 @@ enum Light {
 
     /// Dimming as a position, 0 (full brightness) … 1 (the deepest there is), on the schedule's
     /// scale: the graph's and the ladder's alike. Each screen takes it the same share of the way to
-    /// its own darkest (`Stage.brightness(_:darkest:)`), so the ladder stays put when the user's
-    /// brightness changes.
+    /// its own darkest (`DisplayController.adjusted`), so the scale never moves when the user's
+    /// brightness changes (a key press moves the ladder by the press alone).
     static func dimming(_ brightness: Double) -> Double {
         let darkest = Stage.brightnessRange.lowerBound
         return min(1, max(0, (1 - brightness) / (1 - darkest)))

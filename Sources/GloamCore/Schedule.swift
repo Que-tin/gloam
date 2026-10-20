@@ -88,15 +88,6 @@ public struct Stage: Equatable, Sendable {
     }
 
     public var tint: Tint { Tint(kelvin: kelvin, brightness: brightness) }
-
-    /// A brightness on the schedule's scale, where 30 % is the deepest it asks, as a screen
-    /// whose own darkest is `darkest` shows it: the same share of the way down. So the popover's
-    /// ladder is a position that stays put when the user changes their brightness, and a screen
-    /// already dim (its floor near) is dimmed less, not pinned to its floor.
-    public static func brightness(_ b: Double, darkest: Double) -> Double {
-        let d = (1 - brightnessRange.clamp(b)) / (1 - brightnessRange.lowerBound)
-        return 1 - d * (1 - min(1, max(0, darkest)))
-    }
 }
 
 public enum StageKind: Sendable {
@@ -232,7 +223,7 @@ public struct Schedule: Codable, Equatable, Sendable {
     /// The next `count` changes after `date`, each at its nominal time (the clock time or
     /// sunset it is anchored to, not when its ease crosses halfway). Once that time has passed
     /// but the ease hasn't crossed yet (up to ~20 minutes), the takeover time instead: a change
-    /// "at 22:00" said at 22:10 is wrong, and a hand setting held until then would end at once.
+    /// "at 22:00" said at 22:10 is wrong.
     /// The sun can also move a change hours from its nominal time (a dark winter morning that
     /// outlasts the hold after wake brings the sunset tint back at 09:30, and day with sunrise;
     /// a polar summer's day comes with the sun): a nominal time more than 3 h after the takeover,
@@ -266,31 +257,6 @@ public struct Schedule: Codable, Equatable, Sendable {
     public func nextMorning(after date: Date, _ c: Coordinate, calendar: Calendar = .current) -> Date {
         upcoming(after: date, c, count: 4, calendar: calendar)
             .first { $0.kind == .day && $0.at.timeIntervalSince(date) <= 30 * 3600 }?.at
-            ?? evening(around: date, c, calendar: calendar).wake
-    }
-
-    /// How long a hand setting holds: to the next phase of the day. In the evening and night (the
-    /// last boundary passed was sunset or bedtime) until morning, the first of sunrise and wake;
-    /// by day (sunrise or wake passed) until evening, the first of sunset and bedtime. A tweak
-    /// lasts the evening, or the day, it was made in (the next stage was often under an hour).
-    public func manualHold(after date: Date, _ c: Coordinate, calendar: Calendar = .current) -> Date {
-        var anchors: [(at: Date, evening: Bool)] = []
-        let window = DateInterval(start: date.addingTimeInterval(-24 * 3600), end: date.addingTimeInterval(36 * 3600))
-        for rising in [false, true] {
-            var from = window.start
-            while from < window.end, let t = Sun.crossing(-0.833, rising: rising, in: DateInterval(start: from, end: window.end), c) {
-                anchors.append((t, !rising))
-                from = t.addingTimeInterval(3600)
-            }
-        }
-        var night = evening(around: window.start, c, calendar: calendar)
-        while night.bedtime < window.end {
-            anchors += [(night.bedtime, true), (night.wake, false)]
-            night = evening(around: night.wake.addingTimeInterval(60), c, calendar: calendar)
-        }
-        anchors.sort { $0.at < $1.at }
-        let inEvening = anchors.last { $0.at <= date }?.evening ?? false
-        return anchors.first { $0.at > date.addingTimeInterval(60) && $0.evening != inEvening }?.at
             ?? evening(around: date, c, calendar: calendar).wake
     }
 

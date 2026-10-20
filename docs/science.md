@@ -138,7 +138,7 @@ not 27 %; at full brightness it barely changes). The floor is 8 % of the panel's
 smartphone reading in low room light (Na & Suk 2015, *Opt. Express* 23:16912) and inside the
 21–75 cd/m² evening viewers preferred under 13–62 lx room light (Zhou et al. 2021, *Appl. Sci.*
 11:4108; Gloam's dark-room case lies below that range, where the optimum trends lower). A key press or auto-brightness moving the backlight is adopted, not fought:
-tonight's curve passes through it, and the morning restores the day level, or a press above it (`BacklightDim`). Why not the signal: a dimmed signal leaves the backlight at full power,
+it shifts that screen from the plan for the night, and the shift fades out with the morning, which restores the day level (`Shift`). Why not the signal: a dimmed signal leaves the backlight at full power,
 crushes shadows below ~30 %, pushes the liquid crystal into its slow dark range (below), and
 on M5 Pro and M5 Max MacBook Pros (and the MacBook Neo's external displays) macOS 26 and
 later ignore gamma tables altogether, an open Apple bug. Third-party

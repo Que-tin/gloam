@@ -469,6 +469,13 @@ struct DimmingLadder: View {
     /// False when no step would change anything (the screen is already as dim as it goes): no
     /// cursor, no focus, no detents, as the dial's `editable`.
     var editable = true
+    /// A key press took the screen below the floor: shown as 100 %, and a click on 100 % still
+    /// brings it back up there.
+    var beyond = false
+    /// The screen it moves, said with it ("Dimming, Studio Display") when there are several.
+    var screenName: String?
+    /// Why it can't act when that isn't "as dim as it goes" (every screen switched off).
+    var unavailable: String?
     @GestureState private var dragging = false
     @State private var ring = false  // keyboard focus only
     @Environment(\.isEnabled) private var isEnabled
@@ -508,7 +515,7 @@ struct DimmingLadder: View {
                 .gesture(DragGesture(minimumDistance: 0)
                     .updating($dragging) { _, state, _ in state = true }
                     .onChanged { g in
-                        set(cells: Int((g.location.x / geo.size.width * Double(Self.cells) + 0.5).rounded(.down)))
+                        set(cells: Int((g.location.x / geo.size.width * Double(Self.cells) + 0.5).rounded(.down)), pointed: true)
                     })
                 .onHover { inside in (inside && isEnabled && editable ? NSCursor.pointingHand : NSCursor.arrow).set() }
             }
@@ -533,17 +540,19 @@ struct DimmingLadder: View {
         .onScrollWheel { delta in set(cells: litCells + (delta > 0 ? 1 : -1)) }
         .help(editable
             ? String(localized: "How far Gloam dims below your own brightness: 0% leaves your screen as you set it; 100% is as dim as it goes. Drag, click, scroll or use the arrow keys.")
-            : String(localized: "Your screen is already as dim as it goes."))
+            : unavailable ?? String(localized: "Your screen is already as dim as it goes."))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Dimming")
+        .accessibilityLabel(screenName.map { String(localized: "Dimming, \($0)") } ?? String(localized: "Dimming"))
         .accessibilityValue(Format.percent(dimming))
         .accessibilityAdjustableAction { direction in set(cells: litCells + (direction == .increment ? 1 : -1)) }
     }
 
-    private func set(cells: Int) {
+    /// `pointed`: a click or drag. Only that lifts a screen from below the floor to 100 %: a step
+    /// "dimmer" (arrows, scroll, VoiceOver) clamped to 100 % made it brighter.
+    private func set(cells: Int, pointed: Bool = false) {
         let n = min(Self.cells, max(0, cells))
         // Scrolling reaches here even while disabled (an AppKit view catches it): no detent then.
-        guard isEnabled, editable, n != litCells else { return }
+        guard isEnabled, editable, n != litCells || pointed && beyond && n == Self.cells else { return }
         dimming = Double(n) / Double(Self.cells)
         if litCells == n { Lamp.detent() }  // only for a step that happened
     }

@@ -324,6 +324,8 @@ enum Windows {
 ///   --capture DIR     photograph the real popover, Welcome and Settings windows, then quit
 ///   --film DIR        frames of the real popover switching off and on again, then quit
 ///   --at HH:MM        run the app's clock at that time of day
+///   --speed N         run the app's clock N times as fast (with --at, from then): an evening and
+///                     its morning in minutes, really tinted (quit the installed Gloam first)
 ///   --onboarded, --off   start as if set up / switched off
 ///   --focus-paused       start as if a Focus filter paused Gloam
 ///   --showcase [welcome]  show the popover (or the welcome view) in an ordinary window
@@ -357,6 +359,13 @@ enum Debug {
                 AppModel.clockOffset = d.timeIntervalSinceNow
                 AppModel.shared.update(fade: 0)
             }
+        }
+        if let speed = value("--speed").flatMap(Double.init), speed > 0 {
+            // From now, not from launch: the moments before the flag was read aren't sped up.
+            AppModel.clockOffset = AppModel.clock().timeIntervalSinceNow
+            AppModel.clockStart = Date()
+            AppModel.clockSpeed = speed
+            AppModel.shared.update(fade: 0)
         }
         if args.contains("--onboarded") { AppModel.shared.hasOnboarded = true }
         if args.contains("--off") { AppModel.shared.enabled = false }
@@ -415,7 +424,7 @@ enum Debug {
     }
 
     /// Frames of the real popover while Gloam is switched off and on again, as the switch does
-    /// it, with a hand setting on first (its footer goes with the switch): animation work is
+    /// it, with the dial moved first (its footer goes with the switch): animation work is
     /// checked frame by frame instead of by eye. Frames are ~40 ms apart, numbered in order.
     private static func film(into dir: String) {
         Task {
@@ -423,7 +432,7 @@ enum Debug {
             try? await Task.sleep(for: .seconds(1.5))
             let model = AppModel.shared
             model.hasOnboarded = true
-            model.manual = Tint(kelvin: 2400, brightness: 0.8)
+            model.setWarmth(0.6)
             try? await Task.sleep(for: .seconds(1.5))
             var frame = 0
             @MainActor func roll(_ seconds: Double) async {
