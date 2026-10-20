@@ -111,7 +111,11 @@ final class DisplayController {
     /// How much of each shift shows, 0…1: faded with the tint by `show`. From 0: a launch fades
     /// the shifts in with the plan (at 1, a saved shift showed alone before the plan came).
     @ObservationIgnored private var shiftWeight = 0.0
-    @ObservationIgnored private var shiftFades: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var shiftFades: [String: Task<Void, Never>] = [:] {
+        didSet { shiftGoals = shiftGoals.filter { shiftFades[$0.key] != nil } }
+    }
+    /// Where each running shift fade is heading (`ladderPosition`).
+    private var shiftGoals: [String: Double] = [:]
     /// The model's clock and what a shift chosen now belongs to (`ShiftClock`): set by the model,
     /// about once a second. Shifts move with it in the morning while the plan may stand still
     /// (neutral already, its fade-out under way): pushed then, or they waited for their expiry.
@@ -341,6 +345,9 @@ final class DisplayController {
     /// The ladder's position for a screen: the plan where the screens are heading, plus its shift.
     /// Past 1 when a press took it below the floor (`ladderBeyond`); the ladder shows 100 % there.
     func ladderPosition(_ id: CGDirectDisplayID) -> Double {
+        // Mid-way through the ladder's own ease, where it is heading: read from the screen, a step
+        // still showed the old cell, so its detent never came and a drag kept restarting the fade.
+        if let goal = uuidFor(id).flatMap({ shiftGoals[$0] }) { return goal }
         let s = displays.first(where: { $0.id == id }).map { strength($0.uuid) } ?? 1
         return position(.mix(.neutral, fade?.to ?? shown, s), for: id)
     }
@@ -396,6 +403,7 @@ final class DisplayController {
                 try? await Task.sleep(for: .milliseconds(16), tolerance: .milliseconds(4))
             }
         }
+        shiftGoals[uuid] = end
     }
 
     /// A shift chosen now: tonight's until the morning is done; after it, the coming evening's.
