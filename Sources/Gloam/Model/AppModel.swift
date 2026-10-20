@@ -314,10 +314,7 @@ final class AppModel {
     /// Something moved by hand tonight shows (the dial by half a notch, a screen by half a ladder
     /// step): "Manual · Auto". A shift dragged back onto the plan, or on a screen that's gone,
     /// doesn't count.
-    var hasShifts: Bool {
-        if display.warmthShows(threshold: Self.halfNotch) { return true }
-        return display.showsShift
-    }
+    var hasShifts: Bool { display.warmthShows(threshold: Self.halfNotch) || display.showsShift }
 
     /// Half a step of the dial (49 ticks over its scale): a warmth shift under it doesn't show.
     static let halfNotch = 0.5 / 48

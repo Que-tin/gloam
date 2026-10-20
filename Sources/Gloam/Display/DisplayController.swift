@@ -261,7 +261,6 @@ final class DisplayController {
     /// `CGDisplayIsBuiltin` are WindowServer round-trips, and the popover asks per frame.
     @ObservationIgnored private var main = CGMainDisplayID()
 
-
     /// The backlight dimming in force for a display. None for a monitor that stopped taking
     /// writes before it was dimmed: its evening falls back to the signal rather than not happening.
     private func backlight(_ id: CGDirectDisplayID) -> BacklightDim? {
@@ -488,9 +487,8 @@ final class DisplayController {
     /// (`shiftWeight`). Past 1 (below the floor, a key press's) only on a backlight. `heading`:
     /// where the screen is going, the shift's and the tint's fades both at their ends, so a
     /// readout changes once rather than counting through a fade.
-    private func position(_ tint: Tint, for id: CGDirectDisplayID, heading: Bool = false, weight: Double? = nil) -> Double {
+    private func position(_ tint: Tint, for id: CGDirectDisplayID, heading: Bool = false, weight: Double) -> Double {
         let plan = Light.dimming(tint.brightness)
-        let weight = weight ?? (heading ? fade?.toWeight ?? shiftWeight : shiftWeight)
         let p = shiftPlan(plan, for: id)
         let shifted: Double?
         if heading, let uuid = uuidFor(id), let end = shiftEnds[uuid] {
@@ -519,15 +517,13 @@ final class DisplayController {
     /// The plan's position for a display, where the screens are heading (not mid-fade): what a
     /// move there is measured from.
     private func plan(for id: CGDirectDisplayID) -> Double {
-        let s = displays.first(where: { $0.id == id }).map { strength($0.uuid) } ?? 1
-        return Light.dimming(Tint.mix(.neutral, fade?.to ?? shown, s).brightness)
+        Light.dimming(Tint.mix(.neutral, fade?.to ?? shown, strength(of: id)).brightness)
     }
 
     /// The plan's position as the screen shows it this instant (mid-fade too): what a press is
     /// measured from (`observe`), as `push` writes from it.
     private func planShown(for id: CGDirectDisplayID) -> Double {
-        let s = displays.first(where: { $0.id == id }).map { strength($0.uuid) } ?? 1
-        return Light.dimming(Tint.mix(.neutral, shown, s).brightness)
+        Light.dimming(Tint.mix(.neutral, shown, strength(of: id)).brightness)
     }
 
     // MARK: Shifts
@@ -558,10 +554,7 @@ final class DisplayController {
     /// against the plan it is about to show (`plan`), so switching on changes nothing on screen;
     /// the control's own move follows (`AppModel.takeOverFromOff`).
     func startFromOff(plan: Tint) {
-        shiftFades.values.forEach { $0.cancel() }
-        shiftFades = [:]
-        shiftEnds = [:]
-        shiftGoals = [:]
+        stopShiftFades()
         for display in displays where strength(display.uuid) > 0 {
             let p = shiftPlan(Light.dimming(Tint.mix(.neutral, plan, strength(display.uuid)).brightness), for: display.id)
             shifts[display.uuid] = newShift(to: 0, plan: p)
@@ -571,11 +564,17 @@ final class DisplayController {
 
     /// Every shift gone at once: Gloam switched on again after an off by hand, when none shows.
     func dropShifts() {
-        shiftFades.values.forEach { $0.cancel() }
-        shiftFades = [:]
+        stopShiftFades()
         guard !shifts.isEmpty else { return }
         shifts = [:]
         saveShifts()
+    }
+
+    private func stopShiftFades() {
+        shiftFades.values.forEach { $0.cancel() }
+        shiftFades = [:]
+        shiftEnds = [:]
+        shiftGoals = [:]
     }
 
     /// Every screen back on the plan ("Auto"), eased over half a second.
@@ -775,10 +774,6 @@ final class DisplayController {
         let pace = pollPace
         guard pace != pollEvery else { return }
         pollEvery = pace
-        restartPoll()
-    }
-
-    private func restartPoll() {
         pollTask?.cancel()
         pollTask = nil
         guard pollEvery != nil else { return }
@@ -1526,7 +1521,7 @@ final class DisplayController {
             let chosen = newShift(to: to, plan: p)
             // In the morning's tail it fades with the shift it replaces, not into the next evening.
             shifts[uuid] = upThroughFade && clock.planDone ? fading.flatMap {
-                Shift.make(to: to, at: shiftPlan(plan, for: id), now: clock.now, until: $0.until) } : chosen
+                Shift.make(to: to, at: p, now: clock.now, until: $0.until) } : chosen
         case .dayLevel:
             endShiftFade(uuid)
             shiftGoals[uuid] = nil  // the press is where the screen is now
