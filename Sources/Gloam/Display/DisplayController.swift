@@ -40,7 +40,8 @@ extension TintEngine {
 
 @Observable
 final class DisplayController {
-    /// The plan on screen this instant, mid-fade included: each display shows it with its shifts.
+    /// The plan Gloam shows, where the screens are going: each display shows it with its shifts,
+    /// eased there (`animate`).
     private(set) var shown = Tint.neutral
     private(set) var displays: [DisplayInfo] = Displays.current()
     /// Something else keeps rewriting the screen's colours, so it and Gloam take turns.
@@ -116,8 +117,8 @@ final class DisplayController {
     /// Settings' "Preview tonight" is on: the shifts show on it, but no press makes a new one.
     @ObservationIgnored var previewing = false
     /// Off or paused, every screen shows the plan alone (the model's neutral); Settings' preview
-    /// shows them, as tonight will. Set by the model before its `show`, which fades the shifts out
-    /// or in with the tint (`shiftWeight`): switched at once, a pause first jumped by the shift.
+    /// shows them, as tonight will. Set by the model before its `show`, which eases the shifts out
+    /// or in with the tint (`shiftsShown`): switched at once, a pause first jumped by the shift.
     /// Coming back (a pause ended, the preview closed) in the morning, a shift already shrinking
     /// goes: faded back in, a pause "Until Morning" ending at wake dimmed the screen again.
     @ObservationIgnored var shiftsWanted = true {
@@ -127,46 +128,36 @@ final class DisplayController {
             if live.count != shifts.count { shifts = live }
         }
     }
-    /// How much of each shift shows, 0…1: faded with the tint by `show`. From 0: a launch fades
-    /// the shifts in with the plan (at 1, a saved shift showed alone before the plan came).
-    @ObservationIgnored private var shiftWeight = 0.0
+    /// The shifts show (`shiftsWanted` as of the last `show`): set there with the plan, so both
+    /// ease as one. From false: a launch fades the shifts in with the plan (shown at once, a saved
+    /// shift showed alone before the plan came).
+    @ObservationIgnored private var shiftsShown = false
     /// The dial's warmth shift (the model's), one for every screen: each takes it on its own warm
     /// range (`warmthShare`), so it moves a MacBook's screen as far along what it can show as a
-    /// monitor's. Eased from the one before (`warmthFrom`, `warmthMix`) when the dial moves.
+    /// monitor's.
     @ObservationIgnored private var warmthShift: Shift?
-    @ObservationIgnored private var warmthFrom: Shift?
-    @ObservationIgnored private var warmthMix = 1.0
-    @ObservationIgnored private var warmthFade: Task<Void, Never>?
-    @ObservationIgnored private var shiftFades: [String: Task<Void, Never>] = [:]
-    /// Where each running shift fade is heading: a position, or nil for back on the plan (Auto).
-    /// For what shows where the screen is going (the orb's number, "Manual"), not every frame.
-    @ObservationIgnored private var shiftEnds: [String: Double?] = [:]
-    /// The ladder's own moves, shown where they are heading (`ladderPosition`) until the screen
-    /// gets there: the shift's ease, and the tint's own fade when the move switched Gloam on.
-    private var shiftGoals: [String: Double] = [:]
-
-    /// A shift fade over (or cut short by a press): what it was heading for goes, and the ladder's
-    /// goal once nothing fades towards it any more.
-    private func endShiftFade(_ uuid: String) {
-        shiftFades[uuid]?.cancel()
-        shiftFades[uuid] = nil
-        shiftEnds[uuid] = nil
-        if fadeTask == nil { shiftGoals[uuid] = nil }
-    }
     /// The model's clock and what a shift chosen now belongs to (`ShiftClock`): set by the model,
     /// about once a second. Shifts move with it in the morning while the plan may stand still
     /// (neutral already, its fade-out under way): pushed then, or they waited for their expiry.
     @ObservationIgnored var clock = ShiftClock.idle {
-        didSet { if fadeTask == nil, shifts.values.contains(where: { $0.isShrinking(clock.now) }) { push() } }
+        didSet { if animator == nil, shifts.values.contains(where: { $0.isShrinking(clock.now) }) { push() } }
     }
     private var lightFloor: Double {
         BacklightDim.floorLight + (BacklightDim.deepestFloorLight - BacklightDim.floorLight) * consent.dimming
     }
     /// Each built-in display's share of the smear floor (`Schedule.backlightFactor`) from its
-    /// slider; read with the backlight poll, not per fade frame, and eased over about half a
-    /// second when it moves while tinted. Missing means all of it.
+    /// slider; read with the backlight poll, not per fade frame. Missing means all of it. Eased
+    /// there over 0.6 s when it moves while tinted (`shareEase`, `floorShare`): taken at once, the
+    /// warmth jumped with a key press (read as Gloam fighting the key) and the dial's knob dipped.
     private var share: [CGDirectDisplayID: Double] = [:]
-    @ObservationIgnored private var shareTask: Task<Void, Never>?
+    @ObservationIgnored private var shareEase: (from: [CGDirectDisplayID: Double], start: TimeInterval)?
+    private func floorShare(_ id: CGDirectDisplayID) -> Double {
+        let goal = share[id] ?? 1
+        guard let ease = shareEase else { return goal }
+        let t = min(1, (Self.uptime - ease.start) / 0.6)
+        let from = ease.from[id] ?? 1
+        return from + (goal - from) * t * t * (3 - 2 * t)
+    }
     /// The displays Gloam dims by backlight, each relative to its own baseline. Their signal keeps
     /// full brightness, so the smear floor can only ease their warmth. A display that goes away
     /// keeps its entry: re-reading a still-dimmed panel as a fresh baseline would lose the morning.
@@ -275,7 +266,7 @@ final class DisplayController {
         // a built-in's floor made them differ from Mac to Mac.
         guard !Debug.isShowcase, let display = displays.first(where: { $0.id == id }) else { return 0 }
         let accepted = 1 - consent.warmth
-        if display.isBuiltin { return Self.smearFloor * (share[id] ?? 1) * accepted }
+        if display.isBuiltin { return Self.smearFloor * floorShare(id) * accepted }
         return smearGuarded(display.uuid) ? Self.smearFloor * accepted : 0
     }
 
@@ -292,10 +283,9 @@ final class DisplayController {
     /// key presses nor a released dimming move the reference. By UUID, across display changes.
     @ObservationIgnored private var dayLight: [String: Double] = [:]
 
-    /// What a display would show for `tint`, after its shift and its light and smear floors.
-    /// `heading`: with the shift where it is going (`position`).
-    func onScreen(_ tint: Tint, _ id: CGDirectDisplayID, heading: Bool = false) -> Tint {
-        adjusted(levels(tint, for: id, heading: heading), for: id)
+    /// What a display will show for `tint`, after its shifts and its light and smear floors.
+    func onScreen(_ tint: Tint, _ id: CGDirectDisplayID) -> Tint {
+        adjusted(levels(tint, for: id, shifted: shiftsShown), for: id)
     }
     func colourSpace(of id: CGDirectDisplayID) -> LinearRGB { engine.colourSpace(id) }
 
@@ -333,30 +323,28 @@ final class DisplayController {
 
     /// What a display shows, on the popover's two scales: its dimming position (the ladder's) and
     /// its warmth as a share of its own warm range (the dial's), the plan for it plus its shifts.
+    /// Eased as one (`animate`).
     private struct Levels: Equatable {
         var position, warmth: Double
+        static let untinted = Levels(position: 0, warmth: 0)
     }
 
-    /// A display's levels for `tint`, the plan for it (`forScreen`), its shifts as much
-    /// as they show (`weight`, else `shiftWeight`). `heading`: where they are going.
-    private func levels(_ tint: Tint, for id: CGDirectDisplayID, heading: Bool = false, weight: Double? = nil) -> Levels {
-        let w = weight ?? (heading ? fade?.toWeight ?? shiftWeight : shiftWeight)
-        return Levels(position: position(tint, for: id, heading: heading, weight: w),
-                      warmth: warmth(tint.kelvin, for: id, heading: heading, weight: w))
+    /// A display's levels for `tint`, the plan for it (`forScreen`), with its shifts if `shifted`.
+    private func levels(_ tint: Tint, for id: CGDirectDisplayID, shifted: Bool) -> Levels {
+        Levels(position: position(tint, for: id, shifted: shifted),
+               warmth: warmth(tint.kelvin, for: id, shifted: shifted))
     }
 
-    /// What a display shows this instant. In a fade that brings the shifts in or out (switching on
-    /// or off, a pause, Settings' preview) each level goes straight from where it was to where it
-    /// is going: as the plan plus a fading share of the shift, the two moved at different rates
-    /// (the plan's warmth held at the screen's limit for most of the way), and switching off from
-    /// a warmth set by hand went to the plan's first, then down.
+    /// Where a display is going: the plan with its shifts, if they show.
+    private func goal(_ id: CGDirectDisplayID) -> Levels { levels(forScreen(shown, id), for: id, shifted: shiftsShown) }
+
+    /// What a display shows this instant: its goal, or on the way there (`motions`).
     private func levelsNow(_ id: CGDirectDisplayID) -> Levels {
-        guard let f = fade, f.fromWeight != f.toWeight, let start = f.starts[id] else {
-            return levels(forScreen(shown, id), for: id)
-        }
-        let end = levels(forScreen(f.to, id), for: id, weight: f.toWeight)
-        return Levels(position: start.position + (end.position - start.position) * fadeEased,
-                      warmth: start.warmth + (end.warmth - start.warmth) * fadeEased)
+        let to = goal(id)
+        guard let m = motions[id] else { return to }
+        let e = m.eased(at: Self.uptime)
+        return Levels(position: m.from.position + (to.position - m.from.position) * e,
+                      warmth: m.from.warmth + (to.warmth - m.from.warmth) * e)
     }
 
     /// The plan as this display takes it: none where Settings leaves it alone.
@@ -365,9 +353,9 @@ final class DisplayController {
     }
 
     /// What this display shows at `levels`: its position taken the same share of the way to its
-    /// own darkest, by backlight or by signal, its warmth on its own range, and never under the
-    /// smear floor, which on a backlight display can only ease warmth. As a signal brightness
-    /// either way (the orb's reading is worked out from it).
+    /// own darkest, by backlight or by signal, its warmth, and never under the smear floor, which
+    /// on a backlight display can only ease warmth. As a signal brightness either way (the orb's
+    /// reading is worked out from it).
     private func adjusted(_ levels: Levels, for id: CGDirectDisplayID) -> Tint {
         let floor = smearFloor(for: id), space = engine.colourSpace(id), q = levels.position
         let kelvin = self.kelvin(share: levels.warmth, on: id)
@@ -401,27 +389,19 @@ final class DisplayController {
     }
 
     /// The warmth a display shows for the plan's `kelvin`, as a share of its range: with the
-    /// dial's shift as much as shows (`weight`).
-    private func warmth(_ kelvin: Double, for id: CGDirectDisplayID, heading: Bool, weight: Double) -> Double {
+    /// dial's shift if `shifted`.
+    private func warmth(_ kelvin: Double, for id: CGDirectDisplayID, shifted: Bool) -> Double {
         let p = warmthShare(kelvin, on: id)
-        guard weight > 0, warmthShift != nil || warmthFrom != nil && warmthMix < 1 else { return p }
-        return p + weight * (dialShift(plan: p, heading: heading) - p)
+        guard shifted, let warmthShift else { return p }
+        return min(1, max(0, warmthShift.position(plan: p, now: clock.now)))
     }
 
-    /// The dial's shift on a plan share: eased from the one before while the dial's own fade runs.
-    private func dialShift(plan p: Double, heading: Bool) -> Double {
-        let to = warmthShift?.position(plan: p, now: clock.now) ?? p
-        guard !heading, warmthMix < 1 else { return min(1, max(0, to)) }
-        let from = warmthFrom?.position(plan: p, now: clock.now) ?? p
-        return min(1, max(0, from + (to - from) * warmthMix))
-    }
-
-    /// The plan's share of this display's warm range where the screens are heading: what a turn
-    /// of the dial is measured from, as the dial shows it while turned (`dialPosition`). Measured
+    /// The plan's share of this display's warm range where the screens are going: what a turn of
+    /// the dial is measured from, as the dial shows it while turned (`dialPosition`). Measured
     /// from the model's plan, a moment newer, the knob stopped short of the turn: at the end of
     /// the dial every further drag event was a new detent.
     func dialPlan(_ id: CGDirectDisplayID) -> Double {
-        warmthShare(forScreen(fade?.to ?? shown, id).kelvin, on: id)
+        warmthShare(forScreen(shown, id).kelvin, on: id)
     }
 
     /// The warmest plan share among the tinted screens, for `plan`: a dial shift to 0 from there
@@ -431,11 +411,10 @@ final class DisplayController {
     }
 
     /// The dial's position on this screen's warm range, as it shows now. `heading`: where it is
-    /// going (its own ease and the tint's fade at their ends), while it is being turned. `asked`:
-    /// that plan with the shift in full (Settings' preview).
+    /// going, while it is being turned. `asked`: that plan with the shift (Settings' preview).
     func dialPosition(_ id: CGDirectDisplayID, asked: Tint? = nil, heading: Bool = false) -> Double {
-        if let asked { return dialShift(plan: warmthShare(forScreen(asked, id).kelvin, on: id), heading: true) }
-        return heading ? levels(forScreen(fade?.to ?? shown, id), for: id, heading: true).warmth : levelsNow(id).warmth
+        if let asked { return warmth(forScreen(asked, id).kelvin, for: id, shifted: true) }
+        return (heading ? goal(id) : levelsNow(id)).warmth
     }
 
     /// The dial's shift moves at least `threshold` on some tinted screen ("Manual").
@@ -449,53 +428,18 @@ final class DisplayController {
 
     /// The model's dial shift changed: eased there over `duration` (0: at once).
     func setWarmthShift(_ new: Shift?, over duration: Double) {
-        if new == warmthShift {
-            // Asked again at once (`AppModel.takeOverFromOff`): the ease that just started ends now.
-            guard duration == 0, warmthMix < 1 else { return }
-            warmthFade?.cancel()
-            warmthFade = nil
-            warmthMix = 1
-            warmthFrom = nil
-            return push()
-        }
-        warmthFade?.cancel()
-        let retarget = warmthFade != nil && warmthMix < 1
-        warmthFrom = warmthShift
+        guard new != warmthShift else { return }
+        animate(displays.map(\.id), over: duration)
         warmthShift = new
-        guard duration > 0 else {
-            warmthMix = 1
-            warmthFade = nil
-            return push()
-        }
-        warmthMix = 0
-        let start = Date()
-        warmthFade = Task { [weak self] in
-            while let self, !Task.isCancelled {
-                let t = min(1, Date().timeIntervalSince(start) / duration)
-                self.warmthMix = retarget ? 1 - (1 - t) * (1 - t) : t * t * (3 - 2 * t)
-                // The tint's own fade pushes every frame already: once per frame, not twice.
-                if self.fadeTask == nil || t >= 1 { self.push() }
-                if t >= 1 { self.warmthFade = nil; self.warmthFrom = nil; return }
-                try? await Task.sleep(for: .milliseconds(16), tolerance: .milliseconds(4))
-            }
-        }
+        push()
     }
 
-    /// The position a display shows for `tint`, its plan: plus its shift, as much as shows
-    /// (`shiftWeight`). Past 1 (below the floor, a key press's) only on a backlight. `heading`:
-    /// where the screen is going, the shift's and the tint's fades both at their ends, so a
-    /// readout changes once rather than counting through a fade.
-    private func position(_ tint: Tint, for id: CGDirectDisplayID, heading: Bool = false, weight: Double) -> Double {
+    /// The position a display shows for `tint`, its plan: with its shift if `shifted`. Past 1
+    /// (below the floor, a key press's) only on a backlight.
+    private func position(_ tint: Tint, for id: CGDirectDisplayID, shifted: Bool) -> Double {
         let plan = Light.dimming(tint.brightness)
-        let p = shiftPlan(plan, for: id)
-        let shifted: Double?
-        if heading, let uuid = uuidFor(id), let end = shiftEnds[uuid] {
-            shifted = end
-        } else {
-            shifted = shift(for: id)?.position(plan: p, now: clock.now)
-        }
-        guard weight > 0, let shifted else { return plan }
-        let q = p + weight * (shifted - p)
+        guard shifted, let shift = shift(for: id) else { return plan }
+        let q = shift.position(plan: shiftPlan(plan, for: id), now: clock.now)
         return min(backlight(id) == nil ? 1 : 2, max(0, q))
     }
 
@@ -512,15 +456,9 @@ final class DisplayController {
     private func uuidFor(_ id: CGDirectDisplayID) -> String? { uuidOf[id] ?? displays.first(where: { $0.id == id })?.uuid }
     private func shift(for id: CGDirectDisplayID) -> Shift? { uuidFor(id).flatMap { shifts[$0] } }
 
-    /// The plan's position for a display, where the screens are heading (not mid-fade): what a
-    /// move there is measured from.
+    /// The plan's position for a display, where the screens are going (not mid-ease): what a move
+    /// there is measured from, a key press included (the ease carries on around it, `pressed`).
     private func plan(for id: CGDirectDisplayID) -> Double {
-        Light.dimming(forScreen(fade?.to ?? shown, id).brightness)
-    }
-
-    /// The plan's position as the screen shows it this instant (mid-fade too): what a press is
-    /// measured from (`observe`), as `push` writes from it.
-    private func planShown(for id: CGDirectDisplayID) -> Double {
         Light.dimming(forScreen(shown, id).brightness)
     }
 
@@ -535,7 +473,7 @@ final class DisplayController {
         // The ladder's own move, where it is heading until the screen gets there: read from the
         // screen, a step still showed the old cell, so its detent never came and a drag kept
         // restarting the fade.
-        if let goal = uuidFor(id).flatMap({ shiftGoals[$0] }) { return goal }
+        if motions[id]?.byLadder == true { return goal(id).position }
         guard let asked else { return levelsNow(id).position }
         let p = shiftPlan(Light.dimming(forScreen(asked, id).brightness), for: id)
         return min(backlight(id) == nil ? 1 : 2, max(0, shift(for: id)?.position(plan: p, now: clock.now) ?? p))
@@ -545,14 +483,15 @@ final class DisplayController {
     func shift(_ id: CGDirectDisplayID, to position: Double) {
         guard let uuid = uuidFor(id) else { return }
         Debug.log("ladder \(id) to \(String(format: "%.3f", position)) plan \(String(format: "%.3f", shiftPlan(for: id)))")
-        fadeShift(uuid, id, to: position, over: 0.15, showingGoal: true)
+        animate([id], over: 0.15, ladder: true)
+        shifts[uuid] = newShift(to: position, plan: shiftPlan(for: id))
+        push()
     }
 
     /// A control moved while Gloam is off: every tinted screen holds what it shows now, undimmed,
     /// against the plan it is about to show (`plan`), so switching on changes nothing on screen;
     /// the control's own move follows (`AppModel.takeOverFromOff`).
     func startFromOff(plan: Tint) {
-        stopShiftFades()
         for display in displays where tinted(display.uuid) {
             let p = shiftPlan(Light.dimming(plan.brightness), for: display.id)
             shifts[display.uuid] = newShift(to: 0, plan: p)
@@ -562,25 +501,16 @@ final class DisplayController {
 
     /// Every shift gone at once: Gloam switched on again after an off by hand, when none shows.
     func dropShifts() {
-        stopShiftFades()
         guard !shifts.isEmpty else { return }
         shifts = [:]
         saveShifts()
     }
 
-    private func stopShiftFades() {
-        shiftFades.values.forEach { $0.cancel() }
-        shiftFades = [:]
-        shiftEnds = [:]
-        shiftGoals = [:]
-    }
-
     /// Every screen back on the plan ("Auto"), eased over half a second.
     func clearShifts() {
-        for uuid in shifts.keys {
-            guard let id = displays.first(where: { $0.uuid == uuid })?.id else { shifts[uuid] = nil; continue }
-            fadeShift(uuid, id, to: nil, over: 0.5)
-        }
+        animate(displays.map(\.id), over: 0.5)
+        shifts = [:]
+        push()
     }
 
     /// Shifts whose morning has ended go, whether or not Gloam saw it (asleep, quit, the lid shut).
@@ -596,40 +526,9 @@ final class DisplayController {
     /// that aren't there or aren't tinted don't count.
     var showsShift: Bool {
         displays.contains { display in
-            guard tinted(display.uuid), let shift = shifts[display.uuid],
-                  shiftEnds[display.uuid] != .some(nil) else { return false }  // Auto's: gone at once
+            guard tinted(display.uuid), let shift = shifts[display.uuid] else { return false }
             return abs(shift.offset(plan: shiftPlan(for: display.id), now: clock.now)) >= 0.025
         }
-    }
-
-    /// Moves a screen's shift to `goal` (nil: back on the plan) frame by frame, so the ladder and
-    /// Auto ease like the rest of Gloam's changes; a key press is written as it is, with no fade.
-    /// `showingGoal`: the ladder's own move, shown where it is heading (`ladderPosition`); Auto's
-    /// return glides on the ladder as on the dial.
-    private func fadeShift(_ uuid: String, _ id: CGDirectDisplayID, to goal: Double?, over duration: Double,
-                           showingGoal: Bool = false) {
-        // Taken over mid-way (held arrow keys, a quick drag): eased out from where it is, with no
-        // slow start each time, or the screen trailed the ladder by half its length.
-        let retarget = shiftFades[uuid] != nil
-        shiftFades[uuid]?.cancel()
-        let plan = shiftPlan(for: id), start = Date()
-        let from = shifts[uuid]?.position(plan: plan, now: clock.now) ?? plan
-        let end = goal ?? plan
-        shiftFades[uuid] = Task { [weak self] in
-            while let self, !Task.isCancelled {
-                let t = min(1, Date().timeIntervalSince(start) / duration)
-                let eased = retarget ? 1 - (1 - t) * (1 - t) : t * t * (3 - 2 * t)
-                let plan = self.shiftPlan(for: id)
-                self.shifts[uuid] = t >= 1 && goal == nil ? nil
-                    : self.newShift(to: from + (end - from) * eased, plan: plan)
-                // The tint's own fade pushes every frame already: once per frame, not twice.
-                if self.fadeTask == nil { self.push() }
-                if t >= 1 { self.endShiftFade(uuid); return }
-                try? await Task.sleep(for: .milliseconds(16), tolerance: .milliseconds(4))
-            }
-        }
-        shiftEnds.updateValue(goal, forKey: uuid)
-        shiftGoals[uuid] = showingGoal ? end : nil  // an earlier ladder move's goal mustn't stay
     }
 
     /// A shift chosen now: tonight's until the morning is done; after it, the coming evening's.
@@ -667,7 +566,6 @@ final class DisplayController {
     @ObservationIgnored private var engine: TintEngine
     @ObservationIgnored private let redraw = Redraw()
     @ObservationIgnored private(set) var resolvedEngine: Engine
-    @ObservationIgnored private var fadeTask: Task<Void, Never>?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     /// How often the backlight poll's own timer runs now (`pollPace`); nil when it doesn't.
     @ObservationIgnored private var pollEvery: Duration?
@@ -716,16 +614,11 @@ final class DisplayController {
         repace()
     }
 
-    /// What the screens last showed (`applied`, kept while they slept) eases to what's due now:
+    /// What the screens last showed (`rendered`, kept while they slept) eases to what's due now:
     /// the evening moved on while they were off, and the push after the wake snapped it there.
     private func easeFromApplied() {
-        let target = fade?.to ?? shown
-        guard applied != target else { return }
-        shown = applied
-        fade = nil
-        fadeTask?.cancel()
-        fadeTask = nil
-        show(target, duration: 1.5)
+        animate(displays.map(\.id).filter { rendered[$0] != nil && rendered[$0] != goal($0) }, over: 1.5, from: rendered)
+        push()
     }
 
     /// The routine read, on the clock's tick (every 5 s while anything is tinted or due, every
@@ -753,7 +646,8 @@ final class DisplayController {
     /// and an interference notice still up is left to clear.
     func keepAlive() {
         // A shift held by day tints a signal-dimmed screen with the plan neutral: reasserted too.
-        guard fadeTask == nil, !asleep, interference || !shown.isNeutral || shiftWeight > 0 && !shifts.isEmpty else { return }
+        guard animator == nil, !asleep, interference || !shown.isNeutral
+                || shiftsShown && (!shifts.isEmpty || warmthShift != nil) else { return }
         if noteInterference() { push() }
     }
 
@@ -786,7 +680,7 @@ final class DisplayController {
     }
 
     /// A fade (from a user action) is under way; clock ticks wait rather than cut it short.
-    var isFading: Bool { fadeTask != nil }
+    var isFading: Bool { animator != nil }
 
     func use(_ choice: Engine) {
         engine.reset()
@@ -797,129 +691,137 @@ final class DisplayController {
         push()
     }
 
-    /// Fade to `target` over `duration` seconds, starting from whatever is on screen now.
-    /// A new target during a fade retargets the running one instead of restarting it: a drag
-    /// sends ~120 targets a second, and restarting each time meant the fade never got past its
-    /// first frame, so the screen only caught up on release. Retargets ease out (no slow start).
+    /// Fade to `target` over `duration` seconds, from what each screen shows now (`animate`). A
+    /// new target mid-way retargets the running ease instead of restarting it: a drag sends ~120
+    /// targets a second, and restarting each time meant the fade never got past its first frame.
     func show(_ target: Tint, duration requested: Double) {
         firstTargetShown = true
         if resumedAtLaunch {
             // Pushed even if it equals `shown` (neutral by day): the held pushes never ran, and a
             // backlight resumed dimmed must be released, or it stayed at last night's level.
             resumedAtLaunch = false
-            fadeTask?.cancel()
-            fadeTask = nil
-            fade = nil
+            motions = [:]
             shown = target
-            shiftWeight = shiftsWanted ? 1 : 0
+            shiftsShown = shiftsWanted
             return push()
         }
+        guard target != shown || shiftsWanted != shiftsShown else { return }
+        Debug.log("show plan \(String(format: "%.3f", Light.dimming(target.brightness))) shifts \(shiftsWanted) over \(requested)s")
+        let from = Dictionary(displays.map { ($0.id, levelsNow($0.id)) }, uniquingKeysWith: { a, _ in a })
+        shown = target
+        shiftsShown = shiftsWanted
         // A monitor takes about a step every 0.1 s: a fade shorter than its steps left the last
         // ones landing after the signal had stopped, each a visible dip. Half again for the eased
         // middle, where the fade outruns the steps. Drags (short fades) keep their pace.
-        let duration = requested >= 0.3 ? max(requested, 0.15 * monitorSteps(to: target)) : requested
-        let weight = shiftsWanted ? 1.0 : 0
-        // Switched off or paused: the ladder glides to 0 with the screen, not from a goal.
-        if weight == 0 { shiftGoals = [:] }
-        guard duration > 0 else {
-            fadeTask?.cancel()
-            fadeTask = nil
-            fade = nil
-            settleGoals()
-            guard target != shown || weight != shiftWeight else { return }
-            shown = target
-            shiftWeight = weight
-            return push()
+        let duration = requested >= 0.3 ? max(requested, 0.15 * monitorSteps()) : requested
+        // Switched off or paused: the ladder glides to 0 with the screen, not from its goal.
+        animate(displays.map(\.id), over: duration, from: from, keepLadder: shiftsWanted)
+        push()
+    }
+
+    /// A change on its way: each of `ids` eases over `duration` from what it shows now (`from`,
+    /// else worked out before the change) to its goal, which may keep moving meanwhile (the plan, a
+    /// shift's morning). One ease for every change: the plan's fades, the ladder, the dial, Auto,
+    /// the warm range following the user's brightness. Four loops, each easing and pushing on its
+    /// own, drifted out of step (switching off went via the plan's warmth, then down). 0: no ease
+    /// of its own; one already running carries on to the new goal. `ladder`: the ladder's own move,
+    /// shown where it is going (`ladderPosition`): read from the screen, a step still showed the
+    /// old cell, so its detent never came.
+    private func animate(_ ids: [CGDirectDisplayID], over duration: Double, from: [CGDirectDisplayID: Levels]? = nil,
+                         ladder: Bool = false, keepLadder: Bool = true) {
+        guard duration > 0 else { return }
+        let now = Self.uptime
+        for id in ids {
+            let running = motions[id]
+            // Taken over mid-way: never sooner than the ease it replaces (a dial turn during
+            // switching on finished the switch in 0.15 s), up to a second (a turn during the room's
+            // 3 s fade isn't held that long), and its monitor isn't read again (`began`). Two
+            // changes of one action (Auto's dimming and warmth) are one ease.
+            let left = running.map { min(1, $0.start + $0.duration - now) } ?? 0
+            motions[id] = Motion(from: from?[id] ?? levelsNow(id), start: now, duration: max(duration, left),
+                                 began: running?.began ?? Date(), retarget: running.map { $0.start < now } ?? false,
+                                 byLadder: ladder || keepLadder && running?.byLadder == true)
         }
-        guard target != (fade?.to ?? shown) || weight != (fade?.toWeight ?? shiftWeight) else { return }
-        Debug.log("show plan \(String(format: "%.3f", Light.dimming(target.brightness))) weight \(weight) over \(duration)s")
-        // Shifts coming in or going out: each screen's levels, from where they are now.
-        let starts = shiftWeight == weight ? [:]
-            : Dictionary(displays.map { ($0.id, levelsNow($0.id)) }, uniquingKeysWith: { a, _ in a })
-        fade = Fade(from: shown, to: target, fromWeight: shiftWeight, toWeight: weight, starts: starts,
-                    start: Self.uptime, duration: duration, retarget: fadeTask != nil)
-        fadeEased = 0
-        guard fadeTask == nil else { return }
-        fadeBegan = Date()
-        fadeTask = Task { [weak self] in
-            while let self, let f = self.fade, !Task.isCancelled {
-                let t = min(1, (Self.uptime - f.start) / f.duration)
-                let eased = f.retarget ? 1 - (1 - t) * (1 - t) : (t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2)
-                self.shown = t >= 1 ? f.to : .mix(f.from, f.to, eased)
-                self.fadeEased = t >= 1 ? 1 : eased
-                self.shiftWeight = f.fromWeight + (f.toWeight - f.fromWeight) * (t >= 1 ? 1 : eased)
-                self.push()
-                if t >= 1 {
-                    self.fade = nil
-                    self.fadeTask = nil
-                    self.settleGoals()
+        runAnimator()
+    }
+
+    private func runAnimator() {
+        guard animator == nil, !motions.isEmpty || shareEase != nil else { return }
+        animator = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(16), tolerance: .milliseconds(4))
+                guard !Task.isCancelled else { return }
+                let now = Self.uptime
+                self.push()  // at its end, each writes its goal
+                self.motions = self.motions.filter { now < $0.value.start + $0.value.duration }
+                if let ease = self.shareEase, now >= ease.start + 0.6 { self.shareEase = nil }
+                if self.motions.isEmpty && self.shareEase == nil {
+                    self.animator = nil
                     self.writeSaved()
                     return
                 }
-                try? await Task.sleep(for: .milliseconds(16), tolerance: .milliseconds(4))
             }
         }
     }
 
-    /// The ladder's goals whose screens got there: no shift fade or tint fade still running.
-    private func settleGoals() {
-        guard fadeTask == nil else { return }
-        let left = shiftGoals.filter { shiftFades[$0.key] != nil }
-        if left != shiftGoals { shiftGoals = left }
-    }
+    private struct Motion {
+        /// What the display showed as it began; it eases from there to its goal.
+        var from: Levels
+        let start: TimeInterval, duration: Double
+        /// When it began on the wall clock: a monitor is read once per ease (`setBacklight`).
+        let began: Date
+        /// Taken over mid-way (held arrow keys, a quick drag, a retarget): eased out from where it
+        /// is, with no slow start each time, or the screen trailed the control.
+        let retarget: Bool
+        var byLadder: Bool
 
-    private struct Fade {
-        var from, to: Tint
-        var fromWeight, toWeight: Double  // `shiftWeight`, faded with the tint
-        /// Each screen's levels as the fade began, when it moves the weight (`levelsNow`).
-        var starts: [CGDirectDisplayID: Levels]
-        var start: TimeInterval
-        var duration: Double
-        var retarget: Bool
+        func eased(at now: TimeInterval) -> Double {
+            let t = min(1, max(0, (now - start) / duration))
+            return retarget ? 1 - (1 - t) * (1 - t) : t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+        }
     }
-    /// Fades run on the Mac's uptime, not the wall clock: a clock set back by hand mid-fade made
+    @ObservationIgnored private var motions: [CGDirectDisplayID: Motion] = [:]
+    @ObservationIgnored private var animator: Task<Void, Never>?
+    /// What each display last showed (`push`); kept while the screens sleep, for the wake's ease.
+    @ObservationIgnored private var rendered: [CGDirectDisplayID: Levels] = [:]
+
+    /// Eases run on the Mac's uptime, not the wall clock: a clock set back by hand mid-fade made
     /// one last as long as the jump, with the schedule held meanwhile.
     private static var uptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
-    /// The most whole steps any monitor has to take to show `target`.
-    private func monitorSteps(to target: Tint) -> Double {
+    /// The most whole steps any monitor has to take to show its goal.
+    private func monitorSteps() -> Double {
         displays.reduce(0) { most, display in
             guard let monitor = monitors[display.id], !monitor.isFailing, !probingIDs.contains(display.id),
                   !doubtful.contains(display.id),
                   let dim = dims[display.id], dim.step > 0 else { return most }
-            let goal = dim.light(at: position(forScreen(target, display.id), for: display.id,
-                                              weight: shiftsWanted ? 1 : 0))
-            return max(most, (abs(goal - (dim.written ?? min(1, dim.baseline))) / dim.step).rounded())
+            let light = dim.light(at: goal(display.id).position)
+            return max(most, (abs(light - (dim.written ?? min(1, dim.baseline))) / dim.step).rounded())
         }
     }
-    @ObservationIgnored private var fade: Fade?
-    /// How far the running fade has got, eased (`levelsNow`).
-    @ObservationIgnored private var fadeEased = 0.0
-    /// The tint last put on screen: `shown` moves on while the screens sleep, the screens don't.
-    @ObservationIgnored private var applied = Tint.neutral
     /// The last wake or display change (`observe` distrusts dark readings for a few seconds after).
     @ObservationIgnored private var changedAt = Date()
     /// Each monitor's signal share at the last push: the redraw dot shows only while it moves.
     @ObservationIgnored private var lastShare: [CGDirectDisplayID: Double] = [:]
-    /// When the running fade began (retargets keep it): a monitor is read once per fade (`setBacklight`).
-    @ObservationIgnored private var fadeBegan = Date.distantPast
 
     /// Quitting for an update that relaunches at once: backlights stay where they are, saved as
     /// dimmed, so the new copy resumes them (`follow`) without a flash of full brightness. The
     /// gamma tables go back by themselves as the process ends.
     func keepForRelaunch() {
-        fadeTask?.cancel()
-        fadeTask = nil
-        fade = nil
+        stopEasing()
         writeSaved()
+    }
+
+    private func stopEasing() {
+        animator?.cancel()
+        animator = nil
+        motions = [:]
+        shareEase = nil
     }
 
     /// Put the displays back exactly as macOS had them; used on quit.
     func restore() {
-        fadeTask?.cancel()
-        fadeTask = nil
-        fade = nil
-        shareTask?.cancel()
+        stopEasing()
         tasks.forEach { $0.cancel() }
         pollTask?.cancel()
         changeTask?.cancel()
@@ -1009,6 +911,7 @@ final class DisplayController {
                 readBacklight(display.id)
             }
             let levels = levelsNow(display.id)
+            if !asleep { rendered[display.id] = levels }
             var t = adjusted(levels, for: display.id)
             let q = levels.position
             // Released only when the plan itself is back at 0 (or shifts don't apply): a shift
@@ -1028,16 +931,9 @@ final class DisplayController {
             tints[display.id] = t
         }
         // A display switched off in Settings gets its backlight back.
-        for display in displays where tints[display.id] == nil && backlight(display.id) != nil {
-            setBacklight(display.id, position: 0)
-        }
-        // What the screens show. Nothing pushed, nothing shown. Asleep, the tables go neutral below
-        // but a dimmed backlight waits for the wake: kept dim here, so the wake fades it up.
-        if !tints.isEmpty {
-            if !asleep { applied = shown }
-            else if tints.values.allSatisfy(\.isNeutral) {
-                applied = dims.values.contains(where: \.isDimming) ? Tint(kelvin: Tint.neutral.kelvin, brightness: applied.brightness) : shown
-            }
+        for display in displays where tints[display.id] == nil {
+            if !asleep { rendered[display.id] = .untinted }
+            if backlight(display.id) != nil { setBacklight(display.id, position: 0) }
         }
         if !asleep {
             engine.apply(tints)
@@ -1048,7 +944,11 @@ final class DisplayController {
         } else if tints.values.allSatisfy(\.isNeutral) {
             // The evening ending while the screens sleep: the tables go back now, so a screen that
             // wakes (and a lid that opens) comes on neutral rather than flashing last night's tint.
+            // A dimmed backlight waits for the wake (nothing is written asleep), which eases it up.
             engine.apply(tints)
+            for id in rendered.keys {
+                rendered[id] = Levels(position: backlight(id)?.isDimming == true ? rendered[id]?.position ?? 0 : 0, warmth: 0)
+            }
         }
         refreshEffective()
         repace()
@@ -1096,7 +996,8 @@ final class DisplayController {
             // Left alone, the write put back the mid-animation level over the end of the press.
             if settled, let light, let written, abs(light - written) > 0.0005, let dim = dims[id],
                let uuid = uuidOf[id], shiftsWanted, !previewing {
-                shifts[uuid] = newShift(to: dim.position(of: light), plan: shiftPlan(planShown(for: id), for: id))
+                shifts[uuid] = newShift(to: dim.position(of: light), plan: shiftPlan(for: id))
+                pressed(id)
                 if pushing { pushAgain = true; return }
             }
         }
@@ -1121,10 +1022,11 @@ final class DisplayController {
             // start (the tick's glide too): its steps follow each other closely after that. A ramp
             // steps about once a minute, so this costs a read (~40 ms of I2C) per step.
             let age = Date().timeIntervalSince(monitorReadAt[id] ?? .distantPast)
-            let readSinceFade = fadeTask != nil && (monitorReadAt[id] ?? .distantPast) >= fadeBegan
+            let easing = motions[id]
+            let readSinceFade = easing.map { (monitorReadAt[id] ?? .distantPast) >= $0.began } ?? false
             // A fade reads at its start whatever the age: a press made just before it began was
             // otherwise stepped over from the old level.
-            if !readSinceFade && (fadeTask != nil || age > 1) && (starting || dim.nextStep(for: position, release: release) != nil) {
+            if !readSinceFade && (easing != nil || age > 1) && (starting || dim.nextStep(for: position, release: release) != nil) {
                 return readFirst(id, monitor)
             }
             guard let (light, released) = dim.nextStep(for: position, release: release) else { return settle(&dim, at: position, on: id) }
@@ -1162,7 +1064,7 @@ final class DisplayController {
             // Only while that handle still drives `id` (a replug or a reused id since made it another screen's).
             guard let self, self.monitors[id] === monitor, self.readingFirst.remove(id) != nil else { return }
             if !self.asleep { self.observe(light, on: id) }  // a failed read (nil) changes nothing
-            if self.fadeTask == nil { self.push() }
+            if self.animator == nil { self.push() }
         }
     }
 
@@ -1187,7 +1089,7 @@ final class DisplayController {
         store(dim, for: id)
         // The next step, and the signal eased to what the monitor shows now (a running fade
         // pushes every frame anyway).
-        if fadeTask == nil { push() }
+        if animator == nil { push() }
     }
 
     /// A failed write holds the next until its retry time, 10 s doubling to 5 minutes: unpaced, a
@@ -1431,32 +1333,23 @@ final class DisplayController {
                 levelReadAt[id] = Date()
                 let level = Backlight.level(id)
                 if let level, let light { undimmed[id] = (level, light) }
-                if shown.isNeutral, let light { dayLight[display.uuid] = light }
+                if shown.isNeutral, animator == nil, let light { dayLight[display.uuid] = light }
                 levelShare[id] = level.map(Schedule.backlightFactor)
             }
             if let factor = levelShare[id] { next[id] = factor }
         }
         let ids = Set(next.keys).union(share.keys)
         guard ids.contains(where: { abs((next[$0] ?? 1) - (share[$0] ?? 1)) > 0.01 }) else { return }
-        shareTask?.cancel()
-        // Untinted the floor changes nothing on screen: take the new share without easing.
-        guard !shown.isNeutral else {
+        // Untinted on screen the floor changes nothing: taken without easing.
+        guard !shown.isNeutral || animator != nil else {
             share = next
+            shareEase = nil
             return refreshEffective()
         }
-        let from = share, start = Date()
-        shareTask = Task { [weak self] in
-            while let self, !Task.isCancelled {
-                let t = min(1, Date().timeIntervalSince(start) / 0.6)
-                let eased = t * t * (3 - 2 * t)  // smoothstep
-                var share: [CGDirectDisplayID: Double] = [:]
-                for id in ids { share[id] = (from[id] ?? 1) + ((next[id] ?? 1) - (from[id] ?? 1)) * eased }
-                self.share = share
-                if self.fadeTask == nil { self.push() }  // a running fade pushes every frame anyway
-                if t >= 1 { return }
-                try? await Task.sleep(for: .milliseconds(16), tolerance: .milliseconds(4))
-            }
-        }
+        shareEase = (Dictionary(ids.map { ($0, floorShare($0)) }, uniquingKeysWith: { a, _ in a }), Self.uptime)
+        share = next
+        runAnimator()
+        push()
     }
 
     /// Reads a backlight macOS controls and feeds it to its dimming (an outside move is adopted).
@@ -1486,11 +1379,9 @@ final class DisplayController {
             dim.resume(at: light)
             return store(dim, for: id)
         }
-        // Measured from the plan on screen now, the basis `push` writes from, not where a fade is
-        // heading: against the fade's end, a press read mid-fade was written back by its distance
-        // until the fade ended (a press down partly undone, one up overshooting, a monitor
-        // stepping back and forth). The shift then rides to the fade's end from there.
-        let plan = planShown(for: id), showing = ladderPosition(id)
+        // Measured from the plan where the screens are going; an ease under way carries on around
+        // the press (`pressed`).
+        let plan = plan(for: id), showing = levelsNow(id).position
         // The morning's plan done, also while a late shift's fade still runs past that (`perUnit`):
         // a press then is the day level, not a shift held until the next evening.
         let fading = shift(for: id).flatMap { $0.isShrinking(clock.now) ? $0 : nil }
@@ -1506,28 +1397,28 @@ final class DisplayController {
         if move != .none, monitors[id] == nil, !restoring { settling[id] = Date().addingTimeInterval(0.35) }
         switch move {
         case .none: return
-        case .shift(let pressed):
-            endShiftFade(uuid)
-            shiftGoals[uuid] = nil  // the press is where the screen is now
-            // Mid-way through the shifts fading in (Gloam switched on, a pause ended), the screen
-            // shows only part of a shift (`shiftWeight`): taken as a whole shift, the next write
-            // put back part of what was pressed. Scaled up, it shows exactly the press now.
+        case .shift(let to):
             let p = shiftPlan(plan, for: id)
-            let w = max(0.2, shiftWeight)
-            let to = w < 1 ? min(2, max(0, p + (pressed - p) / w)) : pressed
-            let chosen = newShift(to: to, plan: p)
             // In the morning's tail it fades with the shift it replaces, not into the next evening.
             shifts[uuid] = upThroughFade && clock.planDone ? fading.flatMap {
-                Shift.make(to: to, at: p, now: clock.now, until: $0.until) } : chosen
+                Shift.make(to: to, at: p, now: clock.now, until: $0.until) } : newShift(to: to, plan: p)
         case .dayLevel:
-            endShiftFade(uuid)
-            shiftGoals[uuid] = nil  // the press is where the screen is now
             shifts[uuid] = nil
         }
+        pressed(id)
         // Saved at once, not debounced as a fade's frames are: a press is rare, and one lost to a
         // crash within the second was written back at the relaunch.
         saveShifts()
         refreshEffective()
+    }
+
+    /// A key press (or a monitor's buttons) put the screen where it is now, its goal: an ease under
+    /// way there carries on for its warmth only. Written on, the rest of its ease undid the press
+    /// (and mid-way through the shifts easing in, only part of it showed).
+    private func pressed(_ id: CGDirectDisplayID) {
+        guard motions[id] != nil else { return }
+        motions[id]?.from.position = goal(id).position
+        motions[id]?.byLadder = false
     }
 
     /// Two overwrites within a minute raise the notice; two quiet minutes clear it. Returns

@@ -66,7 +66,7 @@ struct PopoverView: View {
     /// counts too, while by day it still reads 100 %. The ladder's screen: the two never disagree.
     private var blueShare: Double {
         let tinted = model.display.displays.first { $0.id == screen }.map(model.isTinted) ?? true
-        return Melanopic.relative(model.display.onScreen(tinted ? model.target : .neutral, screen, heading: true),
+        return Melanopic.relative(model.display.onScreen(tinted ? model.target : .neutral, screen),
                                   in: model.display.colourSpace(of: screen)) * model.display.lightSinceDay(on: screen)
     }
     /// What the popover's screen shows: the orb's glow, the panel's and the header's colours.

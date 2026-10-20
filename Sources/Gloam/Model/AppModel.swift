@@ -83,7 +83,7 @@ final class AppModel {
         didSet {
             guard warmthShift != oldValue else { return }
             saveWarmthSoon()
-            display.setWarmthShift(warmthShift, over: warmthShift == nil ? 0.5 : 0.15)
+            display.setWarmthShift(warmthShift, over: switchingInPlace ? 0 : warmthShift == nil ? 0.5 : 0.15)
             wakeTickIfDue()
         }
     }
@@ -362,10 +362,9 @@ final class AppModel {
         Debug.log("on from a control: dimming \(dimming.map { "\($0)" } ?? "-") warmth \(warmth.map { "\($0)" } ?? "-")")
         offByHand = false  // switched on by a move: the moves stay
         let plan = automatic, c = warmthClock
+        switchingInPlace = true
         display.startFromOff(plan: plan)
         warmthShift = Shift.make(to: 0, at: c.planDone ? 0 : display.warmestShare(plan), now: c.now, until: c.until)
-        display.setWarmthShift(warmthShift, over: 0)  // held there at once, not eased
-        switchingInPlace = true
         enabled = true
         switchingInPlace = false
         if let dimming { setDimming(dimming, on: id) }
