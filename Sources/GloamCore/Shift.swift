@@ -172,14 +172,9 @@ extension Schedule {
         return e.wake
     }
 
-    /// What a shift chosen at `date` belongs to (`ShiftClock`). `end`: `morningEnd` for an evening,
-    /// so the caller can cache it.
-    public func shiftClock(at date: Date, _ c: Coordinate, end: (Evening) -> Date,
-                           calendar: Calendar = .current) -> ShiftClock {
-        withoutActuallyEscaping(end) { shiftClocks(at: date, c, ends: [$0], calendar: calendar).clocks[0] }
-    }
 
-    /// One `ShiftClock` per morning end (dimming's and warmth's), from the same evenings: each
+    /// What a shift chosen at `date` belongs to (`ShiftClock`), one per morning end (`morningEnd`,
+    /// dimming's and warmth's, which the caller caches), from the same evenings: each
     /// `evening(around:)` is a sun scan, worked out once a tick rather than once per clock.
     /// `tonight` is the evening around `date`.
     public func shiftClocks(at date: Date, _ c: Coordinate, ends: [(Evening) -> Date],

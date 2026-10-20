@@ -421,11 +421,11 @@ import Testing
         let schedule = Schedule()
         let at = { (h: Int, m: Int, day: Int) in cal.date(from: DateComponents(year: 2026, month: 10, day: day, hour: h, minute: m))! }
         let end = { (e: Schedule.Evening) in schedule.morningEnd(of: e, berlin, warmth: false, calendar: cal) }
-        let night = schedule.shiftClock(at: at(23, 0, 20), berlin, end: end, calendar: cal)
+        let night = schedule.shiftClocks(at: at(23, 0, 20), berlin, ends: [end], calendar: cal).clocks[0]
         #expect(!night.planDone && night.until > at(23, 0, 20) && night.until <= at(7, 10, 21))
-        let fading = schedule.shiftClock(at: night.until.addingTimeInterval(-60), berlin, end: end, calendar: cal)
+        let fading = schedule.shiftClocks(at: night.until.addingTimeInterval(-60), berlin, ends: [end], calendar: cal).clocks[0]
         #expect(fading.planDone && fading.until > at(20, 0, 21))   // the coming evening's
-        let noon = schedule.shiftClock(at: at(12, 0, 21), berlin, end: end, calendar: cal)
+        let noon = schedule.shiftClocks(at: at(12, 0, 21), berlin, ends: [end], calendar: cal).clocks[0]
         #expect(!noon.planDone && noon.until == fading.until)
         #expect(end(schedule.evening(around: at(23, 0, 20), berlin, calendar: cal)) <= at(7, 0, 21))
     }
@@ -441,7 +441,7 @@ import Testing
         let missed = [(10, 23), (10, 24), (10, 25), (10, 26), (3, 28), (3, 29), (3, 30)].filter { month, day in
             let night = cal.date(from: DateComponents(year: 2026, month: month, day: day, hour: 3))!
             let done = end(schedule.evening(around: night, berlin, calendar: cal)).addingTimeInterval(180)
-            return !schedule.shiftClock(at: done, berlin, end: end, calendar: cal).planDone
+            return !schedule.shiftClocks(at: done, berlin, ends: [end], calendar: cal).clocks[0].planDone
         }.map { "\($0.0)-\($0.1)" }
         #expect(missed.isEmpty, "\(missed)")
     }
