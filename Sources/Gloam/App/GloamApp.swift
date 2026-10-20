@@ -333,6 +333,8 @@ enum Windows {
 ///   --floor F         built-in smear floor as a signal fraction (default 0.8; 0 = none), to
 ///                     calibrate it: scroll light-on-dark text and move the dial and ladder
 ///   --exit-after S    quit normally after S seconds (restoring the screen), for scripted checks
+///   --log-brightness  every backlight read, write and shift, to /tmp/gloam-brightness.log (to see
+///                     why a press moved; written line by line, so a Ctrl-C loses nothing)
 enum Debug {
     /// Flags that keep a run off the screen. In release builds too: the bundled app must recognise
     /// a debug copy started with one, and not quit for it (`AppDelegate.isShowcase`).
@@ -343,11 +345,28 @@ enum Debug {
     static let isCapture = CommandLine.arguments.contains("--capture") || CommandLine.arguments.contains("--film")
     /// Showcase and capture runs never tint the real screen.
     static let isShowcase = CommandLine.arguments.contains(where: offScreenFlags.contains)
+    static let logsBrightness = CommandLine.arguments.contains("--log-brightness")
     #else
+    static let logsBrightness = false
     static let isSnapshot = false
     static let isCapture = false
     static let isShowcase = false
     #endif
+
+    /// One line per backlight event under `--log-brightness`, timed to the millisecond.
+    static func log(_ line: @autoclosure () -> String) {
+        guard let logFile else { return }
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        logFile.write(Data("\(f.string(from: Date())) \(line())\n".utf8))
+    }
+    /// Started empty at launch.
+    private static let logFile: FileHandle? = {
+        guard logsBrightness else { return nil }
+        let path = "/tmp/gloam-brightness.log"
+        FileManager.default.createFile(atPath: path, contents: nil)
+        return FileHandle(forWritingAtPath: path)
+    }()
 
     static func applyLaunchArguments() {
         #if DEBUG

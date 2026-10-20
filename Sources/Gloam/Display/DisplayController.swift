@@ -363,6 +363,7 @@ final class DisplayController {
     func expireShifts() {
         let live = shifts.filter { !$0.value.expired(clock.now) }
         guard live.count != shifts.count else { return }
+        Debug.log("expired shifts \(Set(shifts.keys).subtracting(live.keys)) at \(clock.now)")
         shifts = live
         push()
     }
@@ -704,8 +705,12 @@ final class DisplayController {
         redraw.nudge([])
     }
 
+    /// A press found inside a write (`setBacklight`): one more push once this one is through.
+    @ObservationIgnored private var pushAgain = false
+
     private func push() {
         guard !resumedAtLaunch else { return }
+        defer { if pushAgain { pushAgain = false; push() } }
         var tints: [CGDirectDisplayID: Tint] = [:], stepping: Set<CGDirectDisplayID> = []
         for display in displays {
             let s = strength(display.uuid)
@@ -786,7 +791,13 @@ final class DisplayController {
         // baseline is only read on the tick, dimmed a key press since must be adopted, not undone.
         if monitors[id] == nil, starting || found.light(for: position, release: release) != nil,
            Date().timeIntervalSince(backlightRead[id] ?? .distantPast) > 0.5 {
+            let before = shift(for: id)
             readBacklight(id)
+            // The read found a press: `position` was worked out before it, from the old shift.
+            // Written anyway, the old level went out a moment before the new one, and the panel
+            // stayed on the old one (two writes 2 ms apart): every press undone, and the next read
+            // taking that for another press, back and forth. Worked out again after this push.
+            if shift(for: id) != before { pushAgain = true; return }
         }
         guard var dim = dims[id] else { return }
         // A dark reading (a panel still waking) isn't the evening's level: started from it, the
@@ -825,6 +836,7 @@ final class DisplayController {
         let ok = if position <= 0, let level = dim.baselineLevel { Backlight.set(level: level, on: id) }
             else { Backlight.set(light: light, on: id) }
         // A failed write changes nothing: the next push tries again from what the panel shows.
+        Debug.log("write \(id) position \(String(format: "%.3f", position)) light \(String(format: "%.4f", light)) ok \(ok) shift \(uuidOf[id].flatMap { shifts[$0] }.map { "\($0)" } ?? "none")")
         guard ok else { return }
         backlightWritten[id] = Date()
         dim.wrote(light, release: ending)
@@ -1075,7 +1087,14 @@ final class DisplayController {
                     readFirst(id, monitor)
                 }
             } else {
+                let before = shift(for: id), written = dims[id]?.written
                 lights[id] = readBacklight(id)
+                // The reading was a press (a new shift or day level): `requested` is the position
+                // from before it. Retried, it wrote the old level straight over every press.
+                if shift(for: id) != before || dims[id]?.written != written {
+                    push()
+                    continue
+                }
                 // A write that failed (the morning restore, say) is tried again here: in the day
                 // nothing else may push for hours.
                 if let asked = requested[id], dims[id]?.light(for: asked.position, release: asked.release) != nil {
@@ -1132,6 +1151,7 @@ final class DisplayController {
     /// Reads a backlight macOS controls and feeds it to its dimming (an outside move is adopted).
     @discardableResult private func readBacklight(_ id: CGDirectDisplayID) -> Double? {
         let light = Backlight.light(id)
+        Debug.log("read \(id) \(light.map { String(format: "%.4f", $0) } ?? "nil") written \(dims[id]?.written.map { String(format: "%.4f", $0) } ?? "nil") sinceWrite \(String(format: "%.2f", Date().timeIntervalSince(backlightWritten[id] ?? .distantPast)))s")
         backlightRead[id] = Date()
         observe(light, on: id)
         return light
@@ -1163,6 +1183,7 @@ final class DisplayController {
         let upThroughFade = fading != nil && dim.written.map { light > $0 && light < min(1, dim.baseline) } == true
         let setsDayLevel = !upThroughFade && (clock.planDone || morningTail || max(plan, showing) < Shift.threshold && !clock.inMorning)
         let move = dim.observe(light: light, plan: clock.planDone || morningTail ? 0 : plan, setsDayLevel: setsDayLevel)
+        Debug.log("observe \(id) light \(String(format: "%.4f", light)) plan \(String(format: "%.3f", plan)) showing \(String(format: "%.3f", showing)) setsDay \(setsDayLevel) -> \(move) baseline \(String(format: "%.4f", dim.baseline))")
         store(dim, for: id)
         guard let uuid = uuidOf[id] else { return }
         switch move {
