@@ -60,8 +60,6 @@ final class AppModel {
     /// External displays (by UUID) held to the smear floor on the user's say-so: macOS says
     /// nothing about a monitor's panel, so only its owner knows it smears. Built-ins are always held.
     var smearGuarded: Set<String> { didSet { save(smearGuarded, "smearGuarded"); applyDisplaySettings() } }
-    /// The global shortcut that turns Gloam on or off (`ToggleShortcut`); none until one is recorded.
-    var toggleShortcut: KeyCombo? { didSet { save(toggleShortcut, "toggleShortcut") } }
     /// Lets the room's light (`RoomLight`) ease the dimming, so the screen never gets darker
     /// than the room calls for.
     var autoDimming: Bool {
@@ -73,7 +71,7 @@ final class AppModel {
     /// The dial's move away from the plan's warmth tonight (`Shift`, on the warmth scale): it rides
     /// along with the evening and shrinks to nothing with the morning, after which it goes, so a
     /// tweak never quietly becomes the new every-night. Saved, so a crash or an update keeps it.
-    /// Switched off by hand (the switch, the menu, the shortcut, Shortcuts), not paused: on again,
+    /// Switched off by hand (the switch, the menu, Shortcuts), not paused: on again,
     /// it starts on Auto (`enabled`). Saved, so a quit in between doesn't bring the moves back.
     private var offByHand: Bool { didSet { save(offByHand, "offByHand") } }
     /// Switched on by a control moved while off: nothing changes on screen, so at once.
@@ -145,7 +143,6 @@ final class AppModel {
         smearGuarded = Self.load("smearGuarded") ?? []
         excludedApps = Self.load("excludedApps") ?? []
         autoDimming = Self.load("autoDimming") ?? true
-        toggleShortcut = Self.load("toggleShortcut")
         warmthShift = Self.load("warmthShift")
         offByHand = Self.load("offByHand") ?? false
         frontmost = NSWorkspace.shared.frontmostApplication.flatMap {
@@ -390,7 +387,7 @@ final class AppModel {
 
     func run(_ command: Command) {
         switch command {
-        // "On" from the shortcut, an intent or a URL means visibly on: a Focus's pause is lifted too
+        // "On" from an intent or a URL means visibly on: a Focus's pause is lifted too
         // (until that Focus next comes on), else it would change nothing on screen. So a toggle
         // turns on what the switch or a Focus holds off; an app's pause stays (Settings owns it).
         case .toggle: run(enabled && !pausedByFocus ? .off : .on)

@@ -73,8 +73,8 @@ Settings shows your evening as a graph: drag bedtime, wake and how warm and dim 
   you say so (switch it off in Settings, or use **Check for Updates…** in the right-click menu).
 - **Shortcuts, Spotlight and Focus:** "Set Gloam" and "Pause Gloam" actions in Shortcuts, and a Focus
   filter that pauses Gloam while a Focus is on (System Settings › Focus; a Focus with it starts
-  Gloam if it isn't running). A keyboard shortcut to turn it on or off can be set in Settings, and
-  `open gloam://toggle` (or `on`, `off`, `open`) works too.
+  Gloam if it isn't running). For a keyboard shortcut, add "Set Gloam" to a shortcut in
+  Shortcuts and give it a key there; `open gloam://toggle` (or `on`, `off`, `open`) works too.
 
 ## Questions
 

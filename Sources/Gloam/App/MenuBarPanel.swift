@@ -91,7 +91,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     @objc private func checkForUpdates() { Updates.checkNow() }
     @objc private func installUpdate() { Updates.install() }
     @objc private func turnOff() { AppModel.shared.run(.off) }
-    /// Visibly on, as the shortcut's and Shortcuts' "On": a Focus's pause is lifted too.
+    /// Visibly on, as Shortcuts' "On": a Focus's pause is lifted too.
     @objc private func turnOn() { AppModel.shared.run(.on) }
     @objc private func resumeFromFocus() { AppModel.shared.pausedByFocus = false }
     @objc private func offForAnHour() { AppModel.shared.pause(untilMorning: false) }

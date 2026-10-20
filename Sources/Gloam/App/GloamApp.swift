@@ -143,7 +143,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Debug.applyLaunchArguments()
         _ = Updates.updater
         if !Debug.isShowcase {  // showcase runs share the real app's settings; they leave these alone
-            ToggleShortcut.shared.register(AppModel.shared.toggleShortcut)
             // A Focus that pauses Gloam may already be on: its filter only runs again when it changes.
             // Unless the filter or the user has had a say meanwhile (`focusSettled`). The evening
             // waits for this read, a second at most (`endLaunchHold`).
