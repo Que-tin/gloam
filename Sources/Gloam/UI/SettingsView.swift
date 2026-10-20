@@ -190,12 +190,12 @@ struct SettingsView: View {
                 // calibrated monitor untouched, and a 0–100% scale read as brightness. With one
                 // screen, a per-screen switch would just be a second Gloam switch.
                 if several {
-                    Toggle(display.name, isOn: Binding(get: { model.strength(for: display) > 0 },
-                                                       set: { model.displayStrength[display.uuid] = $0 ? nil : 0 }))
+                    Toggle(display.name, isOn: Binding(get: { model.isTinted(display) },
+                                                       set: { _ in model.untintedDisplays.formSymmetricDifference([display.uuid]) }))
                 }
                 // Built-in panels are always held to the smear floor; a monitor only on request,
                 // since nothing macOS reports says whether its panel smears (see `Smear`).
-                if !display.isBuiltin, model.strength(for: display) > 0 {
+                if !display.isBuiltin, model.isTinted(display) {
                     Toggle(several ? String(localized: "Avoid smearing on \(display.name)") : String(localized: "Avoid smearing"),
                            isOn: Binding(get: { model.smearGuarded.contains(display.uuid) },
                                          set: { on in if on { model.smearGuarded.insert(display.uuid) } else { model.smearGuarded.remove(display.uuid) } }))

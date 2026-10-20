@@ -37,7 +37,7 @@ struct PopoverView: View {
     /// The screen whose dimming the ladder shows and moves: the one the popover is open on (its
     /// menu bar's), or, switched off in Settings, the main tinted one (named, so it's clear).
     private var screen: CGDirectDisplayID {
-        let tinted = model.display.displays.filter { model.strength(for: $0) > 0 }
+        let tinted = model.display.displays.filter(model.isTinted)
         let here = MenuBarPanel.shared.screenID ?? CGMainDisplayID()
         if tinted.contains(where: { $0.id == here }) { return here }
         return tinted.first { $0.id == CGMainDisplayID() }?.id ?? tinted.first?.id ?? here
@@ -46,7 +46,7 @@ struct PopoverView: View {
     /// than the popover's own (that one is switched off in Settings): which one it moves. Two of
     /// the same model are numbered, in the order macOS lists them.
     private var screenName: String? {
-        let tinted = model.display.displays.filter { model.strength(for: $0) > 0 }
+        let tinted = model.display.displays.filter(model.isTinted)
         let here = MenuBarPanel.shared.screenID ?? CGMainDisplayID()
         guard tinted.count > 1 || screen != here, let mine = tinted.first(where: { $0.id == screen }) else { return nil }
         let twins = tinted.filter { $0.name == mine.name }
@@ -55,7 +55,7 @@ struct PopoverView: View {
     }
     /// Why the ladder can't act, said in its help: every screen switched off in Settings.
     private var ladderUnavailable: String? {
-        model.display.displays.contains { model.strength(for: $0) > 0 } ? nil
+        model.display.displays.contains(where: model.isTinted) ? nil
             : String(localized: "Every screen is switched off in Settings.")
     }
     /// Blue light reaching you once the screen gets where it is going, after its limits, rounded
@@ -65,8 +65,8 @@ struct PopoverView: View {
     /// Counted against the screen as it was by day (`lightSinceDay`), so the user's own brightness
     /// counts too, while by day it still reads 100 %. The ladder's screen: the two never disagree.
     private var blueShare: Double {
-        let strength = model.display.displays.first { $0.id == screen }.map { model.strength(for: $0) } ?? 1
-        return Melanopic.relative(model.display.onScreen(.mix(.neutral, model.target, strength), screen, heading: true),
+        let tinted = model.display.displays.first { $0.id == screen }.map(model.isTinted) ?? true
+        return Melanopic.relative(model.display.onScreen(tinted ? model.target : .neutral, screen, heading: true),
                                   in: model.display.colourSpace(of: screen)) * model.display.lightSinceDay(on: screen)
     }
     /// What the popover's screen shows: the orb's glow, the panel's and the header's colours.

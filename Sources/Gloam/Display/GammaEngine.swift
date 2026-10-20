@@ -49,7 +49,7 @@ final class GammaEngine: TintEngine {
             if let base = calibration[id] ?? capture(id) { write(base, gain: Kelvin.displayGain(tint, in: colourSpace(id)), to: id) }
         }
         tinted = Set(active.keys)
-        settlePrevious(except: Set(active.keys))  // a screen left out tonight (strength 0) too
+        settlePrevious(except: Set(active.keys))  // a screen Settings leaves alone too
     }
 
     /// True when a display we tinted no longer shows our table: another app (any app) has

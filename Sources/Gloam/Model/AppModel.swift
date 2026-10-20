@@ -54,9 +54,9 @@ final class AppModel {
     var customPlace: Place? { didSet { save(customPlace, "place"); stagesMoved(); update(fade: 1.5) } }
     var engine: Engine { didSet { save(engine, "engine"); display.use(engine) } }
     var excludedApps: [ExcludedApp] { didSet { save(excludedApps, "excludedApps"); update(fade: 0.6) } }
-    /// Per-display strength by display UUID; missing means full strength.
-    var displayStrength: [String: Double] {
-        didSet { save(displayStrength, "displayStrength"); applyDisplaySettings(); wakeTickIfDue() }
+    /// Displays (by UUID) Settings leaves alone; the rest are tinted.
+    var untintedDisplays: Set<String> {
+        didSet { save(untintedDisplays, "untintedDisplays"); applyDisplaySettings(); wakeTickIfDue() }
     }
     /// External displays (by UUID) held to the smear floor on the user's say-so: macOS says
     /// nothing about a monitor's panel, so only its owner knows it smears. Built-ins are always held.
@@ -139,7 +139,7 @@ final class AppModel {
         customPlace = city
         customPlaceInUse = city?.keepsTime(of: .current, at: Date()) ?? false
         self.engine = engine
-        displayStrength = Self.load("displayStrength") ?? [:]
+        untintedDisplays = Self.load("untintedDisplays") ?? []
         smearGuarded = Self.load("smearGuarded") ?? []
         excludedApps = Self.load("excludedApps") ?? []
         autoDimming = Self.load("autoDimming") ?? true
@@ -406,7 +406,7 @@ final class AppModel {
         excludedApps.append(ExcludedApp(bundleID: id, name: name))
     }
 
-    func strength(for display: DisplayInfo) -> Double { displayStrength[display.uuid] ?? 1 }
+    func isTinted(_ display: DisplayInfo) -> Bool { !untintedDisplays.contains(display.uuid) }
 
     /// SMAppService isn't observable; re-read it when Settings opens.
     func refreshLoginStatus() { launchesAtLogin = Self.loginItemEnabled }
@@ -425,7 +425,7 @@ final class AppModel {
     /// A shift held by day shows the same all day: it doesn't keep the clock fast. One shrinking
     /// in the morning does (stepped a minute at a time, it showed).
     private var isQuiet: Bool {
-        if screensAsleep || !display.displays.isEmpty && display.displays.allSatisfy({ strength(for: $0) <= 0 }) { return true }
+        if screensAsleep || !display.displays.isEmpty && display.displays.allSatisfy({ !isTinted($0) }) { return true }
         if preview != nil { return false }
         if isHeld { return true }
         let shifts = Array(display.shifts.values) + (warmthShift.map { [$0] } ?? [])
@@ -486,8 +486,8 @@ final class AppModel {
     }
 
     private func applyDisplaySettings() {
-        let strengths = displayStrength, guarded = smearGuarded
-        display.configure(strength: { strengths[$0] ?? 1 }, smearGuarded: { guarded.contains($0) })
+        let untinted = untintedDisplays, guarded = smearGuarded
+        display.configure(tinted: { !untinted.contains($0) }, smearGuarded: { guarded.contains($0) })
         display.consent = schedule.pastRecommended
     }
 
