@@ -3,11 +3,10 @@
 // dimming asked for, so they move with the automatic easing; moving them takes over by hand
 // until the next morning, or by day the next evening (Settings sets every night). "Auto" hands back.
 //
-// Both controls run from nothing to as far as this screen goes: the dial to the warmest it
-// shows without smearing scrolled text, the ladder to its light floor. Every step does
-// something, and nothing needs a notice. Each end moves only with the brightness the user set,
-// never with the other control (the smear floor's share is held while Gloam dims): ends that
-// moved with Gloam's own dimming made the warmth knob wander, and nobody could tell why.
+// Both controls are positions on fixed scales (the schedule's own, as in Settings), so neither
+// moves when the user's brightness does: ends that followed the screen made the knobs wander,
+// and nobody could tell why. Each screen takes the ladder's position the same share of the way
+// to its own darkest; the dial's warmth it shows as far as its smear limit allows.
 
 import GloamCore
 import SwiftUI
@@ -27,8 +26,8 @@ struct PopoverView: View {
     /// to 5% (the estimate is good to about that). Said as what's left ("20%") rather than what's
     /// saved ("−80%"). The destination rather than every step of a fade, so a switch reads as one
     /// change of number, faded, instead of twenty.
-    /// Counted against the screen as it was by day (`lightSinceDay`), so turning the brightness
-    /// down in the evening lowers it too, while by day it still reads 100 %.
+    /// Counted against the screen as it was by day (`lightSinceDay`), so the user's own brightness
+    /// counts too, while by day it still reads 100 %.
     private var blueShare: Double {
         Melanopic.relative(model.display.onMain(model.target), in: model.display.mainColourSpace) * model.display.lightSinceDay
     }
@@ -49,7 +48,8 @@ struct PopoverView: View {
             // they did would show, so they rest.
             dial
                 .disabled(!canTakeOver)
-            DimmingLadder(dimming: dimming, kelvin: current.kelvin, core: core)
+            DimmingLadder(dimming: dimming, kelvin: current.kelvin, core: core,
+                          editable: model.display.canDim)  // else nothing to dim
                 .padding(.top, 20)
                 .disabled(!canTakeOver)
             // One status row at most: a hand setting (unless it resets nothing), a pause for the
@@ -64,8 +64,9 @@ struct PopoverView: View {
                     model.excludedApps.removeAll { $0 == app }
                 }
             } else if !model.enabled, let resume = model.resumeAt {
+                // Visibly on, as the menu's Resume: a Focus's pause is lifted too.
                 statusRow(String(localized: "Paused until \(Format.time(resume))"), String(localized: "Resume"), "play.fill") {
-                    model.enabled = true
+                    model.run(.on)
                 }
             } else if model.enabled, model.pausedByFocus {  // switched off, "Off" says it all
                 // Lifted until the Focus next comes on; its filter pauses again then.
@@ -92,13 +93,13 @@ struct PopoverView: View {
     }
 
     private var dial: some View {
-        let orb = self.orb
-        let warmest = model.display.warmestOnMain
-        return LampDial(fraction: warmth, kelvinAt: { Light.kelvin(warmth: $0, warmest: warmest) }, shown: model.display.effective,
-                        core: core, bloom: bloom, orbTitle: orb.title, orbCaption: orb.caption,
-                        onPower: model.enabled ? nil : { model.enabled = true },
-                        editable: canTakeOver && warmest < Stage.kelvinRange.upperBound - 50,  // else nothing to warm
-                        stageName: stageTitle, caption: dialCaption)
+        // The orb turns Gloam visibly on (a Focus's pause lifted too); the header's switch is
+        // only the switch.
+        LampDial(fraction: warmth, kelvinAt: { Light.kelvin(warmth: $0) }, shown: model.display.effective,
+                 core: core, bloom: bloom, orbTitle: blueText,
+                 onPower: model.enabled ? nil : { model.run(.on) },
+                 editable: canTakeOver,
+                 stageName: stageTitle, caption: dialCaption)
     }
 
     // MARK: The one signature motion
@@ -126,28 +127,30 @@ struct PopoverView: View {
 
     // MARK: Editing
 
-    /// 100 % is the warmest this screen goes (`warmestOnMain`, the smear floor's limit); like the
-    /// ladder, every step does something. Its end moves only with the brightness the user set.
+    /// The warmth asked for, on the schedule's scale (100 % = its warmest): never pegged at a
+    /// screen's limit, so a touch never turns the screen cooler. Past that limit (smear) the screen
+    /// shows its warmest and the steps change nothing there.
     private var warmth: Binding<Double> {
-        let warmest = model.display.warmestOnMain
-        return Binding(get: { Light.warmth(current.kelvin, warmest: warmest) },
-                       set: { takeOver(Tint(kelvin: Light.kelvin(warmth: $0, warmest: warmest), brightness: current.brightness)) })
+        Binding(get: { Light.warmth(current.kelvin) },
+                set: { takeOver(Tint(kelvin: Light.kelvin(warmth: $0), brightness: asked.brightness)) })
     }
 
+    /// A position on the schedule's scale: each screen takes it the same share of the way to its
+    /// own darkest, so 100 % is as dim as this screen goes and the ladder never moves under the
+    /// user's brightness keys.
     private var dimming: Binding<Double> {
-        // 100 % is as dim as this screen goes (`darkestOnMain`): below that the ladder would ask
-        // for what the screen can't show. Its end moves with the screen's brightness, never the dial.
-        let darkest = model.display.darkestOnMain
-        return Binding(get: { Light.dimming(current.brightness, darkest: darkest) },
-                       set: {
-                           guard darkest < 0.999 else { return }  // already as dim as it goes: shown full
-                           takeOver(Tint(kelvin: current.kelvin, brightness: Light.brightness(dimming: $0, darkest: darkest)))
-                       })
+        Binding(get: { Light.dimming(current.brightness) },
+                set: { takeOver(Tint(kelvin: asked.kelvin, brightness: Light.brightness(dimming: $0))) })
     }
 
     /// The controls can set a tint: Gloam is on or can be switched on by them, and no app in
     /// front is holding it off (and Welcome is done, though the popover only exists after it).
-    private var canTakeOver: Bool { model.hasOnboarded && model.excludedFrontmost == nil && !model.pausedByFocus }
+    private var canTakeOver: Bool { model.hasOnboarded && !model.pausedAside }
+
+    /// What the controls start from: the hand setting, else what automatic asks. Not what's
+    /// shown: off, paused or mid-fade that's neutral or half-way, and a move on one control copied
+    /// it into the other (a turn of the dial at 22:30 while off left the night undimmed).
+    private var asked: Tint { model.manual ?? model.automatic }
 
     /// A hand setting; when Gloam is off, the first move turns it back on.
     private func takeOver(_ tint: Tint) {
@@ -156,19 +159,12 @@ struct PopoverView: View {
         model.manual = tint
     }
 
-
     // MARK: Words
-
-    private var orb: (title: String, caption: String) {
-        // Always a number and "blue light", never a word ("off", "aside" read as broken), nor why
-        // it's paused: the header and the status row below already say that.
-        (blueText, String(localized: "blue light"))
-    }
 
     private var stageTitle: String {
         // "Paused" for anything that ends by itself (a timed pause); "Off" for the switch.
         if !model.enabled { return model.resumeAt == nil ? String(localized: "Off") : String(localized: "Paused") }
-        if model.excludedFrontmost != nil || model.pausedByFocus { return String(localized: "Paused") }
+        if model.pausedAside { return String(localized: "Paused") }
         return model.stage.title
     }
 
@@ -200,13 +196,14 @@ struct PopoverView: View {
             .offset(x: -5)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Now: \(stageTitle)")
+            .accessibilitySortPriority(1)  // an overlay reads last; the state comes before its controls
         }
     }
 
     /// What changes next, and when: the one question a schedule raises. (A separate "next"
     /// line and an evening timeline strip were tried; both said what this says, louder.)
     private var dialCaption: String {
-        // Off or paused for an app, nothing is coming: no promise of a change.
+        // Off or paused (for an app or a Focus), nothing is coming: no promise of a change.
         guard !model.isHeld, let next = model.nextStage else { return "" }
         return String(localized: "\(next.kind.title) at \(Format.time(next.at))", comment: "Stage name, then time: Night at 22:00")
     }

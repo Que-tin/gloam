@@ -5,8 +5,7 @@
 // system (the path Chromium and Hammerspoon use), loaded with dlsym so a future macOS that
 // removes a symbol simply yields no reading. No reading is always safe: Gloam then dims as
 // scheduled. With the lid closed the sensor is covered and reports 0 lux, which would read as
-// a dark room, so a closed lid also yields nil. Apple Silicon only; Intel Macs and desktops
-// (no sensor) get nil.
+// a dark room, so a closed lid also yields nil. Desktops (no sensor) get nil.
 
 import Foundation
 import IOKit

@@ -29,13 +29,11 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
         let event = NSApp.currentEvent
         if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
             showMenu()
+        } else if panel?.isVisible == true {
+            close()
         } else {
-            toggle()
+            open()
         }
-    }
-
-    func toggle() {
-        if panel?.isVisible == true { close() } else { open() }
     }
 
     /// Right-click: the shortcuts people expect from a menu-bar item.
@@ -51,7 +49,12 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
         }
         menu.addItem(.separator())
         if model.enabled {
-            menu.addItem(withTitle: String(localized: "Turn Gloam Off"), action: #selector(toggleEnabled), keyEquivalent: "").target = self
+            if model.pausedByFocus, model.excludedFrontmost == nil {  // else Resume would show nothing
+                // Lifted until the Focus next comes on, as the popover's Resume. (macOS doesn't
+                // tell apps which Focus is on, so it can't be named.)
+                menu.addItem(withTitle: String(localized: "Resume Gloam (Paused by Your Focus)"), action: #selector(resumeFromFocus), keyEquivalent: "").target = self
+            }
+            menu.addItem(withTitle: String(localized: "Turn Gloam Off"), action: #selector(turnOff), keyEquivalent: "").target = self
             // The pause people reach for most: each one ends by itself.
             let pause = NSMenu()
             pause.addItem(withTitle: String(localized: "For an Hour"), action: #selector(offForAnHour), keyEquivalent: "").target = self
@@ -61,7 +64,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
         } else {
             let title = model.resumeAt.map { String(localized: "Resume Gloam (Paused Until \(Format.time($0)))") }
                 ?? String(localized: "Turn Gloam On")
-            menu.addItem(withTitle: title, action: #selector(toggleEnabled), keyEquivalent: "").target = self
+            menu.addItem(withTitle: title, action: #selector(turnOn), keyEquivalent: "").target = self
         }
         // An app exception is permanent (Settings › Apps that pause Gloam), so it sits apart from
         // the timed offs, which all end by themselves.
@@ -83,10 +86,15 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     @objc private func openSettings() { Windows.showSettings() }
     @objc private func checkForUpdates() { Updates.checkNow() }
     @objc private func installUpdate() { Updates.install() }
-    @objc private func toggleEnabled() { AppModel.shared.enabled.toggle() }
-    @objc private func offForAnHour() { AppModel.shared.turnOff(until: AppModel.shared.now.addingTimeInterval(3600)) }
-    @objc private func offUntilMorning() { AppModel.shared.turnOff(until: AppModel.shared.nextMorning) }
-    @objc private func excludeFrontmost() { AppModel.shared.excludeFrontmost() }
+    @objc private func turnOff() { AppModel.shared.run(.off) }
+    /// Visibly on, as the shortcut's and Shortcuts' "On": a Focus's pause is lifted too.
+    @objc private func turnOn() { AppModel.shared.run(.on) }
+    @objc private func resumeFromFocus() { AppModel.shared.pausedByFocus = false }
+    @objc private func offForAnHour() { AppModel.shared.pause(untilMorning: false) }
+    @objc private func offUntilMorning() { AppModel.shared.pause(untilMorning: true) }
+    @objc private func excludeFrontmost() {
+        if let url = AppModel.shared.frontmost?.bundleURL { AppModel.shared.exclude(appAt: url) }
+    }
     @objc private func includeFrontmost() {
         let id = AppModel.shared.frontmost?.bundleIdentifier
         AppModel.shared.excludedApps.removeAll { $0.bundleID == id }
@@ -159,7 +167,7 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     private func refreshIcon() {
         let model = AppModel.shared
         withObservationTracking {
-            let mode: GloamGlyph.Mode = !model.enabled ? .off : model.excludedFrontmost != nil || model.pausedByFocus ? .aside : .running
+            let mode: GloamGlyph.Mode = !model.enabled ? .off : model.pausedAside ? .aside : .running
             // Cached images: assign only when it changes (this re-runs on every model change).
             let image = GloamGlyph.cached(mode: mode, depth: model.eveningDepth)
             if item.button?.image !== image { item.button?.image = image }

@@ -112,7 +112,7 @@ sensitive people in dark rooms: about 4× less melanopic light from the screen e
 ~5 lx the dose-response is extrapolated, and in a lit room (homes average ~18 melanopic lux
 before bed, Cain et al. 2020, *J. Pineal Res.*) the room outweighs it. Past the default the user
 consents: the smear floor and the 8 % light floor ease off towards the ends (no smear floor at
-ember, 3 % light at 30 %), and a note names the cost.
+ember, 3 % light at 30 %), and going warmer shows a note naming the cost.
 
 Morning light should be bright: after waking Gloam ignores the sun for five hours (easing back
 in afterwards), so a dark winter morning isn't left filtered.
@@ -132,19 +132,19 @@ Transitions interpolate in mireds (10⁶/K), where equal steps look equally larg
 ## Dimming: the backlight where macOS allows it, the signal elsewhere
 
 Where the brightness keys work (the built-in panel, Apple displays) Gloam dims the backlight
-itself through the same call, as a fraction of the level it finds, never below 8 % of the
-panel's maximum (easing to 3 % only past the recommended night, by choice): about 40 cd/m² on a 500-nit screen, within what is comfortable for sustained
+itself through the same call, the schedule's dimming going the same share of the way to that panel's
+own floor, so a dim screen is dimmed less (with half the panel's light the night keeps 37 % of it,
+not 27 %; at full brightness it barely changes). The floor is 8 % of the panel's maximum (easing to 3 % only past the recommended night, by choice): about 40 cd/m² on a 500-nit screen, within what is comfortable for sustained
 smartphone reading in low room light (Na & Suk 2015, *Opt. Express* 23:16912) and inside the
 21–75 cd/m² evening viewers preferred under 13–62 lx room light (Zhou et al. 2021, *Appl. Sci.*
-11:4108; Gloam's dark-room case lies below that range, where the optimum trends lower). A key press or auto-brightness moving the backlight is adopted, not fought: the
-fraction then applies to the new level, and the morning restores the level moved to
-(`BacklightDim`). Why not the signal: a dimmed signal leaves the backlight at full power,
+11:4108; Gloam's dark-room case lies below that range, where the optimum trends lower). A key press or auto-brightness moving the backlight is adopted, not fought:
+tonight's curve passes through it, and the morning restores the day level, or a press above it (`BacklightDim`). Why not the signal: a dimmed signal leaves the backlight at full power,
 crushes shadows below ~30 %, pushes the liquid crystal into its slow dark range (below), and
 on M5 Pro and M5 Max MacBook Pros (and the MacBook Neo's external displays) macOS 26 and
 later ignore gamma tables altogether, an open Apple bug. Third-party
 monitors that answer a DDC/CI brightness read (most on a direct DisplayPort, USB-C or HDMI
 link; rarely through hubs, never DisplayLink or most TVs) are dimmed the same way over that
-channel, on their own 0–100 scale; the rest by signal, never below 30 %.
+channel, on their own scale (usually 0–100); the rest by signal, never below 30 %.
 
 ### Light text on a dark background smears when the panel's white is dim
 
@@ -174,8 +174,8 @@ floor and Gloam's backlight dimming in effect: no trails at a slider of 20–50 
 stronger at 80 %, heavy at 100 %. (Contrast alone predicts no change, the backlight scales a
 trail with the white around it; at low absolute luminance the trail evidently drops below what
 the eye resolves.) Gloam doesn't lower the backlight to buy warmth: that fights the user's own
-brightness. Monitors dimmed by signal get the full floor when switched on
-per display in Settings: macOS says nothing about their panels. Measured: one panel, one
+brightness. A monitor gets the floor, in full, once "Avoid smearing" is on for it in Settings
+(macOS says nothing about its panel); a DDC-dimmed one, like the Mac's own, only in warmth. Measured: one panel, one
 neutral threshold. That the same luminance predicts warm smearing is the model's claim, backed
 by the physics and by iPad Pro XDR users finding the scrolling smear "more prominent when Night
 Shift is on"; a floor on green's own drive would put the cap near 3000–3200 K instead.

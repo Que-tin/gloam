@@ -39,15 +39,7 @@ final class Redraw {
 
     private static func makeDot(on screen: NSScreen) -> NSPanel {
         let frame = NSRect(x: screen.frame.minX, y: screen.frame.minY, width: 2, height: 2)
-        let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.ignoresMouseEvents = true
-        panel.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.sharingType = .none
-        panel.hidesOnDeactivate = false
+        let panel = NSPanel.clickThrough(frame: frame)
         let view = NSView(frame: NSRect(origin: .zero, size: frame.size))
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.black.cgColor

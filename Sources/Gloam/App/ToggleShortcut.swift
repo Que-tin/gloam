@@ -44,11 +44,9 @@ struct KeyCombo: Codable, Equatable {
         let named: [Int: String] = [
             kVK_Space: "Space", kVK_Return: "↩", kVK_Tab: "⇥", kVK_Escape: "⎋", kVK_Delete: "⌫",
             kVK_LeftArrow: "←", kVK_RightArrow: "→", kVK_UpArrow: "↑", kVK_DownArrow: "↓",
-            kVK_F1: "F1", kVK_F2: "F2", kVK_F3: "F3", kVK_F4: "F4", kVK_F5: "F5", kVK_F6: "F6",
-            kVK_F7: "F7", kVK_F8: "F8", kVK_F9: "F9", kVK_F10: "F10", kVK_F11: "F11", kVK_F12: "F12",
-            kVK_F13: "F13", kVK_F14: "F14", kVK_F15: "F15",
         ]
         if let name = named[Int(event.keyCode)] { return name }
+        if let f = functionKeys.firstIndex(of: Int(event.keyCode)) { return "F\(f + 1)" }
         // The key's own character, without Shift's: ⇧⌘1 reads "⇧⌘1", not "⇧⌘!".
         return (event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers ?? "?").uppercased()
     }

@@ -44,7 +44,7 @@ nonisolated final class DDC: @unchecked Sendable {
     /// The brightness found when the monitor answered, as a fraction of `maximum`.
     let initial: Double
 
-    private let queue = DispatchQueue(label: "Gloam.DDC")
+    private let queue = DispatchQueue(label: "Gloam.DDC", qos: .utility)  // mostly waiting on the bus
     private let lock = NSLock()
     /// The latest value asked for and not yet sent, with who to tell how it went (guarded by `lock`).
     private var pending: (fraction: Double, done: @MainActor @Sendable (Bool) -> Void)?
@@ -56,12 +56,15 @@ nonisolated final class DDC: @unchecked Sendable {
         self.service = service
         guard let (current, max) = Self.readBrightness(service), max > 0 else { return nil }
         maximum = max
-        initial = Double(current) / Double(max)
+        initial = min(1, Double(current) / Double(max))  // some report above their maximum
     }
 
     /// One step of the monitor's own scale, as a fraction.
     var step: Double { 1 / Double(maximum) }
     var isFailing: Bool { lock.withLock { lastFailed } }
+    /// A failed write with nothing left to send (it failed before it dimmed anything) is
+    /// forgotten: only a write clears it, and none would come until the next evening's.
+    func forgetFailure() { lock.withLock { lastFailed = false } }
 
     /// Sends `fraction` soon, replacing any value still waiting: the latest one always arrives.
     /// `done` hears on the main actor whether it got through; a replaced value is never sent
@@ -85,7 +88,7 @@ nonisolated final class DDC: @unchecked Sendable {
     /// to the main actor; nil when the monitor didn't answer.
     func read(_ done: @escaping @MainActor @Sendable (Double?) -> Void) {
         queue.async {
-            let fraction = Self.readBrightness(self.service).map { Double($0.current) / Double(self.maximum) }
+            let fraction = Self.readBrightness(self.service).map { min(1, Double($0.current) / Double(self.maximum)) }
             DispatchQueue.main.async { done(fraction) }
         }
     }

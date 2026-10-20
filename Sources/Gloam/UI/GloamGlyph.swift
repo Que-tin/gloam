@@ -2,8 +2,8 @@
 // nested continuous-corner squircles; as the evening deepens they light one at a time from the
 // core outward (day: thin outlines · sunset: core filled · wind-down: middle band thickens ·
 // night: rim thickens), always with a 1pt dark gap between layers so night never collapses
-// into a filled square. Stepping aside for an excepted app shows the core as a small hollow
-// square; off adds an SF-style slash.
+// into a filled square. Stepping aside for an excepted app or a Focus shows the core as a small
+// hollow square; off adds an SF-style slash.
 //
 // Squircles, never circles: concentric circles read as a target or an eye.
 
@@ -13,10 +13,10 @@ import AppKit
 struct GloamGlyph: View {
     enum Mode { case running, aside, off }
 
-    var mode: Mode = .running
+    let mode: Mode
     /// 0 = day (outlines only) … 1 = night (all three layers lit). The four stages sit at
     /// 0, ⅓, ⅔ and 1.
-    var depth: Double = 0
+    let depth: Double
 
     static let size: CGFloat = 18
     // Three layers as (half-extent, unlit stroke, lit stroke). Lit strokes are chosen so a 1pt
@@ -54,7 +54,7 @@ struct GloamGlyph: View {
             }
 
             if mode == .aside {
-                // Stepping aside for an excepted app: the core becomes a small hollow square.
+                // Stepping aside for an excepted app or a Focus: the core becomes a small hollow square.
                 ring(1.5, 1, corner: 0.15)
             }
 
@@ -73,24 +73,18 @@ struct GloamGlyph: View {
 
     private static var cache: [String: NSImage] = [:]
 
-    /// The status-item image, rendered once per mode and 1/24 step of depth. The menu bar
-    /// re-evaluates its label on every model change; rendering each time would be wasteful.
+    /// The status-item image as a template (macOS tints it for light and dark menu bars),
+    /// rendered once per mode and depth: `AppModel.eveningDepth` already comes in 24 steps, and
+    /// the menu bar re-evaluates its label on every model change.
     static func cached(mode: Mode, depth: Double) -> NSImage {
-        let step = (min(1, max(0, depth)) * 24).rounded() / 24
-        let key = "\(mode)-\(step)"
+        let key = "\(mode)-\(depth)"
         if let hit = cache[key] { return hit }
-        let img = image(mode: mode, depth: step)
-        cache[key] = img
-        return img
-    }
-
-    /// Template NSImage for the status item; macOS tints it for light/dark menu bars.
-    private static func image(mode: Mode, depth: Double) -> NSImage {
         let r = ImageRenderer(content: GloamGlyph(mode: mode, depth: depth).foregroundStyle(.black))
         r.scale = 2  // crisp on Retina; 1× screens downsample it cleanly
         let img = r.nsImage ?? NSImage(size: NSSize(width: size, height: size))
         img.isTemplate = true
         img.accessibilityDescription = "Gloam"
+        cache[key] = img
         return img
     }
 }

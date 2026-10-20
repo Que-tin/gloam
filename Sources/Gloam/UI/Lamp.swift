@@ -5,6 +5,7 @@
 // By day the lamp is unlit at 100% blue light; the evening is the event.
 
 import AppKit
+import Carbon.HIToolbox
 import GloamCore
 import SwiftUI
 
@@ -16,10 +17,6 @@ enum Lamp {
     static let amber = Color(rgb: 0xFF9A3C)
     static let label = Font.system(size: 10, weight: .medium, design: .monospaced)
 
-    /// Whether focus just arrived from the keyboard (Tab, arrows). Clicking a control also
-    /// focuses it, and a focus ring after a mouse click reads as a glitch, so rings show only
-    /// for keyboard focus.
-    static var focusFromKeyboard: Bool { NSApp.currentEvent?.type == .keyDown }
 
     /// A tick on a trackpad that supports it; silent elsewhere.
     static func detent() {
@@ -32,11 +29,47 @@ enum Lamp {
 struct LampLabel: View {
     let text: String
     var opacity = 0.6
-    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        Text(text).font(Lamp.label).tracking(1.2).textCase(.uppercase)
-            .foregroundStyle(Lamp.ink.opacity(contrast == .increased ? max(opacity, 0.9) : opacity))
+        Text(text).font(Lamp.label).tracking(1.2).textCase(.uppercase).lampInk(opacity)
+    }
+}
+
+extension View {
+    /// Focusable, with `ring` set only while the focus came from the keyboard (Tab, arrows):
+    /// clicking a control also focuses it, and a ring after a mouse click reads as a glitch.
+    func keyboardRing(_ ring: Binding<Bool>, focusable: Bool = true) -> some View {
+        modifier(KeyboardRing(ring: ring, isFocusable: focusable))
+    }
+
+    /// The lamp's ink at `opacity`, raised to 0.9 for Increase Contrast: quiet text stays legible.
+    func lampInk(_ opacity: Double) -> some View { modifier(LampInk(opacity: opacity)) }
+}
+
+private struct KeyboardRing: ViewModifier {
+    @Binding var ring: Bool
+    let isFocusable: Bool
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content.focusable(isFocusable).focused($focused).focusEffectDisabled()
+            .onChange(of: focused) { _, now in ring = now && Self.movedFocus(NSApp.currentEvent) }
+    }
+
+    /// Tab or an arrow key, not just any key: ⌘, opening Settings handed out focus during its own
+    /// key-down, and the first arrow press (meant to scroll) then changed a setting.
+    private static func movedFocus(_ event: NSEvent?) -> Bool {
+        guard let event, event.type == .keyDown, !event.modifierFlags.contains(.command) else { return false }
+        return [kVK_Tab, kVK_LeftArrow, kVK_RightArrow, kVK_DownArrow, kVK_UpArrow].contains(Int(event.keyCode))
+    }
+}
+
+private struct LampInk: ViewModifier {
+    let opacity: Double
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        content.foregroundStyle(Lamp.ink.opacity(contrast == .increased ? max(opacity, 0.9) : opacity))
     }
 }
 
@@ -133,23 +166,25 @@ struct PowerSwitch: View {
 // MARK: - The dial
 
 /// The warmth dial around the glowing orb. The orb shows what the screen is doing now; the
-/// dial shows and sets the warmth, 0 (cool end) … 1 (warm end); `kelvinAt` maps a position to
-/// Kelvin (mired-even, so equal turns are equal visible steps).
+/// dial shows and sets the warmth asked for, 0 (cool end) … 1 (warm end); `kelvinAt` maps a
+/// position to Kelvin (mired-even, so equal turns are equal visible steps).
 struct LampDial: View {
     @Binding var fraction: Double
     let kelvinAt: (Double) -> Double
     /// What the orb glows with: the screen's tint this instant.
     let shown: Tint
-    /// 0 = the lamp is unlit (off, paused for an app, or daytime), 1 = lit. Animated by `PopoverView.warm`.
+    /// 0 = the lamp is unlit (off, paused for an app or a Focus, or daytime), 1 = lit. Animated by `PopoverView.warm`.
     let core: Double
     let bloom: Double
+    /// The orb's reading, "20%" or "<5%", over the words "blue light". Always a number, never a
+    /// word ("off", "aside" read as broken), nor why it's paused: the header and status row say that.
     let orbTitle: String
-    let orbCaption: String
+    private var orbCaption: String { String(localized: "blue light") }
     /// When set, the orb is a quiet power button (Gloam is off) instead of a readout.
     var onPower: (() -> Void)?
-    /// False when turning the ring would change nothing (an app in front pauses Gloam): no
-    /// drag, no cursor, no detents. A drag the binding ignored used to buzz the trackpad on
-    /// every event.
+    /// False when turning the ring would change nothing (an app or a Focus pauses Gloam): no
+    /// drag, no cursor, no detents. A drag the binding ignored used to buzz the trackpad on every
+    /// event.
     var editable = true
     /// Spoken by VoiceOver after the dial's name: "Warmth, Wind-down".
     let stageName: String
@@ -158,7 +193,6 @@ struct LampDial: View {
 
     @GestureState private var dragging = false
     @State private var hovering = false
-    @FocusState private var focused: Bool
     @State private var ring = false  // keyboard focus only
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -166,6 +200,7 @@ struct LampDial: View {
     static let ringRadius = 88.0, orbRadius = 56.0, ticks = 49
     /// Drags and hovers count only on the ring band, not on the orb or the panel corners.
     static let band = 62.0...114.0
+    private static func onRing(_ p: CGPoint, _ center: CGPoint) -> Bool { band.contains(hypot(p.x - center.x, p.y - center.y)) }
 
     /// Dial fraction for a pointer angle (degrees, screen coordinates). In the open gap at the
     /// bottom the value holds at whichever end it was nearer, so a drag that overshoots never
@@ -198,7 +233,7 @@ struct LampDial: View {
                 .gesture(drag(center: center))
                 .onContinuousHover { phase in
                     if case .active(let p) = phase, editable {
-                        let inBand = Self.band.contains(hypot(p.x - center.x, p.y - center.y))
+                        let inBand = Self.onRing(p, center)
                         if inBand != hovering {
                             hovering = inBand
                             (inBand ? NSCursor.openHand : NSCursor.arrow).set()
@@ -219,10 +254,8 @@ struct LampDial: View {
             }
         }
         .frame(height: 2 * Self.ringRadius + 42)
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onChange(of: focused) { _, now in ring = now && Lamp.focusFromKeyboard }
+        .keyboardRing($ring, focusable: editable)  // as the ladder: no Tab stop that ignores every key
+        // The first press acts, unlike Settings' (where it only shows the ring): nothing scrolls here.
         .onMoveCommand { direction in
             ring = true
             switch direction {
@@ -252,12 +285,12 @@ struct LampDial: View {
         DragGesture(minimumDistance: 0)
             .updating($dragging) { g, state, _ in
                 // A press that starts off the ring (on the orb, in a corner) isn't a dial drag.
-                if editable, Self.band.contains(hypot(g.startLocation.x - center.x, g.startLocation.y - center.y)) {
+                if editable, Self.onRing(g.startLocation, center) {
                     state = true
                 }
             }
             .onChanged { g in
-                guard editable, Self.band.contains(hypot(g.startLocation.x - center.x, g.startLocation.y - center.y)) else { return }
+                guard editable, Self.onRing(g.startLocation, center) else { return }
                 NSCursor.closedHand.set()
                 let angle = atan2(g.location.y - center.y, g.location.x - center.x) * 180 / .pi
                 let new = Self.fraction(angle: angle, previous: fraction)
@@ -281,8 +314,9 @@ struct LampDial: View {
             .allowsHitTesting(false)
     }
 
-    /// The light's name tight under the ring, a tracked caption beneath. No Kelvin number:
-    /// equal turns are equal perceived steps, which in Kelvin read as wildly uneven jumps.
+    /// The light's name tight under the ring, a tracked caption beneath. No Kelvin number on
+    /// screen: equal turns are equal perceived steps, which in Kelvin read as wildly uneven jumps.
+    /// The tooltip and VoiceOver give it, for whoever asks.
     private func readout(_ kelvin: Double) -> some View {
         VStack(spacing: 3) {
             Text(Light.name(kelvin))
@@ -345,11 +379,6 @@ struct LampDial: View {
         .position(x: center.x + cos(a) * Self.ringRadius, y: center.y + sin(a) * Self.ringRadius)
     }
 
-    /// The reading, "20%" or "<5%".
-    private var orbHeadline: Text {
-        Text(orbTitle).font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
-    }
-
     /// The lamp face: colour is the screen's warmth now, light is its brightness.
     private var orb: some View {
         let k = shown.kelvin
@@ -397,40 +426,38 @@ struct LampDial: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(onPower == nil ? "\(orbTitle), \(orbCaption)" : String(localized: "Turn Gloam on"))
             .accessibilityAddTraits(onPower == nil ? [] : .isButton)
-            .accessibilityAction { onPower?() }
+            .accessibilityAction { onPower?() }  // the default press (VO-Space); a readout ignores it
             .help(onPower == nil
                 ? String(localized: "How much of the blue-rich light that keeps you alert in the evening (melanopic light) still reaches you, compared with this screen untinted at its daytime brightness.")
                 : String(localized: "Turn Gloam on"))
     }
 
     private func readoutText(r: CGFloat, ink: Color, etched: Bool) -> some View {
-            // Numbers roll from one to the next (numericText), on a switch and while dragging alike.
-            // Only numbers belong here: a word rolling into a number overprints.
-            VStack(spacing: 2) {
-                orbHeadline
-                    .tracking(-1)
-                    .lineLimit(1)
-                    // 28 pt keeps "100%" inside this padded frame, so percentages never shrink
-                    // or jump.
-                    .minimumScaleFactor(0.5)
-                    .frame(maxWidth: r * 1.7)
-                    .contentTransition(.numericText())
-                    .animation(reduceMotion ? nil : .snappy, value: orbTitle)
-                if !orbCaption.isEmpty {
-                    Text(orbCaption)
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .opacity(0.85)
-                }
-            }
-            .foregroundStyle(ink.opacity(core > 0.5 ? 0.92 : 0.75))
-            .blendMode(etched ? .multiply : .normal)
-            .offset(y: 2)
+        // Numbers roll from one to the next (numericText), on a switch and while dragging alike.
+        // Only numbers belong here: a word rolling into a number overprints.
+        VStack(spacing: 2) {
+            Text(orbTitle).font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
+                .tracking(-1)
+                .lineLimit(1)
+                // 28 pt keeps "100%" inside this padded frame, so percentages never shrink or jump.
+                .minimumScaleFactor(0.5)
+                .frame(maxWidth: r * 1.7)
+                .contentTransition(.numericText())
+                .animation(reduceMotion ? nil : .snappy, value: orbTitle)
+            Text(orbCaption)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .opacity(0.85)
+        }
+        .foregroundStyle(ink.opacity(core > 0.5 ? 0.92 : 0.75))
+        .blendMode(etched ? .multiply : .normal)
+        .offset(y: 2)
     }
 }
 
 // MARK: - Dimming ladder
 
-/// Cells rising like a volume wedge, 0 (full brightness) … 1 (as dim as this screen goes);
+/// Cells rising like a volume wedge, 0 (full brightness) … 1 (the schedule's deepest, which each
+/// screen takes as far as its own darkest);
 /// each lit cell glows as bright as the screen it stands for, so the further the ladder goes
 /// the dimmer its own light. Each cell is 5%: the lit cells match the number to half a cell.
 /// "Dimming" rather than "brightness": what the control does is take light away, and the
@@ -439,8 +466,10 @@ struct DimmingLadder: View {
     @Binding var dimming: Double
     let kelvin: Double
     let core: Double
+    /// False when no step would change anything (the screen is already as dim as it goes): no
+    /// cursor, no focus, no detents, as the dial's `editable`.
+    var editable = true
     @GestureState private var dragging = false
-    @FocusState private var focused: Bool
     @State private var ring = false  // keyboard focus only
     @Environment(\.isEnabled) private var isEnabled
     static let cells = 20
@@ -481,7 +510,7 @@ struct DimmingLadder: View {
                     .onChanged { g in
                         set(cells: Int((g.location.x / geo.size.width * Double(Self.cells) + 0.5).rounded(.down)))
                     })
-                .onHover { inside in (inside && isEnabled ? NSCursor.pointingHand : NSCursor.arrow).set() }
+                .onHover { inside in (inside && isEnabled && editable ? NSCursor.pointingHand : NSCursor.arrow).set() }
             }
             .frame(height: 20)
             .padding(4)
@@ -490,11 +519,9 @@ struct DimmingLadder: View {
                 .strokeBorder(ring ? Color.kelvin(kelvin).opacity(0.8)
                                    : Color.white.opacity(0.08), lineWidth: ring ? 1.2 : 0.8))
         }
-        .opacity(isEnabled ? 1 : 0.5)  // a disabled ladder must not look like a live one
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onChange(of: focused) { _, now in ring = now && Lamp.focusFromKeyboard }
+        .opacity(isEnabled && editable ? 1 : 0.5)  // a ladder that can't act must not look live
+        .keyboardRing($ring, focusable: editable)
+        // The first press acts, as the dial's.
         .onMoveCommand { direction in
             ring = true
             switch direction {
@@ -504,7 +531,9 @@ struct DimmingLadder: View {
             }
         }
         .onScrollWheel { delta in set(cells: litCells + (delta > 0 ? 1 : -1)) }
-        .help("How far Gloam dims below your own brightness: 0% leaves your screen as you set it; 100% is as dim as it goes. Drag, click, scroll or use the arrow keys.")
+        .help(editable
+            ? String(localized: "How far Gloam dims below your own brightness: 0% leaves your screen as you set it; 100% is as dim as it goes. Drag, click, scroll or use the arrow keys.")
+            : String(localized: "Your screen is already as dim as it goes."))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Dimming")
         .accessibilityValue(Format.percent(dimming))
@@ -514,10 +543,9 @@ struct DimmingLadder: View {
     private func set(cells: Int) {
         let n = min(Self.cells, max(0, cells))
         // Scrolling reaches here even while disabled (an AppKit view catches it): no detent then.
-        guard isEnabled, n != litCells else { return }
+        guard isEnabled, editable, n != litCells else { return }
         dimming = Double(n) / Double(Self.cells)
-        // A detent only for a step that happened (a screen that can't dim stays full).
-        if litCells == n { Lamp.detent() }
+        if litCells == n { Lamp.detent() }  // only for a step that happened
     }
 }
 
@@ -532,10 +560,10 @@ struct LampPill: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)) }
+            if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)).accessibilityHidden(true) }
             Text(title).font(Lamp.label).tracking(0.9).textCase(.uppercase)
         }
-        .foregroundStyle(Lamp.ink.opacity(hovering ? 0.95 : 0.75))
+        .lampInk(hovering ? 0.95 : 0.75)
         .padding(.horizontal, 10)
         .frame(height: 26)
         .background(Capsule().fill(.white.opacity(hovering ? 0.08 : 0.045)))
@@ -608,7 +636,6 @@ struct LampNotice: View {
 private struct LampPress<S: Shape>: ViewModifier {
     let shape: S
     let action: () -> Void
-    @FocusState private var focused: Bool
     @State private var ring = false
 
     func body(content: Content) -> some View {
@@ -616,10 +643,7 @@ private struct LampPress<S: Shape>: ViewModifier {
             .contentShape(shape)
             .onTapGesture(perform: action)
             .overlay(shape.stroke(Lamp.ink.opacity(ring ? 0.8 : 0), lineWidth: 1.5).padding(-3))
-            .focusable()
-            .focused($focused)
-            .focusEffectDisabled()
-            .onChange(of: focused) { _, now in ring = now && Lamp.focusFromKeyboard }
+            .keyboardRing($ring)
             .onKeyPress(.space, phases: .down) { _ in  // Return is the window's default button's, as on any Mac
                 action()
                 return .handled
@@ -659,6 +683,8 @@ private struct ScrollCatcher: NSViewRepresentable {
         private var accumulated: CGFloat = 0
 
         override func scrollWheel(with event: NSEvent) {
+            // Only while fingers are on the trackpad: a flick's momentum kept stepping on after.
+            guard event.momentumPhase.isEmpty else { return }
             accumulated += event.scrollingDeltaY
             guard abs(accumulated) >= (event.hasPreciseScrollingDeltas ? 12 : 1) else { return }
             handler?(accumulated > 0 ? 1 : -1)

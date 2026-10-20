@@ -9,8 +9,6 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Bindable var model: AppModel
-    /// "Preview tonight" is on: the screen shows the night the limits allow until "Done".
-    @State private var previewing = false
     private static let titleBarHeight: CGFloat = 28
     /// The form has scrolled under the title bar (`ScrollWatcher`).
     @State private var scrolled = false
@@ -78,15 +76,13 @@ struct SettingsView: View {
             EveningGraph(schedule: $model.schedule, place: model.place.coordinate, wake: model.eveningWake)
             HStack(spacing: 14) {
                 // In the graph's own units: warmth by name and Kelvin (its left axis), dimming in
-                // percent of the schedule's fixed scale (its right axis; the popover's ladder counts to
-                // as dim as the screen goes instead).
+                // percent of the schedule's fixed scale (its right axis, the popover ladder's too).
                 LegendKey(title: String(localized: "Warmest"), value: "\(Light.name(model.schedule.warmest)) · \(Format.kelvin(model.schedule.warmest))",
                           spoken: Format.percent(model.schedule.warmthAllowance),
-                          color: Color.kelvin(2400), allowance: $model.schedule.warmthAllowance,
+                          color: EveningGraph.warm, allowance: $model.schedule.warmthAllowance,
                           recommended: Schedule().warmthAllowance)
                 LegendKey(title: String(localized: "Dimmest"), value: Format.percent(Light.dimming(model.schedule.darkest)),
-                          spoken: Format.percent(Light.dimming(model.schedule.darkest)),
-                          color: Color(white: 0.82), allowance: $model.schedule.dimmingAllowance,
+                          color: EveningGraph.dim, allowance: $model.schedule.dimmingAllowance,
                           recommended: Schedule().dimmingAllowance)
                 Spacer(minLength: 0)
             }
@@ -116,22 +112,17 @@ struct SettingsView: View {
                     .fixedSize()
                     .help(String(localized: "Back to a \(Format.time(Schedule().bedtime)) bedtime, \(Format.time(Schedule().wake)) wake-up and the recommended Warmest and Dimmest"))
                 }
-                LampPill(title: previewing ? String(localized: "Done") : String(localized: "Preview tonight"),
-                         symbol: previewing ? "checkmark" : "eye") {
-                    previewing.toggle()
-                    previewNight()
+                // While on, the screen shows the night the limits allow, so they're never set blind
+                // (by day, with a hand setting, even with Gloam off). Only this starts it: a preview
+                // that also jumped in mid-drag of a limit was confusing.
+                LampPill(title: model.preview != nil ? String(localized: "Done") : String(localized: "Preview tonight"),
+                         symbol: model.preview != nil ? "checkmark" : "eye") {
+                    model.preview = model.preview == nil ? night : nil
                 }
                 .fixedSize()
             }
         }
         .onChange(of: model.schedule) { if model.preview != nil { model.preview = night } }
-    }
-
-    /// While "Preview tonight" is on, the screen shows the night the limits allow, so they're
-    /// never set blind (by day, while a hand setting is on, even while Gloam is off). Only the
-    /// button starts it: a preview that also jumped in mid-drag of a limit was confusing.
-    private func previewNight() {
-        model.preview = previewing ? night : nil
     }
 
     /// What going warmer than the recommended night may cost, said once Warmest goes there (the
@@ -278,14 +269,15 @@ private struct LegendKey: View {
     let title: String
     let value: String
     /// What VoiceOver adds to the name, so a step that keeps the same name still sounds like one.
-    let spoken: String
+    var spoken: String? = nil
     let color: Color
     @Binding var allowance: Double
     /// The recommended night on this scale: a step landing within half a step of it lands on it
     /// (the 5 % grid misses it, and the way back must not need Reset).
     let recommended: Double
-    @FocusState private var focused: Bool
-    @State private var ring = false  // keyboard focus only: it also takes focus as Settings opens
+    // Keyboard focus only: it also takes focus as Settings opens, unseen, so an arrow pressed
+    // then (to scroll) first shows the ring rather than changing the setting.
+    @State private var ring = false
 
     private func nudge(_ step: Double) {
         let next = allowance + step
@@ -302,12 +294,9 @@ private struct LegendKey: View {
         .fixedSize()
         .padding(.horizontal, 6).padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: 6).strokeBorder(color.opacity(ring ? 0.8 : 0)))
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onChange(of: focused) { _, now in ring = now && Lamp.focusFromKeyboard }
+        .keyboardRing($ring)
         .onMoveCommand { direction in
-            ring = true
+            guard ring else { ring = true; return }
             switch direction {
             case .right, .up: nudge(0.05)
             case .left, .down: nudge(-0.05)
@@ -316,7 +305,7 @@ private struct LegendKey: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
-        .accessibilityValue(value == spoken ? value : "\(value), \(spoken)")
+        .accessibilityValue(spoken.map { "\(value), \($0)" } ?? value)
         .accessibilityAdjustableAction { direction in nudge(direction == .increment ? 0.05 : -0.05) }
         .help("Drag the dashed line in the graph, or select this and use the arrow keys.")
     }
@@ -393,6 +382,7 @@ private struct ShortcutRecorder: View {
     private func stop(keeping: Bool) {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        window = nil  // held, it would keep the closed Settings window (and this view) alive
         held = ""
         guard recording else { return }
         recording = false

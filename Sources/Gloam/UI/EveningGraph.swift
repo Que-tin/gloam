@@ -6,7 +6,7 @@
 //
 // Both curves share one vertical scale, "how much", with two axes: warmth in Kelvin on the left
 // and dimming in percent on the right, both on the schedule's fixed scales (`Light.warmth`,
-// `Light.dimming` with their defaults); the popover's dial and ladder run to the screen instead.
+// `Light.dimming`), the popover's dial and ladder too.
 
 import Charts
 import GloamCore
@@ -34,9 +34,9 @@ struct EveningGraph: View {
     /// The plot's width, for telling whether two markers' labels fit side by side.
     @State private var plotWidth: CGFloat = 280
     @State private var ring = false
-    @FocusState private var focused: Bool
 
-    private static let warm = Color.kelvin(2400), dim = Color(white: 0.82)
+    /// Settings' legend keys use them too: each dot matches its curve.
+    static let warm = Color.kelvin(2400), dim = Color(white: 0.82)
     private static let axisWidth: CGFloat = 46
 
     private var evening: Schedule.Evening { schedule.evening(around: heldAnchor ?? wake.addingTimeInterval(-3600), place) }
@@ -82,10 +82,11 @@ struct EveningGraph: View {
                     .lineStyle(StrokeStyle(lineWidth: 1.5))  // solid: only the limits are dashed
                     .interpolationMethod(.monotone)
             }
+            let bedLabel = String(localized: "Bedtime \(Format.time(e.bedtime))")
             if let sunset = e.sunset, span.contains(sunset) {
                 // Its label gives way when bedtime's is too close to fit beside it (a summer evening,
                 // or the longer labels of a 12-hour clock): two would overprint.
-                let sunsetLabel = label(String(localized: "Sunset"), sunset), bedLabel = label(String(localized: "Bedtime"), e.bedtime)
+                let sunsetLabel = String(localized: "Sunset \(Format.time(sunset))")
                 let apart = abs(sunset.timeIntervalSince(e.bedtime)) / span.upperBound.timeIntervalSince(span.lowerBound) * plotWidth
                 // Centred if it fits, else ending at its line (above the axis labels, which are free there).
                 let centred = apart >= (Self.width(of: sunsetLabel) + Self.width(of: bedLabel)) / 2 + 8
@@ -100,11 +101,11 @@ struct EveningGraph: View {
             RuleMark(x: .value("Bedtime", e.bedtime))
                 .foregroundStyle(.white.opacity(emphasis(.bedtime)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
-                .annotation(position: .top, alignment: .center) { marker(label(String(localized: "Bedtime"), e.bedtime)) }
+                .annotation(position: .top, alignment: .center) { marker(bedLabel) }
             RuleMark(x: .value("Wake", e.wake))
                 .foregroundStyle(.white.opacity(emphasis(.wake)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
-                .annotation(position: .top, alignment: .trailing) { marker(label(String(localized: "Wake-up"), e.wake)) }
+                .annotation(position: .top, alignment: .trailing) { marker(String(localized: "Wake-up \(Format.time(e.wake))")) }
             RuleMark(y: .value("Warmth limit", warmthCap))
                 .foregroundStyle(Self.warm.opacity(emphasis(.warmth)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
@@ -174,12 +175,9 @@ struct EveningGraph: View {
         .frame(height: 190)
         .padding(.top, 14)  // room for the markers' labels
         // No hover help: the grips and cursor say what drags, and a tooltip popped over the curves.
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onChange(of: focused) { _, now in ring = now && Lamp.focusFromKeyboard }
+        .keyboardRing($ring)
         .onMoveCommand { direction in
-            ring = true
+            guard ring else { ring = true; return }  // focus taken unseen: the first arrow shows it
             switch direction {
             case .left: step(keyMarker, by: -1)
             case .right: step(keyMarker, by: 1)
@@ -213,8 +211,6 @@ struct EveningGraph: View {
         schedule[keyPath: path] = all[min(all.count - 1, max(0, i + steps))]
     }
 
-    private func label(_ title: String, _ date: Date) -> String { "\(title) \(Format.time(date))" }
-
     private func marker(_ text: String) -> some View {
         Text(text).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).fixedSize()
     }
@@ -224,7 +220,7 @@ struct EveningGraph: View {
     }
 
     private func emphasis(_ h: Handle) -> Double {
-        dragging == h || (ring && focused && keyMarker == h) ? 1 : hovered == h ? 0.85 : 0.6
+        dragging == h || (ring && keyMarker == h) ? 1 : hovered == h ? 0.85 : 0.6
     }
 
     private func cursor(for h: Handle?) -> NSCursor {
@@ -255,7 +251,7 @@ struct EveningGraph: View {
 
     /// A dragged limit in steps of 1 % of the scale, landing exactly on the range's end and on the
     /// recommended value when within a step (so dragging back to it is the default itself).
-    private static func step(_ v: Double, in range: ClosedRange<Double>, snap: Double) -> Double {
+    private static func snapped(_ v: Double, in range: ClosedRange<Double>, snap: Double) -> Double {
         let r = range.clamp((v * 100).rounded() / 100)
         return abs(r - snap) < 0.01 ? snap : abs(r - range.upperBound) < 0.01 ? range.upperBound : r
     }
@@ -297,11 +293,11 @@ struct EveningGraph: View {
                     guard let v: Double = proxy.value(atY: y) else { return }
                     // Steps of 1 % of the scale, set only when one is crossed: a drag sends ~120
                     // events a second, and each new value redrew Settings and the chart.
-                    let w = Self.step(v, in: warmthRange, snap: Self.recommended.warmth)
+                    let w = Self.snapped(v, in: warmthRange, snap: Self.recommended.warmth)
                     if abs(Light.warmth(schedule.warmest) - w) > 0.001 { schedule.warmest = Light.kelvin(warmth: w) }
                 case .dimming:
                     guard let v: Double = proxy.value(atY: y) else { return }
-                    let d = Self.step(v, in: dimmingRange, snap: Self.recommended.dimming)
+                    let d = Self.snapped(v, in: dimmingRange, snap: Self.recommended.dimming)
                     if abs(Light.dimming(schedule.darkest) - d) > 0.001 { schedule.darkest = Light.brightness(dimming: d) }
                 case nil: break
                 }

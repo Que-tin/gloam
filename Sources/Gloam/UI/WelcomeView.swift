@@ -28,12 +28,13 @@ struct WelcomeView: View {
                     .resizable()
                     .frame(width: 76, height: 76)
                     .shadow(color: .kelvin(2700).opacity(0.35), radius: 22)
+                    .accessibilityHidden(true)
                 Text("Evenings, a little softer.")
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
                     .foregroundStyle(Lamp.ink)
                 Text("Gloam warms your screen as the sun goes down and dims it later in the evening, so it gives off less of the light that keeps you alert.")
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(Lamp.ink.opacity(0.72))
+                    .lampInk(0.72)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity)
@@ -41,6 +42,7 @@ struct WelcomeView: View {
             section(String(localized: "Where you are"), top: 26) {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "location").foregroundStyle(Color.kelvin(2700)).padding(.top, 2)
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(evening.sunset.map { String(localized: "\(shownPlace.name) · sunset today at \(Format.time($0))") }
                              ?? String(localized: "\(shownPlace.name) · no sunset today"))
@@ -49,7 +51,7 @@ struct WelcomeView: View {
                              ? String(localized: "Estimated from your Mac's time zone and worked out on this Mac; no location access needed.")
                              : String(localized: "Worked out on this Mac from the city you chose."))
                             .font(.system(size: 11))
-                            .foregroundStyle(Lamp.ink.opacity(0.6))
+                            .lampInk(0.6)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
@@ -67,6 +69,7 @@ struct WelcomeView: View {
 
             HStack {
                 Text("Open Gloam at login").foregroundStyle(Lamp.ink.opacity(0.85))
+                    .accessibilityHidden(true)  // the switch says it
                 Spacer()
                 PowerSwitch(on: $openAtLogin, kelvin: 2700, help: String(localized: "Open Gloam at login"))
                     .accessibilityLabel("Open Gloam at login")
@@ -79,7 +82,7 @@ struct WelcomeView: View {
 
             Text("Gloam lives in the menu bar. Click its icon any time; right-click for more.")
                 .font(.caption)
-                .foregroundStyle(Lamp.ink.opacity(0.6))
+                .lampInk(0.6)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 10)
         }

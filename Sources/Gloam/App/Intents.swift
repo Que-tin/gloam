@@ -26,6 +26,10 @@ private struct NotSetUp: Error, CustomLocalizedStringResourceConvertible {
     var localizedStringResource: LocalizedStringResource { "Finish setting up Gloam first." }
 }
 
+private struct IsOff: Error, CustomLocalizedStringResourceConvertible {
+    var localizedStringResource: LocalizedStringResource { "Gloam is off." }
+}
+
 /// A pause reaching a copy that is handing over: no URL carries it, so it says so, not "done".
 private struct HandingOver: Error, CustomLocalizedStringResourceConvertible {
     var localizedStringResource: LocalizedStringResource { "Gloam was just starting; run the shortcut again." }
@@ -73,7 +77,10 @@ struct PauseGloamIntent: AppIntent {
     @MainActor func perform() async throws -> some IntentResult {
         guard try mayAct() else { throw HandingOver() }
         let model = AppModel.shared
-        model.turnOff(until: length == .hour ? model.now.addingTimeInterval(3600) : model.nextMorning)
+        // Switched off (not paused): a pause would switch it on when it ends, so it says so instead.
+        // A pause already running is moved to the new end.
+        guard model.enabled || model.resumeAt != nil else { throw IsOff() }
+        model.pause(untilMorning: length == .morning)
         return .result()
     }
 }
@@ -92,7 +99,7 @@ struct GloamFocusFilter: SetFocusFilterIntent {
     @MainActor func perform() async throws -> some IntentResult {
         // Before Start too: it only holds the tint, and Start then begins as the Focus has it.
         if let app = NSApp.delegate as? AppDelegate, app.isHandingOver { return .result() }
-        AppModel.shared.pausedByFocus = pause == true
+        AppModel.shared.focusFilter(pauses: pause == true)
         return .result()
     }
 }

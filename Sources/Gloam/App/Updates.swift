@@ -7,7 +7,7 @@
 // network use besides a city search.
 //
 // Sparkle does the checking, verifying and installing; what the user sees is Gloam's: no update
-// window, one row in the popover (`Updates.status`), because every window is ours. A found update
+// window, one row in the popover (`Updates.state.status`), because every window is ours. A found update
 // downloads quietly and waits there, "ready", for the user's Install; a check they asked for opens
 // the popover to answer. Errors from checks nobody asked for stay silent (offline, say).
 
@@ -39,6 +39,11 @@ enum Updates {
 
     /// Installs the update that's ready and relaunches.
     static func install() { driver.install() }
+
+    /// Quitting to install an update: the screens aren't restored on the way out (the update
+    /// relaunches at once and resumes them, `DisplayController.follow`), or an evening update
+    /// flashed full brightness while it installed.
+    fileprivate(set) static var installing = false
 
     /// Whether Sparkle looks for updates by itself (about once a day).
     static var checksAutomatically: Bool {
@@ -76,6 +81,7 @@ private final class PopoverDriver: NSObject, SPUUserDriver {
     func install() {
         guard let reply = installReply else { return }
         installReply = nil
+        Updates.installing = true
         show(.installing)
         reply(.install)
     }
@@ -116,6 +122,7 @@ private final class PopoverDriver: NSObject, SPUUserDriver {
     func showUpdaterError(_ error: any Error, acknowledgement: @escaping () -> Void) {
         // Only an answer to the user's own check is shown (also when its download fails); a
         // scheduled one fails quietly.
+        Updates.installing = false  // an install that failed: a quit after it restores as usual
         show(asked ? .failed : .idle, for: 6)
         asked = false
         acknowledgement()
@@ -162,6 +169,7 @@ private final class PopoverDriver: NSObject, SPUUserDriver {
 
     func dismissUpdateInstallation() {
         // Sparkle is done with this round; a ready update stays offered until it's installed.
+        Updates.installing = false
         if Updates.state.status == .installing || Updates.state.status == .checking { show(.idle) }
     }
 }

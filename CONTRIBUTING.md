@@ -5,11 +5,11 @@ tinting depends on hardware nobody can test all of.
 
 ## Build and run
 
-Runs on macOS 14+. Building needs Xcode 27 (Xcode 26.6's compiler crashes on the UI code).
+Runs on Apple silicon Macs with macOS 14+. Building needs Xcode 27 (Xcode 26.6's compiler crashes on the UI code).
 
 ```sh
 swift test                      # core logic: colour science, sun, schedule
-swift run Gloam                 # run from source (menu-bar icon appears)
+swift run Gloam                 # run from source (Welcome first, then the menu-bar icon)
 ./scripts/build-app.sh          # release Gloam.app in .build/
 ./scripts/snapshots.sh          # popover at four times of day, Welcome and Settings
 ```
@@ -31,7 +31,7 @@ included, and quits. Anything you launch yourself keeps running until you quit i
 
 ## Reporting a display problem
 
-Please include your Mac model and chip, macOS version, the display's name (Settings →
+Please include your Mac model and chip, macOS version, the display's name (System Settings ›
 Displays shows it), whether HDR is on, and which method is in use. If the screen doesn't
 change at all, say whether switching the method to Overlay helps.
 

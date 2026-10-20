@@ -3,7 +3,8 @@
 // The table is multiplied onto the display's ColorSync calibration rather than an identity
 // ramp, so calibrated monitors stay calibrated. The calibration is read before Gloam first
 // tints a display (and again after every reconfiguration, which usually restores ColorSync
-// first; a table that still shows Gloam's own last write keeps the calibration it had). If
+// first; a table that still shows Gloam's own last write, exactly or resampled, keeps the
+// calibration it had, and one left so overnight is put back as soon as it's seen). If
 // it looks tinted, because another tinting app owns the table, identity is used instead:
 // baking someone else's tint into the base would double the warmth until relaunch.
 //
@@ -14,16 +15,17 @@ import CoreGraphics
 import GloamCore
 
 final class GammaEngine: TintEngine {
-    private struct Ramp { var red, green, blue: [CGGammaValue] }
+    private struct Ramp {
+        var red, green, blue: [CGGammaValue]
+        var top: [CGGammaValue] { [red.last ?? 0, green.last ?? 0, blue.last ?? 0] }
+    }
     private var calibration: [CGDirectDisplayID: Ramp] = [:]
     private var spaces: [CGDirectDisplayID: LinearRGB] = [:]
     private var tinted: Set<CGDirectDisplayID> = []
-    /// The top of each ramp as last written, to notice when something else rewrites it.
-    private var written: [CGDirectDisplayID: [CGGammaValue]] = [:]
-    /// The whole ramp last written while tinting (never a plain calibration write): only a
-    /// table matching it entry for entry is Gloam's own. Matching the top alone also matched any
-    /// fresh profile ending at full output, so a re-profiled display kept its old curve.
-    private var tintRamp: [CGDirectDisplayID: Ramp] = [:]
+    /// Each display's table as last written: its top notices another app's write; whole, a
+    /// tinted one is what `previous` matches entry for entry (matching the top alone also matched
+    /// any fresh profile ending at full output, so a re-profiled display kept its old curve).
+    private var lastWrite: [CGDirectDisplayID: Ramp] = [:]
     /// The gain each display shows now: writing the same table again (a brightness-only change on
     /// a backlight-dimmed display, every clock tick) is a WindowServer call for nothing. Dropped
     /// whenever the table may have changed under Gloam (overwritten, reconfigured, reset).
@@ -42,20 +44,16 @@ final class GammaEngine: TintEngine {
             if let base = calibration[id] ?? capture(id) { write(base, gain: Kelvin.displayGain(tint, in: colourSpace(id)), to: id) }
         }
         tinted = Set(active.keys)
+        settlePrevious(except: Set(active.keys))  // a screen left out tonight (strength 0) too
     }
 
     /// True when a display we tinted no longer shows our table: another app (any app) has
     /// written its own since. Checked just before Gloam re-applies.
     func isOverwritten() -> Bool {
         for id in tinted {
-            guard let ours = written[id] else { continue }
-            let n = Int(CGDisplayGammaTableCapacity(id))
-            guard n > 1 else { continue }
-            var r = [CGGammaValue](repeating: 0, count: n), g = r, b = r
-            var count: UInt32 = 0
-            guard CGGetDisplayTransferByTable(id, UInt32(n), &r, &g, &b, &count) == .success, count > 1 else { continue }
-            let top = [r[Int(count) - 1], g[Int(count) - 1], b[Int(count) - 1]]
-            if zip(top, ours).contains(where: { abs($0 - $1) > 0.01 }) {
+            // The size written (the calibration's): asking the capacity cost a fifth of a tick.
+            guard let ours = lastWrite[id], let read = table(id, size: ours.red.count) else { continue }
+            if zip(read.top, ours.top).contains(where: { abs($0 - $1) > 0.01 }) {
                 gains = [:]  // the next apply must write, not skip
                 return true
             }
@@ -65,10 +63,31 @@ final class GammaEngine: TintEngine {
 
     /// Puts the displays Gloam tinted back to their calibration, one by one: the global
     /// ColorSync restore would also wipe another app's table on displays Gloam leaves alone.
+    /// A table a reconfiguration left showing Gloam's tint (the screens slept while the evening
+    /// ended, and woke without macOS resetting it) gets its calibration back too: else last
+    /// night's warmth stayed on all day.
     func reset() {
         for id in tinted { if let base = calibration[id] { write(base, gain: .white, to: id) } }
         tinted = []
+        settlePrevious(except: [])
     }
+
+    /// A kept table still showing Gloam's tint gets its calibration back; one macOS reset is
+    /// dropped. A display that's offline (lid closed, unplugged) or can't be read keeps its entry
+    /// until it's back: dropped then, the built-in reopened in the morning with last night's tint
+    /// and nothing knew it was Gloam's. Tinted displays keep theirs for `capture`.
+    private func settlePrevious(except tinting: Set<CGDirectDisplayID>) {
+        for (id, kept) in previous where !tinting.contains(id) {
+            guard CGDisplayIsOnline(id) != 0, let read = table(id, size: Int(CGDisplayGammaTableCapacity(id))) else { continue }
+            if Self.isTint(read, kept) { write(kept.calibration, gain: .white, to: id) }
+            previous[id] = nil
+        }
+    }
+
+    /// A display back with a table still showing Gloam's tint from before a reconfiguration gets
+    /// its calibration now, not after the changes settle: called as the change arrives, while the
+    /// screen may still be dark, when nothing is tinted (the morning, Gloam off).
+    func settleKept() { settlePrevious(except: tinted) }
 
     /// Gloam wrote a table this run: only then does quitting reset them all, which would also
     /// undo another app's (a quit from Welcome, say, or a day spent off).
@@ -78,21 +97,21 @@ final class GammaEngine: TintEngine {
     func restoreAll() {
         if everTinted { CGDisplayRestoreColorSyncSettings() }
         tinted = []
-        gains = [:]
     }
 
     /// Forgets every per-display base without writing: writing the old base back (as this once
     /// did) re-captured it as the "new" calibration, so a re-profiled monitor kept its old curve,
     /// and could write to displays that were gone. macOS restores each display's profile on a
-    /// reconfiguration itself; the next apply captures that fresh.
+    /// reconfiguration itself; the next apply captures that fresh. Merged, not replaced: two
+    /// changes with no apply between them (monitors dropping out while the screens sleep) would
+    /// otherwise forget what the first one kept.
     func displaysChanged() {
-        previous = calibration.reduce(into: [:]) { result, entry in
-            if let tint = tintRamp[entry.key] { result[entry.key] = (entry.value, tint) }
+        for (id, base) in calibration where tinted.contains(id) {
+            if let tint = lastWrite[id] { previous[id] = (base, tint) }
         }
         tinted = []
-        written = [:]
+        lastWrite = [:]
         gains = [:]
-        tintRamp = [:]
         calibration.removeAll()
         spaces.removeAll()
     }
@@ -133,29 +152,20 @@ final class GammaEngine: TintEngine {
         let g = base.green.map { $0 * CGGammaValue(gain.green) }
         let b = base.blue.map { $0 * CGGammaValue(gain.blue) }
         CGSetDisplayTransferByTable(id, UInt32(r.count), r, g, b)
-        written[id] = [r.last!, g.last!, b.last!]
-        tintRamp[id] = gain == .white ? nil : Ramp(red: r, green: g, blue: b)
+        lastWrite[id] = Ramp(red: r, green: g, blue: b)
     }
 
     private func capture(_ id: CGDirectDisplayID) -> Ramp? {
         let capacity = Int(CGDisplayGammaTableCapacity(id))
         guard capacity > 1 else { return nil }
-        var ramp = Ramp(
-            red: .init(repeating: 0, count: capacity),
-            green: .init(repeating: 0, count: capacity),
-            blue: .init(repeating: 0, count: capacity))
-        var count: UInt32 = 0
-        let ok = CGGetDisplayTransferByTable(id, UInt32(capacity), &ramp.red, &ramp.green, &ramp.blue, &count) == .success
-        let n = Int(count)
+        let read = table(id, size: capacity)
+        let ramp: Ramp
         // A wake doesn't always reset the table: one still showing Gloam's own last write is
         // Gloam's tint, and capturing it as the calibration would tint everything twice.
-        if ok, n > 1, let (base, tint) = previous.removeValue(forKey: id), tint.red.count == n,
-           [(ramp.red, tint.red), (ramp.green, tint.green), (ramp.blue, tint.blue)].allSatisfy({ read, ours in
-               zip(read.prefix(n), ours).allSatisfy { abs($0 - $1) < 0.005 }
-           }) {
-            ramp = base
-        } else if ok, n > 1, Self.looksLikeCalibration(ramp, n) {
-            ramp = Ramp(red: Array(ramp.red.prefix(n)), green: Array(ramp.green.prefix(n)), blue: Array(ramp.blue.prefix(n)))
+        if let read, let kept = previous.removeValue(forKey: id), Self.isTint(read, kept) {
+            ramp = kept.calibration
+        } else if let read, read.top.allSatisfy({ $0 > 0.92 }) {
+            ramp = read  // a calibration curve ends near full output; a warm or dimmed table doesn't
         } else {
             let identity = (0..<capacity).map { CGGammaValue($0) / CGGammaValue(capacity - 1) }
             ramp = Ramp(red: identity, green: identity, blue: identity)
@@ -164,8 +174,28 @@ final class GammaEngine: TintEngine {
         return ramp
     }
 
-    /// A calibration curve ends near full output on every channel; a warm or dimmed table doesn't.
-    private static func looksLikeCalibration(_ r: Ramp, _ n: Int) -> Bool {
-        [r.red[n - 1], r.green[n - 1], r.blue[n - 1]].allSatisfy { $0 > 0.92 }
+    /// The display's table now, as many entries as it reports; nil when it can't be read.
+    private func table(_ id: CGDirectDisplayID, size n: Int) -> Ramp? {
+        guard n > 1 else { return nil }
+        var r = [CGGammaValue](repeating: 0, count: n), g = r, b = r
+        var count: UInt32 = 0
+        guard CGGetDisplayTransferByTable(id, UInt32(n), &r, &g, &b, &count) == .success, count > 1 else { return nil }
+        let k = Int(count)
+        return Ramp(red: Array(r.prefix(k)), green: Array(g.prefix(k)), blue: Array(b.prefix(k)))
+    }
+
+    /// Gloam's tint, entry for entry, or as macOS hands it back resampled or slightly changed: its
+    /// top within 0.01 of the tint's, where the tint's top isn't the calibration's (so a profile
+    /// macOS put back can't pass for it). Matching only exact copies, a resampled table kept last
+    /// night's warmth all day.
+    private static func isTint(_ read: Ramp, _ kept: (calibration: Ramp, tint: Ramp)) -> Bool {
+        if same(read, kept.tint) { return true }
+        let near = { (a: [CGGammaValue], b: [CGGammaValue]) in zip(a, b).allSatisfy { abs($0 - $1) <= 0.01 } }
+        return near(read.top, kept.tint.top) && !near(kept.tint.top, kept.calibration.top)
+    }
+
+    private static func same(_ read: Ramp, _ ours: Ramp) -> Bool {
+        read.red.count == ours.red.count && [(read.red, ours.red), (read.green, ours.green), (read.blue, ours.blue)]
+            .allSatisfy { zip($0, $1).allSatisfy { abs($0 - $1) < 0.005 } }
     }
 }

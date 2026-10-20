@@ -29,7 +29,7 @@
 
 Or with [Homebrew](https://brew.sh): `brew install --cask que-tin/tap/gloam`.
 
-Needs macOS 14 or later, Apple silicon or Intel. Gloam updates itself (see below). To remove it,
+Needs a Mac with Apple silicon and macOS 14 or later. Gloam updates itself (see below). To remove it,
 quit Gloam and drag it to the Bin (with Homebrew: `brew uninstall --cask gloam`).
 
 ## What it does
@@ -107,7 +107,8 @@ front. You can also pause Gloam for an hour or until morning from the same menu.
 <summary><b>Text leaves a blurry trail when I scroll</b></summary>
 
 Some screens get sluggish when they're very dim, and light text on a dark background smears. Gloam
-never dims your Mac's own screen that far. On a monitor, make the night a little lighter in Gloam's
+never dims your Mac's own screen that far, unless you set Warmest past the recommended night in
+Settings (it tells you then). On a monitor, make the night a little lighter in Gloam's
 Settings (drag the dashed lines in the graph down), or turn on **Avoid smearing** for that monitor:
 Gloam then tries to keep out of the range where it smears. If text still smears, please open an
 [issue](https://github.com/Que-tin/gloam/issues).
@@ -125,8 +126,8 @@ screen time before bed help even more. The research behind it is in [docs/scienc
 <summary><b>Does Gloam collect any data?</b></summary>
 
 No. There's no account and no tracking. Gloam only goes online to check for updates (you can turn
-that off in Settings) and, if you search for a city in Settings, to look that city up with Apple
-Maps. It never asks for your location: it works out sunset from your Mac's time zone.
+that off in Settings) and, if you search for a city (when setting up, or in Settings), to look that
+city up with Apple Maps. It never asks for your location: it works out sunset from your Mac's time zone.
 </details>
 
 ## Build from source

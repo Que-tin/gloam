@@ -50,16 +50,7 @@ final class OverlayEngine: TintEngine {
     }
 
     private static func makePanel(for screen: NSScreen) -> NSPanel {
-        let panel = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.ignoresMouseEvents = true
-        panel.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.sharingType = .none
-        panel.hidesOnDeactivate = false
+        let panel = NSPanel.clickThrough(frame: screen.frame)
         panel.setFrame(screen.frame, display: false)
 
         let view = NSView(frame: NSRect(origin: .zero, size: screen.frame.size))
@@ -73,6 +64,23 @@ final class OverlayEngine: TintEngine {
             view.layer?.addSublayer(layer)
         }
         panel.contentView = view
+        return panel
+    }
+}
+
+extension NSPanel {
+    /// A borderless panel above everything (the shielding level), on every Space, that never
+    /// takes clicks or focus and stays out of screenshots: the overlay's veils and `Redraw`'s dots.
+    static func clickThrough(frame: NSRect) -> NSPanel {
+        let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.sharingType = .none
+        panel.hidesOnDeactivate = false
         return panel
     }
 }

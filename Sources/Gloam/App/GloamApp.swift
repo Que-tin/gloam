@@ -1,8 +1,7 @@
 // Entry point: a menu-bar item (MenuBarPanel), no Dock icon. Plain AppKit, not SwiftUI's App:
 // every window here (popover, Settings, Welcome) is our own AppKit-hosted window, and a SwiftUI
 // App must declare a scene. The only one that fits, an empty `Settings` scene, is a real window
-// that macOS opens by itself (an empty grey "Settings" window behind the popover). MenuBarExtra
-// is out too: it draws chrome we can't style, open from code, or capture.
+// that macOS opens by itself (an empty grey "Settings" window behind the popover).
 
 import AppKit
 import GloamCore
@@ -51,7 +50,9 @@ enum GloamMain {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    @objc func showSettings() { Windows.showSettings() }
+    /// ⌘, from the hidden main menu too: before Start it shows Welcome, which is a draft until
+    /// then (Settings saves at once, and could register the login item).
+    @objc func showSettings() { AppModel.shared.hasOnboarded ? Windows.showSettings() : Windows.showWelcome() }
     private var signals: [DispatchSourceSignal] = []
 
     /// Other running copies: the bundled app by its identifier, and any copy by name (a `swift
@@ -75,7 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for number in [SIGTERM, SIGINT] {
             signal(number, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
-            source.setEventHandler {
+            // `@Sendable`: it runs on a global queue, and as main-actor code (the module's default)
+            // Swift's executor check trapped on entry, crashing with the backlight left dimmed.
+            source.setEventHandler { @Sendable in
                 DispatchQueue.main.async { NSApp.terminate(nil) }
                 DispatchQueue.global().asyncAfter(deadline: .now() + 5) { exit(1) }
             }
@@ -86,7 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let others = Self.otherCopies()
-        // `Gloam --uninstall`: forget everything (login item, settings) for a clean slate.
+        // `Gloam --uninstall`: forget everything (login item, settings, caches) for a clean slate.
         if CommandLine.arguments.contains("--uninstall") {
             guard let id = Bundle.main.bundleIdentifier else {
                 print("Gloam: --uninstall needs the app bundle: run Gloam.app/Contents/MacOS/Gloam --uninstall")
@@ -98,8 +101,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             while !others.allSatisfy(\.isTerminated) && Date() < deadline {
                 RunLoop.current.run(until: Date().addingTimeInterval(0.1))
             }
+            guard others.allSatisfy(\.isTerminated) else {
+                print("Gloam: the running copy didn't quit; quit it and run --uninstall again.")
+                exit(1)
+            }
             let login = SMAppService.mainApp.status
             try? SMAppService.mainApp.unregister()
+            // A screen still dimmed from a crash is put back by the next launch, from what's saved:
+            // cleared now, that record is gone, so say so rather than leave it dim without a word.
+            let stillDimmed = (UserDefaults.standard.data(forKey: "dimmedBacklights")?.count ?? 0) > 2  // "{}" is none
             UserDefaults.standard.removePersistentDomain(forName: id)
             // And every file Gloam leaves in the Library (Sparkle's downloads and web storage, the
             // settings file itself), so nothing of it stays behind.
@@ -108,6 +118,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? FileManager.default.removeItem(at: library.appendingPathComponent(path))
             }
             print("Gloam: \(others.isEmpty ? "" : "running copy quit; ")\(login == .enabled ? "login item removed" : "no login item to remove"); settings and caches cleared.")
+            if stillDimmed {
+                print("Gloam: a screen may still be dimmed from a crash; set its brightness with the keys.")
+            }
             exit(0)
         }
         // One Gloam at a time: two would fight over the screen's colour table. A later launch
@@ -132,7 +145,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !Debug.isShowcase {  // showcase runs share the real app's settings; they leave these alone
             ToggleShortcut.shared.register(AppModel.shared.toggleShortcut)
             // A Focus that pauses Gloam may already be on: its filter only runs again when it changes.
-            Task { if (try? await GloamFocusFilter.current)?.pause == true { AppModel.shared.pausedByFocus = true } }
+            // Unless the filter or the user has had a say meanwhile (`focusSettled`). The evening
+            // waits for this read, a second at most (`endLaunchHold`).
+            Task {
+                let paused = (try? await GloamFocusFilter.current)?.pause == true
+                if paused && !AppModel.shared.focusSettled { AppModel.shared.pausedByFocus = true }
+                AppModel.shared.endLaunchHold()
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                AppModel.shared.endLaunchHold()
+            }
         }
         // The menu-bar icon arrives with Start: until then Welcome is the whole app.
         if AppModel.shared.hasOnboarded || Debug.isShowcase { MenuBarPanel.shared.install() } else { Windows.showWelcome() }
@@ -141,9 +164,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         guard handingOver == nil else { return forward(urls) {} }
         for command in urls.compactMap(Command.init(url:)) {
-            if command != .open { AppModel.shared.run(command) }
-            else if AppModel.shared.hasOnboarded { MenuBarPanel.shared.open() }
-            else { Windows.showWelcome() }
+            // Before Start, on/off would be saved and Start would begin as it said: only "open" acts.
+            if !AppModel.shared.hasOnboarded { if command == .open { Windows.showWelcome() } }
+            else if command != .open { AppModel.shared.run(command) }
+            else { MenuBarPanel.shared.open() }
         }
     }
 
@@ -175,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var buffer = [UInt8](repeating: 0, count: size)
         guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return false }
         let args = buffer.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
-        return args.contains { ["--showcase", "--snapshot", "--capture", "--film"].contains($0) }
+        return args.contains(where: Debug.offScreenFlags.contains)
     }
 
     /// When a process started, from the kernel: unlike `launchDate`, set however it was started.
@@ -188,7 +212,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // A copy handing over owns nothing: building the model here would "restore" the running
+        // copy's dimmed screens and overwrite its saved state.
+        guard handingOver == nil else { return }
         AppModel.shared.flushSave()
+        // Installing an update relaunches at once: the screens stay as they are (saved as dimmed,
+        // resumed by the new copy) rather than flashing full brightness meanwhile.
+        if Updates.installing && Updates.state.status == .installing { return AppModel.shared.display.keepForRelaunch() }
         AppModel.shared.display.restore()
     }
 }
@@ -207,15 +237,7 @@ enum Windows {
 
     /// Settings is let go on close: kept, its view tree stayed alive and observing the model
     /// all day for a window opened once.
-    private static let settingsCloser = SettingsCloser()
-
-    private final class SettingsCloser: NSObject, NSWindowDelegate {
-        func windowWillClose(_ notification: Notification) {
-            // "Preview tonight" never outlives the window.
-            AppModel.shared.preview = nil
-            DispatchQueue.main.async { Windows.settings = nil }
-        }
-    }
+    private static let settingsCloser = Closer { Windows.settings = nil }
 
     /// Closing the window before Start quits without saving (the next launch shows Welcome
     /// again); Start saves, then shows the menu-bar icon with its popover open beneath it.
@@ -225,17 +247,20 @@ enum Windows {
         present(welcome!)
     }
 
-    private static let welcomeCloser = WelcomeCloser()
+    private static let welcomeCloser = Closer {
+        Windows.welcome = nil
+        guard AppModel.shared.hasOnboarded else { return NSApp.terminate(nil) }
+        MenuBarPanel.shared.install()
+        MenuBarPanel.shared.open()
+    }
 
-    private final class WelcomeCloser: NSObject, NSWindowDelegate {
+    /// A window's close: "Preview tonight" never outlives it, then `onClose`, a beat later.
+    private final class Closer: NSObject, NSWindowDelegate {
+        let onClose: @MainActor () -> Void
+        init(_ onClose: @escaping @MainActor () -> Void) { self.onClose = onClose }
         func windowWillClose(_ notification: Notification) {
             AppModel.shared.preview = nil
-            DispatchQueue.main.async {
-                Windows.welcome = nil
-                guard AppModel.shared.hasOnboarded else { return NSApp.terminate(nil) }
-                MenuBarPanel.shared.install()
-                MenuBarPanel.shared.open()
-            }
+            DispatchQueue.main.async { self.onClose() }
         }
     }
 
@@ -278,10 +303,6 @@ enum Windows {
     /// menu bar's own. Counting only ours hid Sparkle's window when the popover closed.
     static var anyVisible: Bool { NSApp.windows.contains { $0.isVisible && $0.level == .normal } }
 
-    #if DEBUG
-    static var all: [NSWindow] { [settings, welcome].compactMap { $0 } }
-    #endif
-
     /// `activate()` is only a request since macOS 14 and is refused for an app launched in
     /// the background (login, Finder while busy), which left Welcome hidden behind other
     /// windows; ordering front regardless keeps the window visible either way.
@@ -311,11 +332,15 @@ enum Windows {
 ///                     calibrate it: scroll light-on-dark text and move the dial and ladder
 ///   --exit-after S    quit normally after S seconds (restoring the screen), for scripted checks
 enum Debug {
+    /// Flags that keep a run off the screen. In release builds too: the bundled app must recognise
+    /// a debug copy started with one, and not quit for it (`AppDelegate.isShowcase`).
+    static let offScreenFlags = ["--showcase", "--snapshot", "--capture", "--film"]
+
     #if DEBUG
     static let isSnapshot = CommandLine.arguments.contains("--snapshot")
     static let isCapture = CommandLine.arguments.contains("--capture") || CommandLine.arguments.contains("--film")
     /// Showcase and capture runs never tint the real screen.
-    static let isShowcase = CommandLine.arguments.contains("--showcase") || isSnapshot || isCapture
+    static let isShowcase = CommandLine.arguments.contains(where: offScreenFlags.contains)
     #else
     static let isSnapshot = false
     static let isCapture = false
@@ -376,9 +401,8 @@ enum Debug {
             Windows.showWelcome()
             Windows.showSettings()
             try? await Task.sleep(for: .seconds(1.5))
-            for window in Windows.all {
-                shoot(window, window === Windows.settings ? "settings" : "welcome")
-            }
+            if let welcome = Windows.welcome { shoot(welcome, "welcome") }
+            if let settings = Windows.settings { shoot(settings, "settings") }
             // Settings scrolled too: its title strip only shows once the form is under it.
             if let settings = Windows.settings, let scroll = settings.contentView?.firstScrollView {
                 scroll.contentView.scroll(to: NSPoint(x: 0, y: scroll.contentView.bounds.origin.y + 160))

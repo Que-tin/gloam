@@ -22,10 +22,10 @@ final class AppModel {
     var enabled: Bool {
         didSet {
             if !enabled { manual = nil }  // a hand setting must not come back on re-enable
-            resumeAt = nil  // switching by hand ends a timed off; `turnOff(until:)` sets it after
+            resumeAt = nil  // switching by hand ends a timed off; `pause(untilMorning:)` sets it after
             save(enabled, "enabled")
             update(fade: 1)
-            // After this change settles, so a timed pause (`turnOff`) is announced as one.
+            // After this change settles, so a timed pause (`pause`) is announced as one.
             DispatchQueue.main.async { [self] in
                 AccessibilityNotification.Announcement(enabled ? String(localized: "Gloam on")
                     : resumeAt.map { String(localized: "Gloam paused until \(Format.time($0))") } ?? String(localized: "Gloam off")).post()
@@ -46,7 +46,9 @@ final class AppModel {
     var engine: Engine { didSet { save(engine, "engine"); display.use(engine) } }
     var excludedApps: [ExcludedApp] { didSet { save(excludedApps, "excludedApps"); update(fade: 0.6) } }
     /// Per-display strength by display UUID; missing means full strength.
-    var displayStrength: [String: Double] { didSet { save(displayStrength, "displayStrength"); applyDisplaySettings() } }
+    var displayStrength: [String: Double] {
+        didSet { save(displayStrength, "displayStrength"); applyDisplaySettings(); wakeTickIfDue() }
+    }
     /// External displays (by UUID) held to the smear floor on the user's say-so: macOS says
     /// nothing about a monitor's panel, so only its owner knows it smears. Built-ins are always held.
     var smearGuarded: Set<String> { didSet { save(smearGuarded, "smearGuarded"); applyDisplaySettings() } }
@@ -124,6 +126,7 @@ final class AppModel {
         hasOnboarded = Self.load("hasOnboarded") ?? false
         display = DisplayController(engine: engine)
         applyDisplaySettings()
+        display.displaysDidChange = { [weak self] in self?.wakeTickIfDue() }
         readRoom()
 
         tasks = [
@@ -160,16 +163,21 @@ final class AppModel {
         update(fade: 2)
     }
 
-    /// Every 5 s the target is applied directly: the steps are too small to see (well under
-    /// 3 mired), and a fade per tick would mean ~120,000 gamma writes a night. Untinted with
-    /// nothing due within the minute (the day, Gloam off), once a minute.
+    /// Every 5 s the target is applied, at once unless the step would show (`tick`): the
+    /// evening's steps are too small to see, and a fade per tick would mean ~120,000 gamma writes
+    /// a night. Once a minute while quiet (`isQuiet`), woken early for a hold that's due
+    /// (`nextExpiry`) or anything that ends the quiet (`wakeTickIfDue`).
     private func restartTick() {
         tickTask?.cancel()
         tickTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let quiet = self?.isQuiet else { return }
                 self?.tickingSlowly = quiet
-                let every: Duration = quiet ? .seconds(60) : .seconds(5)
+                var every: Duration = quiet ? .seconds(60) : .seconds(5)
+                // A timed pause or hand setting ends when it says, not at the next slow tick.
+                if let due = self?.nextExpiry, let now = self?.now {
+                    every = min(every, .seconds(max(1, due.timeIntervalSince(now))))
+                }
                 try? await Task.sleep(for: every, tolerance: every / 5)
                 guard !Task.isCancelled, let self else { return }
                 self.tick()
@@ -208,11 +216,42 @@ final class AppModel {
 
     /// Something holds the tint off: Gloam is off, Welcome isn't finished, an app that pauses
     /// Gloam is in front, or a Focus pauses it.
-    var isHeld: Bool { !enabled || !hasOnboarded || excludedFrontmost != nil || pausedByFocus }
+    var isHeld: Bool { !enabled || !hasOnboarded || pausedAside || awaitingFocus }
+
+    /// At launch, until the Focus filter's state is read (a second at most, `endLaunchHold`): a
+    /// relaunch while a pausing Focus is on faded into the evening, then out again.
+    @ObservationIgnored private var awaitingFocus = !Debug.isShowcase
+
+    /// The launch read of the Focus filter came back (or took too long): the evening may start.
+    func endLaunchHold() {
+        guard awaitingFocus else { return }
+        awaitingFocus = false
+        update(fade: 2)
+    }
+
+    /// Stepped aside while on: an app that pauses Gloam is in front, or a Focus pauses it.
+    var pausedAside: Bool { excludedFrontmost != nil || pausedByFocus }
 
     /// A Focus whose filter pauses Gloam is on (`GloamFocusFilter`). Like an app exception it
     /// holds the tint without touching `enabled`, so the Focus ending hands back what was there.
-    var pausedByFocus = false { didSet { if pausedByFocus != oldValue { update(fade: 0.5) } } }
+    var pausedByFocus = false {
+        didSet {
+            guard pausedByFocus != oldValue else { return }
+            focusSettled = true
+            update(fade: 0.5)
+        }
+    }
+    /// The filter has spoken this run, or the user changed the pause: the launch read of the
+    /// filter, which can come back later and older, then leaves it alone. A no-op (`.on` while
+    /// nothing was paused) doesn't count: it says nothing about the Focus.
+    @ObservationIgnored private(set) var focusSettled = false
+
+    /// What the Focus filter says (`GloamFocusFilter`): settled even when nothing changes, since
+    /// a Focus ending as Gloam starts must beat the slower launch read.
+    func focusFilter(pauses: Bool) {
+        focusSettled = true
+        pausedByFocus = pauses
+    }
 
     var excludedFrontmost: ExcludedApp? {
         guard let id = frontmost?.bundleIdentifier else { return nil }
@@ -235,48 +274,45 @@ final class AppModel {
 
     // MARK: Actions
 
-    /// Paused for a while, from the menu-bar item's "Pause" menu ("For an Hour", "Until Morning"): the
-    /// forgotten switch is the usual way a pause goes wrong, so this one turns itself back on.
-    /// Checked on every update and tick, so it can come back up to a minute late while idle.
+    /// Paused for a while, from the menu-bar item's "Pause" menu ("For an Hour", "Until Morning")
+    /// or Shortcuts' Pause Gloam: the forgotten switch is the usual way a pause goes wrong, so
+    /// this one turns itself back on.
+    /// Checked on every update and tick; the tick wakes for it (`nextExpiry`), so it ends on time.
     private(set) var resumeAt: Date? { didSet { save(resumeAt, "resumeAt") } }
 
-    /// A tint that shows on screen within half a step of either popover control (a dial nudge is
-    /// 2 % of the way to the screen's warmest; a ladder cell 5 % of the way to its deepest) of
-    /// what automatic shows: "Auto" would reset nothing. Compared as shown, after the screen's
-    /// limits, so two asks the screen can't tell apart count as the same.
+    /// A tint within half a step of either popover control of what automatic asks (a dial nudge is
+    /// 2 % of the warmth scale and a scroll notch 1 %, a ladder cell 5 % of the dimming scale):
+    /// "Auto" would reset nothing.
+    /// Compared as asked, on the controls' fixed scales, not as the main screen shows it: a setting
+    /// the main screen can't show (past its smear limit, or nothing to dim) may still show on
+    /// another, and was cleared from under it.
     func matchesAutomatic(_ tint: Tint) -> Bool {
-        let (t, auto) = (display.onMain(tint), display.onMain(automatic))
-        let dialSpan = Kelvin.mired(display.warmestOnMain) - Kelvin.mired(Stage.kelvinRange.upperBound)
-        let halfNudge = max(1, 0.01 * dialSpan), halfCell = 0.025 * max(0.05, 1 - display.darkestOnMain)
-        return abs(Kelvin.mired(t.kelvin) - Kelvin.mired(auto.kelvin)) < halfNudge && abs(t.brightness - auto.brightness) < halfCell
+        abs(Light.warmth(tint.kelvin) - Light.warmth(automatic.kelvin)) < 0.005
+            && abs(Light.dimming(tint.brightness) - Light.dimming(automatic.brightness)) < 0.025
     }
 
-    func turnOff(until date: Date) {
+    /// A timed pause from the clock as it is now: on the minute's tick `now` can be a minute old,
+    /// which cut an hour short and could put "Until Morning" already in the past. "Until
+    /// Morning" ends at `Schedule.nextMorning`.
+    func pause(untilMorning: Bool) {
+        refreshClock()
+        let end = untilMorning ? schedule.nextMorning(after: now, place.coordinate) : now.addingTimeInterval(3600)
         enabled = false
-        resumeAt = date
+        resumeAt = end
     }
-
-    /// When "Until Morning" ends (`Schedule.nextMorning`).
-    var nextMorning: Date { schedule.nextMorning(after: now, place.coordinate) }
 
     func run(_ command: Command) {
         switch command {
         // "On" from the shortcut, an intent or a URL means visibly on: a Focus's pause is lifted too
-        // (until that Focus next comes on), else it would change nothing on screen.
-        case .toggle where enabled && pausedByFocus: pausedByFocus = false
-        case .toggle: enabled.toggle()
+        // (until that Focus next comes on), else it would change nothing on screen. So a toggle
+        // turns on what the switch or a Focus holds off; an app's pause stays (Settings owns it).
+        case .toggle: run(enabled && !pausedByFocus ? .off : .on)
         case .on:
             enabled = true
             pausedByFocus = false
         case .off: enabled = false
         case .open: break  // handled by the app delegate: the model doesn't open windows
         }
-    }
-
-    /// Paused for the app you were just using, from the menu-bar item's right-click menu.
-    func excludeFrontmost() {
-        guard let url = frontmost?.bundleURL else { return }
-        exclude(appAt: url)
     }
 
     func exclude(appAt url: URL) {
@@ -300,25 +336,38 @@ final class AppModel {
 
     /// Nothing on screen and nothing due for a minute: the clock can tick slowly. A user action
     /// (Gloam on, an app switch, the dial) updates at once, whatever the tick.
+    /// Every display switched off in Settings counts too: nothing is tinted all night. Held
+    /// (off or paused), a hand setting waits too: lifting the pause updates at once.
     private var isQuiet: Bool {
-        screensAsleep || target.isNeutral && manual == nil
-            && (isHeld || schedule.tint(at: now.addingTimeInterval(80), place.coordinate).isNeutral)
+        screensAsleep || !display.displays.isEmpty && display.displays.allSatisfy { strength(for: $0) <= 0 }
+            || target.isNeutral
+            && (isHeld || manual == nil && schedule.tint(at: now.addingTimeInterval(80), place.coordinate).isNeutral)
     }
 
     private func tick() {
         refreshClock()
         let hadRoom = roomLux != nil
-        readRoom()
+        // A missed wake notification mustn't leave the clock on the minute's tick all evening.
+        if screensAsleep, CGDisplayIsAsleep(CGMainDisplayID()) == 0 { screensAsleep = false }
+        // Not on the minute's tick: the smoothing assumes 5 s. The reading is kept meanwhile and
+        // taken afresh when the quiet ends (`update`).
+        if !tickingSlowly { readRoom() }
         expireHolds()
         // Before the comparison below: a key press since the last tick moves what's on screen.
-        display.tickBacklights()
-        // Brought back to what automatic shows, a hand setting is automatic again (compared after
-        // the screen's limits; the knobs don't move, both read the same on screen).
+        display.tickBacklights(idle: tickingSlowly)
+        // Brought back to what automatic asks (the schedule caught up with it), a hand setting is
+        // automatic again: the knobs don't move.
         if let manual, matchesAutomatic(manual) { self.manual = nil }
         display.keepAlive()
         guard !display.isFading else { return }
-        // The room reading appearing or going (lid opened or closed) eases instead of jumping.
-        update(fade: hadRoom != (roomLux != nil) ? 3 : 0)
+        // The room reading appearing or going (lid opened or closed) eases instead of jumping. A
+        // step the eye would catch (a lamp switched on moves the smoothed room light fastest at
+        // first) glides briefly; the evening's own steps are far below that and go at once. Under
+        // 0.3 s, which `show` would stretch for a monitor's steps: readings within a second of a
+        // write are ignored, so a longer glide each tick left key presses and auto-brightness no
+        // reading to be adopted from, and wrote over them.
+        let visible = abs(target.brightness - display.shown.brightness) > 0.01
+        update(fade: hadRoom != (roomLux != nil) ? 3 : visible ? 0.29 : 0)
     }
 
     /// Smoothed over about a minute and a half (in log terms, as eyes see light), so a lamp
@@ -359,9 +408,20 @@ final class AppModel {
     func update(fade: Double) {
         refreshClock()
         expireHolds()  // after a wake, an expired hand setting or pause must not come back first
+        // Leaving a quiet stretch (a pause lifted, Gloam back on): the room as it is now, unsmoothed,
+        // or the first fade goes to a minute-old (or no) room reading and eases back after.
+        if tickingSlowly, !isQuiet {
+            roomLux = nil
+            missedReads = 0
+            readRoom()
+        }
         display.show(target, duration: fade)
-        // Gloam switched on in the evening, say: room light and the keep-alive start now,
-        // not when the minute's sleep ends.
+        wakeTickIfDue()
+    }
+
+    /// Gloam switched on in the evening, say: room light and the keep-alive start now, not when
+    /// the minute's sleep ends.
+    private func wakeTickIfDue() {
         if tickingSlowly, !isQuiet {
             tickingSlowly = false
             restartTick()
@@ -371,6 +431,11 @@ final class AppModel {
     /// The popover is opening: what it shows is worked out now (backlights read included), not
     /// at the next tick, which may be a minute off.
     func refreshNow() { tick() }
+
+    /// When the next hold ends by itself: a hand setting's expiry, or a timed pause's.
+    private var nextExpiry: Date? {
+        [manual == nil ? nil : manualUntil, enabled ? nil : resumeAt].compactMap { $0 }.min()
+    }
 
     /// Ends a hand setting or a timed pause whose time has come.
     private func expireHolds() {
@@ -424,9 +489,11 @@ final class AppModel {
         }
     }
 
-    /// Writes any schedule change still waiting for its debounce; called on quit.
+    /// Writes any schedule change still waiting for its debounce; called on quit. Not before
+    /// Start: Welcome closed first quits without saving anything.
     func flushSave() {
         pendingSave?.cancel()
+        guard hasOnboarded else { return }
         save(schedule, "schedule")
     }
 

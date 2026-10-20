@@ -9,9 +9,9 @@ extension Color {
         self.init(.sRGB, red: rgb.red, green: rgb.green, blue: rgb.blue)
     }
 
-    init(rgb hex: UInt32, opacity: Double = 1) {
+    init(rgb hex: UInt32) {
         self.init(.sRGB, red: Double(hex >> 16 & 0xFF) / 255, green: Double(hex >> 8 & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255, opacity: opacity)
+                  blue: Double(hex & 0xFF) / 255)
     }
 
     /// The tint a white page takes at this temperature.
@@ -59,28 +59,30 @@ enum Light {
         }
     }
 
-    /// Warmth as a position, 0 (daylight) … 1 (`warmest`), even in mired, where equal steps are
-    /// equal visible steps: ember by default (the graph's fixed scale), or the warmest a screen
-    /// goes (the popover's dial).
-    static func warmth(_ kelvin: Double, warmest: Double = Stage.kelvinRange.lowerBound) -> Double {
-        let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(warmest))
-        return warm - cool < 0.5 ? 1 : min(1, max(0, (Kelvin.mired(kelvin) - cool) / (warm - cool)))
+    /// Warmth as a position on a fixed scale, 0 (daylight) … 1 (ember), even in mired, where
+    /// equal steps are equal visible steps. The graph and the popover's dial both use it; each
+    /// screen shows as much of it as its smear limit allows.
+    static func warmth(_ kelvin: Double) -> Double {
+        let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(Stage.kelvinRange.lowerBound))
+        return min(1, max(0, (Kelvin.mired(kelvin) - cool) / (warm - cool)))
     }
 
-    static func kelvin(warmth w: Double, warmest: Double = Stage.kelvinRange.lowerBound) -> Double {
-        let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(warmest))
+    static func kelvin(warmth w: Double) -> Double {
+        let (cool, warm) = (Kelvin.mired(Stage.kelvinRange.upperBound), Kelvin.mired(Stage.kelvinRange.lowerBound))
         return 1e6 / (cool + (warm - cool) * min(1, max(0, w)))
     }
 
-    /// Dimming as a position, 0 (full brightness) … 1 (`darkest`): the deepest there is by
-    /// default (the schedule's scale, in Settings), or the deepest a screen goes (the ladder).
-    static func dimming(_ brightness: Double, darkest: Double = Stage.brightnessRange.lowerBound) -> Double {
-        // A screen that can't dim: full while dimming is asked for (as dim as it goes), empty when not.
-        darkest > 0.999 ? (brightness < 0.999 ? 1 : 0) : min(1, max(0, (1 - brightness) / (1 - darkest)))
+    /// Dimming as a position, 0 (full brightness) … 1 (the deepest there is), on the schedule's
+    /// scale: the graph's and the ladder's alike. Each screen takes it the same share of the way to
+    /// its own darkest (`Stage.brightness(_:darkest:)`), so the ladder stays put when the user's
+    /// brightness changes.
+    static func dimming(_ brightness: Double) -> Double {
+        let darkest = Stage.brightnessRange.lowerBound
+        return min(1, max(0, (1 - brightness) / (1 - darkest)))
     }
 
-    static func brightness(dimming d: Double, darkest: Double = Stage.brightnessRange.lowerBound) -> Double {
-        1 - min(1, max(0, d)) * (1 - darkest)
+    static func brightness(dimming d: Double) -> Double {
+        1 - min(1, max(0, d)) * (1 - Stage.brightnessRange.lowerBound)
     }
 }
 
