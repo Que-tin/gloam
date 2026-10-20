@@ -295,7 +295,7 @@ struct LampDial: View {
                 let angle = atan2(g.location.y - center.y, g.location.x - center.x) * 180 / .pi
                 let new = Self.fraction(angle: angle, previous: fraction)
                 guard new != fraction else { return }
-                let tick = { (f: Double) in Int(f * Double(Self.ticks - 1)) }
+                let tick = { (f: Double) in Int(f * Double(Self.ticks - 1) + 1e-6) }  // 0.99999… is the end
                 let before = tick(fraction)
                 fraction = new
                 // Only for a notch the knob really passed (read back, as the ladder's): held at
