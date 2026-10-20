@@ -573,9 +573,7 @@ final class AppModel {
         morningEnds = [:]
         refreshClock()  // now, not at the next tick: Settings' graph shows the night `eveningWake` names
         display.retimeShifts(from: old.dimming, to: display.clock.until)
-        if let shift = warmthShift, old.warmth > now, shift.until >= old.warmth, shift.until < old.warmth.addingTimeInterval(3600) {
-            warmthShift = shift.retimed(by: warmthClock.until.timeIntervalSince(old.warmth))
-        }
+        warmthShift = warmthShift?.retimed(from: old.warmth, to: warmthClock.until, now: now)
     }
 
     /// Moves the clock to now, and with it the stage and what comes next. Skipped within a

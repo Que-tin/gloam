@@ -643,11 +643,8 @@ final class DisplayController {
 
     /// Bedtime or wake moved tonight: shifts belonging to this evening end with its new morning.
     func retimeShifts(from oldUntil: Date, to newUntil: Date) {
-        guard oldUntil != newUntil, oldUntil > clock.now else { return }
-        // Its own (a late choice can end up to half an hour after the morning: `perUnit`), not the
-        // coming evening's.
-        let tonight = { (s: Shift) in s.until >= oldUntil && s.until < oldUntil.addingTimeInterval(3600) }
-        shifts = shifts.mapValues { tonight($0) ? $0.retimed(by: newUntil.timeIntervalSince(oldUntil)) : $0 }
+        guard oldUntil != newUntil else { return }
+        shifts = shifts.mapValues { $0.retimed(from: oldUntil, to: newUntil, now: clock.now) }
         push()
     }
 

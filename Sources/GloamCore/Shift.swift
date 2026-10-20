@@ -121,9 +121,13 @@ public struct Shift: Codable, Equatable, Sendable {
         Shift(to: to + delta, at: at, distance: distance.map { $0 + delta }, chosenWeight: chosenWeight, until: until, span: span)
     }
 
-    /// Belonging to an evening whose morning moved (bedtime or wake changed tonight): ends with it.
-    public func retimed(by delta: TimeInterval) -> Shift {
-        Shift(to: to, at: at, distance: distance, chosenWeight: chosenWeight, until: until.addingTimeInterval(delta), span: span)
+    /// Bedtime or wake changed tonight, so its morning's end moved from `old` to `new`: a shift of
+    /// that evening ends with it; any other (the coming evening's, or one whose morning is under
+    /// way) stays as it is. Its own end can be up to half an hour after the morning (`perUnit`).
+    public func retimed(from old: Date, to new: Date, now: Date) -> Shift {
+        guard old > now, until >= old, until < old.addingTimeInterval(3600) else { return self }
+        return Shift(to: to, at: at, distance: distance, chosenWeight: chosenWeight,
+                     until: until.addingTimeInterval(new.timeIntervalSince(old)), span: span)
     }
 }
 

@@ -390,7 +390,15 @@ import Testing
     @Test func movedKeepsItsDistanceAndEnd() {
         let s = Shift(to: 1.4, at: 0.6, now: Self.now, until: Self.until), m = s.moved(by: 0.2)
         #expect(m.until == s.until && abs(m.position(plan: 0.5, now: Self.now) - (s.position(plan: 0.5, now: Self.now) + 0.2)) < 1e-12)
-        #expect(s.retimed(by: 3600).until == Self.until.addingTimeInterval(3600))
+    }
+
+    // Bedtime or wake moved tonight: tonight's shifts end with the new morning, others stay.
+    @Test func retimedOnlyTonight() {
+        let s = Shift(to: 0.8, at: 0.5, now: Self.now, until: Self.until)
+        #expect(s.retimed(from: Self.until, to: Self.until.addingTimeInterval(3600), now: Self.now).until == Self.until.addingTimeInterval(3600))
+        // The coming evening's (its morning a day later), and one whose morning has begun.
+        #expect(s.retimed(from: Self.until.addingTimeInterval(-86_400), to: Self.until, now: Self.now) == s)
+        #expect(s.retimed(from: Self.until, to: Self.until.addingTimeInterval(3600), now: Self.until.addingTimeInterval(60)) == s)
     }
 
     // Lighter than the plan, a shift rides from anywhere.
