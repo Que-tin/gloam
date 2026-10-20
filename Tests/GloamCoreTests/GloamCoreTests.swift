@@ -1,3 +1,6 @@
+// The core's main suite: colour temperature, the sun, the schedule's stages and saving,
+// colour spaces, clock times, commands, smearing, melanopic light, locations, engine policy.
+
 import Foundation
 import Testing
 @testable import GloamCore
@@ -27,11 +30,12 @@ private let p3: LinearRGB = { c in
         }
     }
 
-    // Ingo Thies' measured blackbody table (2013, display-encoded) at 3400K is ≈ (1.00, 0.79, 0.59).
     @Test func nanIsDaylight() {
         #expect(Kelvin.linearGain(.nan) == Kelvin.linearGain(Kelvin.daylight))
     }
 
+    // Ingo Thies' measured blackbody table (2013, display-encoded) at 3400K is ≈ (1.00, 0.79, 0.59);
+    // ours comes out a little lower in blue, within the tolerance.
     @Test func tracksBlackbodyReference() {
         let g = Kelvin.displayGain(Tint(kelvin: 3400))
         #expect(abs(g.green - 0.79) < 0.03)
@@ -284,14 +288,16 @@ private let p3: LinearRGB = { c in
     }
 
     @Test func decodingIsTolerant() throws {
-        let json = #"{"bedtime":{"hour":1,"minute":30},"night":{"kelvin":0},"darkest":0.8,"warmest":99999}"#
+        let json = #"{"bedtime":{"hour":1,"minute":30},"darkest":0.8,"warmest":99999}"#
         let s = try JSONDecoder().decode(Schedule.self, from: Data(json.utf8))
-        // Bedtime is a setting; stage values saved by older builds are not, and are ignored: the
-        // night follows the Warmest and Dimmest settings.
+        // Out of range is clamped, and the night follows the Warmest and Dimmest settings.
         #expect(s.bedtime == ClockTime(1, 30) && s.night == Stage(kelvin: Kelvin.daylight, brightness: 0.8))
         #expect(s.darkest == 0.8 && s.warmest == Kelvin.daylight)
         let back = try JSONDecoder().decode(Schedule.self, from: JSONEncoder().encode(s))
         #expect(back == s)
+        // A hand-edited hour too big to multiply is reduced (to 07:00, held to 03:00), not a crash.
+        let huge = #"{"bedtime":{"hour":9223372036854775807,"minute":0}}"#
+        #expect(try JSONDecoder().decode(Schedule.self, from: Data(huge.utf8)).bedtime == ClockTime(3, 0))
     }
 }
 
@@ -381,7 +387,7 @@ private let p3: LinearRGB = { c in
         #expect(abs(Melanopic.relative(.neutral) - 1) < 1e-9)
     }
 
-    // Modelled values for a P3 LCD from docs/science.md: 3400K ≈ 0.49, 1900K ≈ 0.20.
+    // In the default (sRGB) space; docs/science.md gives a P3 LCD's, a little higher.
     @Test func warmthAloneRoughlyHalves() {
         #expect(abs(Melanopic.relative(Tint(kelvin: 3400)) - 0.45) < 0.08)
         #expect(abs(Melanopic.relative(Tint(kelvin: 1900)) - 0.18) < 0.06)
@@ -408,12 +414,21 @@ private let p3: LinearRGB = { c in
 
     @Test func findsZoneInTable() {
         let table = "# comment\nDE\t+5230+01322\tEurope/Berlin\tmost of Germany\nUS\t+404251-0740023\tAmerica/New_York\n"
-        #expect(Place.parse(zoneTab: table, identifier: "America/New_York")?.name == "New York")
-        #expect(Place.parse(zoneTab: table, identifier: "Mars/Olympus") == nil)
+        #expect(Place.parse(zoneTab: table, zone: TimeZone(identifier: "America/New_York")!)?.name == "New York")
+        #expect(Place.parse(zoneTab: table, zone: TimeZone(identifier: "Asia/Tokyo")!) == nil)
     }
 
     @Test func systemTableResolvesCurrentZone() {
         #expect(Place.forTimeZone(TimeZone(identifier: "Europe/Berlin")!)?.name == "Berlin")
+    }
+
+    /// Names macOS still reports that the table has renamed: not Greenwich, which is light at 22:00.
+    @Test func oldZoneNamesFindTheirNewRow() {
+        #expect(Place.forTimeZone(TimeZone(identifier: "Asia/Calcutta")!)?.name == "Kolkata")
+        #expect(Place.forTimeZone(TimeZone(identifier: "Europe/Kiev")!)?.name == "Kyiv")
+        #expect(Place.forTimeZone(TimeZone(identifier: "Asia/Rangoon")!)?.name == "Yangon")
+        // Toronto's rules are also Nassau's: the Mac's country decides.
+        #expect(Place.forTimeZone(TimeZone(identifier: "America/Montreal")!, region: "CA")?.name == "Toronto")
     }
 }
 

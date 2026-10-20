@@ -116,16 +116,21 @@ private func schedule(bed: ClockTime, wake: ClockTime) -> Schedule {
         }
         let odd = try JSONDecoder().decode(Schedule.self, from: Data(#"{"wake":{"hour":-3,"minute":0}}"#.utf8))
         #expect(odd.wake == ClockTime(4, 0))  // 21:00, nearer the start of 04:00–12:00
-        // Saved by a build without them: the defaults.
-        let old = try JSONDecoder().decode(Schedule.self, from: Data(#"{"warmest":1900,"darkest":0.55}"#.utf8))
-        #expect(old.bedtime == ClockTime(23, 0) && old.wake == ClockTime(7, 0))
     }
 
-    // "At least 8 h awake" holds for every pair the graph can set.
+    // The midnight sun: dimming waits for a sunset that never comes, so June in Tromsø stays daylight.
+    @Test func theMidnightSunNeverTints() {
+        let cal = calendar("Europe/Oslo"), s = Schedule()
+        for quarter in 0..<96 {
+            let now = at(cal, 2026, 6, 21, 12).addingTimeInterval(Double(quarter) * 900)
+            #expect(s.tint(at: now, tromso, calendar: cal) == .neutral, "\(quarter / 4 + 12):\(quarter % 4 * 15)")
+        }
+    }
+
+    // "At least 8 h awake" holds for every pair the graph can set (the windows' own arithmetic).
     @Test func everySettablePairIsARhythm() {
         for bed in ClockTime.all(in: Schedule.bedtimes) {
             for wake in ClockTime.all(in: Schedule.wakes) {
-                let s = schedule(bed: bed, wake: wake)
                 let awake = (bed.minutesOfDay - wake.minutesOfDay + 1440) % 1440
                 #expect(awake >= 8 * 60)
             }

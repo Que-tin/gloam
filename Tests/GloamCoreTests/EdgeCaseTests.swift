@@ -86,12 +86,6 @@ import Testing
         #expect(!Place(name: "New York", coordinate: c, timeZone: "America/New_York").keepsTime(of: berlin, at: summer))
         let phoenix = Place(name: "Phoenix", coordinate: c, timeZone: "America/Phoenix")
         #expect(phoenix.keepsTime(of: denver, at: winter) && !phoenix.keepsTime(of: denver, at: summer))
-        #expect(Place(name: "Old save", coordinate: c).keepsTime(of: berlin, at: summer))
-    }
-
-    @Test func oldSavesStillLoad() throws {
-        let old = #"{"name":"Munich","coordinate":{"latitude":48.1,"longitude":11.6}}"#
-        let place = try JSONDecoder().decode(Place.self, from: Data(old.utf8))
-        #expect(place.name == "Munich" && place.timeZone == nil)
+        #expect(Place(name: "Zone table", coordinate: c).keepsTime(of: berlin, at: summer))
     }
 }

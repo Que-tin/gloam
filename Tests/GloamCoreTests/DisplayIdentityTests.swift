@@ -18,6 +18,12 @@ import Testing
         #expect(staleFollows(followed: followed, current: followed).isEmpty)
     }
 
+    /// Identical monitors without a serial share a UUID: neither moved, though each id is "another" twin's.
+    @Test func twinsAreNotStale() {
+        let twins: [UInt32: String] = [1: "A", 100: "TWIN", 200: "TWIN"]
+        #expect(staleFollows(followed: twins, current: twins).isEmpty)
+    }
+
     // A monitor like the one probed: CoreGraphics reports vendor 0x4C2D, model 0x1234 and a serial
     // the EDID's own field (0) doesn't carry.
     @Test func parsesTheObservedEDIDUUID() throws {

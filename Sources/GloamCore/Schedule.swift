@@ -30,7 +30,7 @@ public struct ClockTime: Codable, Hashable, Sendable {
     public var minute: Int
 
     public init(_ hour: Int, _ minute: Int) {
-        let m = ((hour * 60 + minute) % 1440 + 1440) % 1440
+        let m = ((hour % 24 * 60 + minute % 1440) % 1440 + 1440) % 1440  // reduced first: a huge hour can't overflow
         (self.hour, self.minute) = (m / 60, m % 60)
     }
 
@@ -88,6 +88,15 @@ public struct Stage: Equatable, Sendable {
     }
 
     public var tint: Tint { Tint(kelvin: kelvin, brightness: brightness) }
+
+    /// A brightness on the schedule's scale, where 30 % is the deepest it asks, as a screen
+    /// whose own darkest is `darkest` shows it: the same share of the way down. So the popover's
+    /// ladder is a position that stays put when the user changes their brightness, and a screen
+    /// already dim (its floor near) is dimmed less, not pinned to its floor.
+    public static func brightness(_ b: Double, darkest: Double) -> Double {
+        let d = (1 - brightnessRange.clamp(b)) / (1 - brightnessRange.lowerBound)
+        return 1 - d * (1 - min(1, max(0, darkest)))
+    }
 }
 
 public enum StageKind: Sendable {
@@ -177,10 +186,11 @@ public struct Schedule: Codable, Equatable, Sendable {
         let now = minutes(date, calendar)
         let wakeMin = Double(wake.minutesOfDay), bedMin = Double(bedtime.minutesOfDay)
         var f = Factors()
+        let elevation = Sun.elevation(at: date, c)
         let afterMorning = Self.window(now, from: wakeMin + Self.morning, to: wakeMin)
-        if afterMorning > 0 { f.sunset = afterMorning * Self.nightFactor(elevation: Sun.elevation(at: date, c)) }
+        if afterMorning > 0 { f.sunset = afterMorning * Self.nightFactor(elevation: elevation) }
         // The settable times always leave ≥ 8 h awake, so the 3 h lead fits after wake.
-        let afterSundown = Self.sundownFactor(elevation: Sun.elevation(at: date, c))
+        let afterSundown = Self.sundownFactor(elevation: elevation)
         f.windDown = afterSundown * Self.window(now, from: bedMin - Double(Self.windDownLead), to: wakeMin)
         f.night = afterSundown * Self.window(now, from: bedMin - Double(Self.nightLead), to: wakeMin)
         return f
@@ -372,7 +382,9 @@ public struct Schedule: Codable, Equatable, Sendable {
 
     /// Minutes past midnight on the wall clock. The hour repeated when the clocks go back stands
     /// still at the moment they went back: the stages are by wall clock, and a night under way
-    /// would otherwise go back an hour and ease in a second time.
+    /// would otherwise go back an hour and ease in a second time. The hour skipped when they go
+    /// forward is skipped by the stages too: one starting in it (bedtime 03:00) snaps in, once a
+    /// year, as any mapping onto elapsed time only moves the jump elsewhere.
     private func minutes(_ date: Date, _ calendar: Calendar) -> Double {
         var date = date
         let zone = calendar.timeZone, earlier = date.addingTimeInterval(-7200)
@@ -397,21 +409,11 @@ public struct Schedule: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        // The limits, bedtime and wake are settings; the stages are fixed, and anything an older
-        // build saved for them is deliberately ignored so it can't linger invisibly.
         let d = Schedule()
         warmest = Self.warmestRange.clamp(try c.decodeIfPresent(Double.self, forKey: .warmest) ?? d.warmest)
         darkest = Self.darkestRange.clamp(try c.decodeIfPresent(Double.self, forKey: .darkest) ?? d.darkest)
         bedtime = (try c.decodeIfPresent(ClockTime.self, forKey: .bedtime) ?? d.bedtime).held(to: Self.bedtimes)
         wake = (try c.decodeIfPresent(ClockTime.self, forKey: .wake) ?? d.wake).held(to: Self.wakes)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(warmest, forKey: .warmest)
-        try c.encode(darkest, forKey: .darkest)
-        try c.encode(bedtime, forKey: .bedtime)
-        try c.encode(wake, forKey: .wake)
     }
 
     private enum CodingKeys: String, CodingKey { case warmest, darkest, bedtime, wake }

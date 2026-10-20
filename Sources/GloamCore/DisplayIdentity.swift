@@ -14,13 +14,13 @@ import Foundation
 
 /// The followed displays (id → UUID) whose id no longer means the same screen: the screen is
 /// back under another id, or the id now belongs to another screen. A screen that went away is
-/// kept, for when it returns.
+/// kept, for when it returns. Twins sharing a UUID (identical monitors without a serial) can't
+/// be told apart by it, so only their own id counts for them.
 public func staleFollows<ID: Hashable>(followed: [ID: String], current: [ID: String]) -> Set<ID> {
-    var idOf: [String: ID] = [:]
-    for (id, uuid) in current where idOf[uuid] == nil { idOf[uuid] = id }
+    let ids = Dictionary(grouping: current.keys) { current[$0]! }
     return Set(followed.compactMap { id, uuid in
         let otherScreen = current[id].map { $0 != uuid } ?? false
-        let movedID = idOf[uuid].map { $0 != id } ?? false
+        let movedID = ids[uuid].map { $0.count == 1 && $0[0] != id } ?? false
         return otherScreen || movedID ? id : nil
     })
 }
