@@ -93,7 +93,7 @@ struct EveningGraph: View {
                 let crowded = apart < Self.width(of: bedLabel) / 2 + 8
                 RuleMark(x: .value("Sunset", sunset))
                     .foregroundStyle(.white.opacity(0.18))
-                    .annotation(position: .top, alignment: centred ? .center : .trailing,
+                    .annotation(position: .top, alignment: centred ? .center : .trailing, spacing: Self.labelGap,
                                 overflowResolution: .init(x: .disabled, y: .disabled)) {
                         if !crowded { marker(sunsetLabel) }
                     }
@@ -101,11 +101,11 @@ struct EveningGraph: View {
             RuleMark(x: .value("Bedtime", e.bedtime))
                 .foregroundStyle(.white.opacity(emphasis(.bedtime)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
-                .annotation(position: .top, alignment: .center) { marker(bedLabel) }
+                .annotation(position: .top, alignment: .center, spacing: Self.labelGap) { marker(bedLabel) }
             RuleMark(x: .value("Wake", e.wake))
                 .foregroundStyle(.white.opacity(emphasis(.wake)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
-                .annotation(position: .top, alignment: .trailing) { marker(String(localized: "Wake-up \(Format.time(e.wake))")) }
+                .annotation(position: .top, alignment: .trailing, spacing: Self.labelGap) { marker(String(localized: "Wake-up \(Format.time(e.wake))")) }
             RuleMark(y: .value("Warmth limit", warmthCap))
                 .foregroundStyle(Self.warm.opacity(emphasis(.warmth)))
                 .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
@@ -173,7 +173,7 @@ struct EveningGraph: View {
             }
         }
         .frame(height: 190)
-        .padding(.top, 14)  // room for the markers' labels
+        .padding(.top, 14 + Self.labelGap)  // room for the markers' labels
         // No hover help: the grips and cursor say what drags, and a tooltip popped over the curves.
         .keyboardRing($ring)
         .onMoveCommand { direction in
@@ -210,6 +210,9 @@ struct EveningGraph: View {
         guard let i = all.firstIndex(of: schedule[keyPath: path]) else { return }
         schedule[keyPath: path] = all[min(all.count - 1, max(0, i + steps))]
     }
+
+    /// Between a marker's label and the grip at the top of its line: closer, the label sat on it.
+    private static let labelGap: CGFloat = 7
 
     private func marker(_ text: String) -> some View {
         Text(text).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).fixedSize()
