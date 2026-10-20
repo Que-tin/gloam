@@ -363,7 +363,6 @@ struct LampDial: View {
     }
 
     private func knob(center: CGPoint, f: Double, color: Color) -> some View {
-        let a = (Self.arcStart + f * Self.arcSweep) * .pi / 180
         let active = dragging || ring
         return ZStack {
             Circle().fill(color.opacity(ring ? 0.7 : 0.4)).frame(width: ring ? 36 : 30, height: ring ? 36 : 30).blur(radius: 6)
@@ -376,7 +375,22 @@ struct LampDial: View {
         }
         // While the lamp is unlit: present, but not glowing.
         .opacity(0.55 + 0.45 * max(core, active ? 1 : 0))
-        .position(x: center.x + cos(a) * Self.ringRadius, y: center.y + sin(a) * Self.ringRadius)
+        .modifier(OnArc(f: f, center: center))
+    }
+
+    /// Places the knob at `f` along the arc, animating `f` itself: an animated position went
+    /// straight across the dial between two far points instead of round the ring.
+    private struct OnArc: ViewModifier, Animatable {
+        var f: Double
+        let center: CGPoint
+        var animatableData: Double {
+            get { f }
+            set { f = newValue }
+        }
+        func body(content: Content) -> some View {
+            let a = (LampDial.arcStart + f * LampDial.arcSweep) * .pi / 180
+            return content.position(x: center.x + cos(a) * LampDial.ringRadius, y: center.y + sin(a) * LampDial.ringRadius)
+        }
     }
 
     /// The lamp face: colour is the screen's warmth now, light is its brightness.
