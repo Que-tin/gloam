@@ -434,9 +434,8 @@ private let p3: LinearRGB = { c in
 
 @Suite struct EnginePolicyTests {
     @Test func autoPicksOverlayOnlyForKnownBrokenChips() {
-        #expect(EnginePolicy.resolve(.auto, chip: "Apple M5 Max", osMajor: 26) == .overlay)
-        #expect(EnginePolicy.resolve(.auto, chip: "Apple M5 Max", osMajor: 15) == .gamma)
-        #expect(EnginePolicy.resolve(.auto, chip: "Apple M2", osMajor: 27) == .gamma)
-        #expect(EnginePolicy.resolve(.gamma, chip: "Apple M5 Max", osMajor: 26) == .gamma)
+        #expect(EnginePolicy.resolve(.auto, chip: "Apple M5 Max") == .overlay)
+        #expect(EnginePolicy.resolve(.auto, chip: "Apple M2") == .gamma)
+        #expect(EnginePolicy.resolve(.gamma, chip: "Apple M5 Max") == .gamma)
     }
 }

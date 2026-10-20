@@ -1612,7 +1612,7 @@ final class DisplayController {
     }
 
     private static func resolve(_ choice: Engine) -> Engine {
-        EnginePolicy.resolve(choice, chip: SystemInfo.chip, osMajor: SystemInfo.osMajor)
+        EnginePolicy.resolve(choice, chip: SystemInfo.chip)
     }
 
     private static func make(_ engine: Engine) -> TintEngine {
@@ -1629,7 +1629,6 @@ private final class NullEngine: TintEngine {
 }
 
 enum SystemInfo {
-    static let osMajor = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
     static let chip: String = {
         var size = 0
         sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
