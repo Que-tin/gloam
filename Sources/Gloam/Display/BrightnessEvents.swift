@@ -58,7 +58,7 @@ enum BrightnessEvents {
     private nonisolated static let lastLux = OSAllocatedUnfairLock(initialState: -1.0)
 
     /// The method's implementation, only while its argument types are still the ones measured: a
-    /// macOS that changed them gets no call (the screens are dimmed by signal) rather than a crash.
+    /// macOS that changed them gets no call (the backlight is read on the tick) rather than a crash.
     private static let encodings = [
         "registerDisplayNotificationCallbackBlock:": "v24@0:8@?16", "registerNotificationForKeys:andDisplay:": "v32@0:8@16Q24",
         "copyPropertyForKey:": "@24@0:8@16", "copyPropertyForKey:andDisplay:": "@32@0:8@16Q24",

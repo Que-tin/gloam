@@ -42,6 +42,7 @@ final class ColourLayer {
     /// Shows each listed display at its tint and the rest neutral. Returns the displays whose
     /// matrix changed: they need a new frame to show it (`Redraw`).
     func apply(_ tints: [CGDirectDisplayID: Tint]) -> Swift.Set<CGDirectDisplayID> {
+        guard live else { return [] }
         var changed = Swift.Set<CGDirectDisplayID>()
         for id in Swift.Set(tints.keys).union(written.keys) {
             let matrix = ColourMatrix.shown(tints[id] ?? .neutral, in: colourSpace(id), after: filter)
@@ -61,10 +62,10 @@ final class ColourLayer {
     }
 
     /// Screens were added, removed or rearranged: everything is cleared (an id may now name
-    /// another screen, or a screen come back with last night's matrix) and written afresh by the
-    /// next push.
+    /// another screen, or a screen come back with last night's matrix, also one unplugged while
+    /// tinted after the evening ended) and written afresh by the next push.
     func displaysChanged() {
-        if live, !written.isEmpty { Self.clearAll() }
+        if live { Self.clearAll() }
         written = [:]
         spaces = [:]
     }

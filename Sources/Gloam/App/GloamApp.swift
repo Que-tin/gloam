@@ -67,7 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// running copy's guard (`ColourGuard`), the same executable.
     private static func otherCopies() -> [NSRunningApplication] {
         let me = ProcessInfo.processInfo.processIdentifier
-        let byID = Bundle.main.bundleIdentifier.map(NSRunningApplication.runningApplications(withBundleIdentifier:)) ?? []
+        let byID = (Bundle.main.bundleIdentifier.map(NSRunningApplication.runningApplications(withBundleIdentifier:)) ?? [])
+            .filter { !Self.isLeftOut($0.processIdentifier) }  // a guard clearing up checks in too
         let byName = Debug.isShowcase ? [] : NSWorkspace.shared.runningApplications.filter {
             $0.executableURL?.lastPathComponent == "Gloam" && !Self.isLeftOut($0.processIdentifier)
         }

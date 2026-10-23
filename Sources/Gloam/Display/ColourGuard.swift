@@ -18,6 +18,8 @@ enum ColourGuard {
 
     /// In the guard process: waits for `pid` to end, then clears the layer. Never returns.
     static func run(watching pid: pid_t) -> Never {
+        // Its own session: a terminal closing (SIGHUP to `swift run`'s group) took it with Gloam.
+        setsid()
         let exit = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         exit.setEventHandler { @Sendable in MainActor.assumeIsolated { clear() } }
         exit.resume()

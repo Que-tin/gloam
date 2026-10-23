@@ -650,15 +650,18 @@ final class DisplayController {
     }
 
     /// The system Color Filter changed: macOS's global write cleared every screen's tint, which is
-    /// written again with the new filter carried in, at once and half a second on (in case macOS's
-    /// write lands after its announcement).
+    /// written again with the new filter carried in, at once and twice more within two seconds (in
+    /// case macOS's write lands after its announcement: nothing would write it again until the
+    /// target moved, which on the night's plateau is hours).
     private func filterChanged() {
         layer.filterChanged()
         push()
         Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            self?.layer.filterChanged()
-            self?.push()
+            for delay in [0.5, 1.5] {
+                try? await Task.sleep(for: .seconds(delay))
+                self?.layer.filterChanged()
+                self?.push()
+            }
         }
     }
 
@@ -837,7 +840,8 @@ final class DisplayController {
 
     /// Quitting for an update that relaunches at once: backlights stay where they are, saved as
     /// dimmed, so the new copy resumes them (`follow`) without a flash of full brightness. The
-    /// colour layer keeps its tint until the new copy writes its own.
+    /// colour layer goes neutral (the guard and the new copy's launch clear it) until the new
+    /// copy's first push, a second or so: kept, a crash couldn't be told from a relaunch.
     func keepForRelaunch() {
         stopEasing()
         writeSaved()
