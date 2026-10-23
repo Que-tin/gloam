@@ -1270,7 +1270,7 @@ final class DisplayController {
                 // Back from a replug or a power cycle at the user's own level, not Gloam's: that is
                 // the new baseline, dimmed again from there (recorded like any write).
                 dim.step = monitor.step
-                guard !dim.same(monitor.initial, w) else { continue }
+                guard !dim.same(monitor.initial, w) else { store(dim, for: id); continue }
                 restart(id, at: monitor.initial, step: monitor.step)  // the push below dims it as asked now
             } else if var dim = dims[id] {
                 // Followed but not dimmed: its level may have changed while it was away (another
