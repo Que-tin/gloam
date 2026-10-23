@@ -2,20 +2,19 @@
 // next frame (measured: a monitor showed it 5–10 s late, its reversal not at all), and so did the
 // signal evening out a DDC monitor's brightness step (`DisplayController.signalShare`): a dark
 // blink as a fade settled. The fix: a dot in a corner whose opacity flips between two values too
-// faint to see, which the window server must composite.
+// faint to see, which the window server must composite. Ordered out a moment later: left up, a
+// window above everything stayed on every tinted screen all evening (and can keep full-screen
+// video from going straight to the display), and came back as a new window each time.
 
 import AppKit
 
 final class Redraw {
     private var dots: [CGDirectDisplayID: NSPanel] = [:]
     private var flip = false
+    private var hide: DispatchWorkItem?
 
-    /// A new frame on each of these displays; dots on other displays go.
+    /// A new frame on each of these displays.
     func nudge(_ ids: Set<CGDirectDisplayID>) {
-        for (id, dot) in dots where !ids.contains(id) {
-            dot.orderOut(nil)
-            dots[id] = nil
-        }
         guard !ids.isEmpty else { return }
         flip.toggle()
         CATransaction.begin()
@@ -28,6 +27,12 @@ final class Redraw {
             if !dot.isVisible { dot.orderFrontRegardless() }
         }
         CATransaction.commit()
+        // Its frame drawn, the dot goes (another frame), until the next nudge: a fade's frames
+        // keep it up while it runs.
+        hide?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.dots.values.forEach { $0.orderOut(nil) } }
+        hide = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
     }
 
     /// A new frame on every screen: a change made for all of them (the layer cleared) shows now.

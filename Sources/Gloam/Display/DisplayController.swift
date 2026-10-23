@@ -959,8 +959,7 @@ final class DisplayController {
         if !asleep {
             // A changed matrix shows at the screen's next frame, which a still screen may not draw
             // for seconds; and a monitor steps its own brightness at once, so the signal evening it
-            // out must show now too. The dot stays off screen the rest of the time (removing it
-            // draws the frame that shows the last change).
+            // out must show now too (`Redraw`).
             redraw.nudge(layer.apply(tints).union(stepping))
         } else if tints.values.allSatisfy(\.isNeutral) {
             // The evening ending while the screens sleep: the layer goes neutral now, so a screen
