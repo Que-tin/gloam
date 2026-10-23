@@ -440,9 +440,16 @@ final class DisplayController {
     /// full brightness, 1 where nothing limits it. The dial's 100 % on that screen: on the fixed
     /// scale a MacBook's limit sat a quarter of the way along, and the rest of the dial did nothing.
     private func warmRange(_ id: CGDirectDisplayID) -> Double {
-        Light.warmth(max(Stage.kelvinRange.lowerBound,
-                         Smear.warmest(brightness: 1, floor: smearFloor(for: id), in: engine.colourSpace(id))))
+        let floor = smearFloor(for: id)
+        if let known = warmRanges[id], known.floor == floor { return known.range }
+        let range = Light.warmth(max(Stage.kelvinRange.lowerBound,
+                                     Smear.warmest(brightness: 1, floor: floor, in: engine.colourSpace(id))))
+        warmRanges[id] = (floor, range)
+        return range
     }
+    /// `warmRange` by display, for the smear floor it was found at: a search asked several times a
+    /// frame in a fade. Cleared with the colour spaces (`engine.displaysChanged`).
+    @ObservationIgnored private var warmRanges: [CGDirectDisplayID: (floor: Double, range: Double)] = [:]
     /// A warmth as a share of this display's warm range, at most 1: a plan warmer than the screen
     /// can show sits at its end, as the screen shows it.
     func warmthShare(_ kelvin: Double, on id: CGDirectDisplayID) -> Double {
@@ -684,6 +691,7 @@ final class DisplayController {
     /// and probes them again (a ColorSync restore posts this too).
     private func profileChanged() {
         engine.displaysChanged()
+        warmRanges = [:]
         push()
     }
 
@@ -1623,6 +1631,7 @@ final class DisplayController {
         doubtful = Set(monitors.keys)  // until the probe below answers for each
         silent.subtract(displays.map(\.uuid).filter { !known.contains($0) })  // reconnected: ask again
         engine.displaysChanged()
+        warmRanges = [:]
         redraw.displaysChanged()
         // A screen macOS dims back after an unplug or power cycle at its own level, not Gloam's:
         // that level is the new baseline (as `adopt` does for monitors). Read as a key press it
