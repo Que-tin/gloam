@@ -19,7 +19,13 @@ public enum Smear {
     /// Luminance of the tinted white relative to untouched white, in linear light (1 = unchanged),
     /// in the display's own colour space.
     public static func luminance(_ tint: Tint, in space: LinearRGB = Kelvin.sRGB) -> Double {
-        let g = Kelvin.linearGain(tint.kelvin, in: space), w = Kelvin.luminanceWeights(of: space)
+        luminance(tint, in: space, weights: Kelvin.luminanceWeights(of: space))
+    }
+
+    /// The weights found once per search: inverting the space's matrix at every step of
+    /// `warmest`'s bisection, three times per display per fade frame, was most of its cost.
+    private static func luminance(_ tint: Tint, in space: LinearRGB, weights w: RGB) -> Double {
+        let g = Kelvin.linearGain(tint.kelvin, in: space)
         return (w.red * g.red + w.green * g.green + w.blue * g.blue) * pow(tint.brightness, Kelvin.displayGamma)
     }
 
@@ -27,7 +33,7 @@ public enum Smear {
     /// first, and when full brightness is still too dim the warmth is eased until it isn't.
     public static func limited(_ tint: Tint, floor: Double, in space: LinearRGB = Kelvin.sRGB) -> Tint {
         guard floor > 0 else { return tint }
-        let full = luminance(Tint(kelvin: tint.kelvin), in: space)
+        let full = luminance(Tint(kelvin: tint.kelvin), in: space, weights: Kelvin.luminanceWeights(of: space))
         if full >= floor {
             return Tint(kelvin: tint.kelvin, brightness: max(tint.brightness, pow(floor / full, 1 / Kelvin.displayGamma)))
         }
@@ -36,7 +42,10 @@ public enum Smear {
 
     /// The warmest temperature that stays on the floor at this brightness; daylight when none does.
     public static func warmest(brightness: Double, floor: Double, in space: LinearRGB = Kelvin.sRGB) -> Double {
-        func fits(_ mired: Double) -> Bool { luminance(Tint(kelvin: 1e6 / mired, brightness: brightness), in: space) >= floor }
+        let weights = Kelvin.luminanceWeights(of: space)
+        func fits(_ mired: Double) -> Bool {
+            luminance(Tint(kelvin: 1e6 / mired, brightness: brightness), in: space, weights: weights) >= floor
+        }
         var cool = Kelvin.mired(Kelvin.daylight), warm = Kelvin.mired(Kelvin.range.lowerBound)
         guard fits(cool) else { return Kelvin.daylight }
         guard !fits(warm) else { return Kelvin.range.lowerBound }
