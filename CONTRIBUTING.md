@@ -32,8 +32,7 @@ included, and quits. Anything you launch yourself keeps running until you quit i
 ## Reporting a display problem
 
 Please include your Mac model and chip, macOS version, the display's name (System Settings ›
-Displays shows it), whether HDR is on, and which method is in use. If the screen doesn't
-change at all, say whether switching the method to Overlay helps.
+Displays shows it), and whether HDR is on.
 
 ## Releasing
 

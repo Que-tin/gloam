@@ -50,7 +50,6 @@ final class AppModel {
     }
     /// Nil means "follow the time zone".
     var customPlace: Place? { didSet { save(customPlace, "place"); stagesMoved(); update(fade: 1.5) } }
-    var engine: Engine { didSet { save(engine, "engine"); display.use(engine) } }
     var excludedApps: [ExcludedApp] { didSet { save(excludedApps, "excludedApps"); update(fade: 0.6) } }
     /// Displays (by UUID) Settings leaves alone; the rest are tinted.
     var untintedDisplays: Set<String> {
@@ -112,7 +111,6 @@ final class AppModel {
     @ObservationIgnored private var pendingSave: Task<Void, Never>?
 
     private init() {
-        let engine: Engine = Self.load("engine") ?? .auto
         // A timed off that ended while Gloam was quit: on from the start, quietly (assigned
         // here, before init completes, so no didSet announces or saves it).
         let resume: Date? = Self.load("resumeAt")
@@ -123,7 +121,6 @@ final class AppModel {
         let city: Place? = Self.load("place")
         customPlace = city
         customPlaceInUse = city?.keepsTime(of: .current, at: Date()) ?? false
-        self.engine = engine
         untintedDisplays = Self.load("untintedDisplays") ?? []
         smearGuarded = Self.load("smearGuarded") ?? []
         excludedApps = Self.load("excludedApps") ?? []
@@ -133,7 +130,7 @@ final class AppModel {
             $0.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : $0
         }
         hasOnboarded = Self.load("hasOnboarded") ?? false
-        display = DisplayController(engine: engine)
+        display = DisplayController()
         applyDisplaySettings()
         display.displaysDidChange = { [weak self] in self?.wakeTickIfDue() }
         readRoom()
@@ -173,7 +170,7 @@ final class AppModel {
     }
 
     /// Every 5 s the target is applied, at once unless the step would show (`tick`): the
-    /// evening's steps are too small to see, and a fade per tick would mean ~120,000 gamma writes
+    /// evening's steps are too small to see, and a fade per tick would mean ~120,000 writes
     /// a night. Once a minute while quiet (`isQuiet`), woken early for a hold that's due
     /// (`nextExpiry`) or anything that ends the quiet (`wakeTickIfDue`).
     private func restartTick() {
@@ -420,7 +417,6 @@ final class AppModel {
         // Before the comparison below: a monitor's buttons since the last tick move what's on screen.
         display.tickBacklights(idle: tickingSlowly)
         settleShifts()
-        display.keepAlive()
         guard !display.isFading else { return }
         followRoom(hadRoom: hadRoom)
     }

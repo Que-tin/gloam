@@ -120,9 +120,6 @@ struct PopoverView: View {
                 }
             }
             updateRow
-            // Below the controls, so one appearing grows the panel downwards and never moves
-            // the dial or ladder from under the pointer.
-            notices
         }
         .padding(.horizontal, 16)
         .padding(.top, 18)
@@ -299,21 +296,6 @@ struct PopoverView: View {
             }
             .help(String(localized: "Installs the update and restarts Gloam"))
         case .installing: statusRow(String(localized: "Installing…"), busy: true)
-        }
-    }
-
-    @ViewBuilder private var notices: some View {
-        if model.display.interference {
-            // The overlay never touches the gamma table, so it ends the tug of war on its own.
-            LampNotice(text: String(localized: "Another app keeps changing your screen's colours, which can make it flicker."),
-                       action: model.display.resolvedEngine == .gamma ? (String(localized: "Use overlay"), { model.engine = .overlay }) : nil)
-                .padding(.top, 14)
-        }
-        if model.enabled, model.display.resolvedEngine == .gamma,
-           let hdr = model.display.displays.first(where: \.hdrActive) {
-            LampNotice(text: String(localized: "HDR is on for \(hdr.name), so the tint may look washed out."),
-                       action: (String(localized: "Use overlay"), { model.engine = .overlay }))
-                .padding(.top, 14)
         }
     }
 }

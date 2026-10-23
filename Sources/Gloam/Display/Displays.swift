@@ -10,10 +10,6 @@ struct DisplayInfo: Identifiable, Equatable {
     let uuid: String
     let name: String
     let isBuiltin: Bool
-    /// An external display in HDR mode. SDR is then composited inside an HDR signal and gamma
-    /// tints can look washed out. Built-in XDR panels report EDR headroom even in SDR, so the
-    /// signal is only trusted for externals, which report 1.0 with HDR off.
-    let hdrActive: Bool
 }
 
 enum Displays {
@@ -24,14 +20,18 @@ enum Displays {
                 id: id,
                 uuid: uuid(id),
                 name: screen.localizedName,
-                isBuiltin: CGDisplayIsBuiltin(id) != 0,
-                hdrActive: CGDisplayIsBuiltin(id) == 0
-                    && screen.maximumPotentialExtendedDynamicRangeColorComponentValue > 1)
+                isBuiltin: CGDisplayIsBuiltin(id) != 0)
         }
     }
 
     static func uuid(_ id: CGDirectDisplayID) -> String {
         guard let ref = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue() else { return "display-\(id)" }
         return CFUUIDCreateString(nil, ref) as String
+    }
+}
+
+extension NSScreen {
+    var displayID: CGDirectDisplayID? {
+        (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber).map { CGDirectDisplayID($0.uint32Value) }
     }
 }

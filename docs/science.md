@@ -75,7 +75,7 @@ more green and blue and read 3–6 points higher, e.g. 3400 K 0.50, 1900 K 0.20)
 | 1900 K | 0.15 |
 | 1200 K | 0.04 |
 
-Gamma tables act on display-encoded values; light scales roughly as value^2.2, so Gloam's 50%
+Brightness is on display-encoded values; light scales roughly as value^2.2, so Gloam's 50%
 brightness is about 22% of the light. The estimate in the popover accounts for this.
 
 ## Timing: sunset leads, a bedtime default deepens it
@@ -118,8 +118,8 @@ in afterwards), so a dark winter morning isn't left filtered.
 
 Kelvin → RGB uses Krystek's (1985) rational approximation of the Planckian locus in CIE 1960,
 converted to the display's own linear RGB (its ColorSync profile: P3 for Mac screens, sRGB when
-unreadable), white-balanced so 6500 K is identity, then gamma-encoded. In sRGB it matches
-Ingo Thies' measured blackbody table (2013; 3400 K: 1.00 / 0.78 / 0.52 against its 1.00 / 0.77 / 0.52) and stays physical
+unreadable) and white-balanced so 6500 K is identity: linear gains, as the colour layer takes them.
+Encoded in sRGB it matches Ingo Thies' measured blackbody table (2013; 3400 K: 1.00 / 0.78 / 0.52 against its 1.00 / 0.77 / 0.52) and stays physical
 below 2000 K, where that warm white lies outside sRGB: sRGB gains on a P3 panel show a purer
 red than asked for (1900 K: 1.00 / 0.53 / 0.02 in sRGB vs 1.00 / 0.61 / 0.23 for a MacBook Pro
 XDR panel). The matrix is built from the profile's primaries: asking ColorSync to convert XYZ
@@ -141,9 +141,7 @@ dark-adapted start of Na & Suk (2015, *Opt. Express* 23:16912). Monitors report 
 of their maximum (3 % by choice), as white seen. A key press shifts that screen from the plan for the night, fading out with the
 morning (`Shift`); auto-brightness's own move (macOS says which) is the new day level. Why not
 the signal: a dimmed signal leaves the backlight at full power,
-crushes shadows below ~30 %, pushes the liquid crystal into its slow dark range (below), and
-on M5 Pro and M5 Max MacBook Pros (and the MacBook Neo's external displays) macOS 26 and
-later ignore gamma tables altogether, an open Apple bug. Third-party
+crushes shadows below ~30 % and pushes the liquid crystal into its slow dark range (below). Third-party
 monitors that answer a DDC/CI brightness read (most on a direct DisplayPort, USB-C or HDMI
 link; rarely through hubs, never DisplayLink or most TVs) are dimmed the same way over that
 channel, on their own scale (usually 0–100); the rest by signal, never below 30 %.

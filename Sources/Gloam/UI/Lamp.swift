@@ -626,37 +626,6 @@ struct LampButton: View {
     }
 }
 
-/// A one-line heads-up with an optional action, lit by a small amber LED.
-struct LampNotice: View {
-    let text: String
-    var action: (String, () -> Void)?
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(Lamp.amber).frame(width: 5, height: 5).shadow(color: Lamp.amber, radius: 4)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(.system(size: 11))
-                .foregroundStyle(Lamp.ink.opacity(0.85))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            if let (title, perform) = action {
-                Text(title).font(Lamp.label).tracking(1).textCase(.uppercase)
-                    .foregroundStyle(Color(rgb: 0xFFB070))
-                    .padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(Capsule().fill(Lamp.amber.opacity(0.16)))
-                    .fixedSize()
-                    .lampPress(Capsule(), action: perform)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(0.04)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.08)))
-        .accessibilityElement(children: .combine)
-    }
-}
-
 /// A lamp part as a button that Tab always reaches. A SwiftUI `Button` gets keyboard focus only
 /// when the Mac's Keyboard navigation setting is on, which left the popover's switch and gear out
 /// of reach while the dial and ladder (focusable views) were not. Space presses it; the ring

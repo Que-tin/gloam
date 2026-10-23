@@ -1,9 +1,8 @@
-// Makes a screen draw a new frame now. A gamma table written to a still screen may show only at
-// its next redraw (a known Apple silicon quirk), the likely cause of a dark blink
-// on a DDC monitor as a fade settled: the monitor's brightness step landed at once while the
-// signal that evens it out (`DisplayController.signalShare`) waited for a frame. The fix:
-// a dot in a corner whose opacity flips between two values too faint to see, which
-// the window server must composite.
+// Makes a screen draw a new frame now. A colour layer written to a still screen shows only at its
+// next frame (measured: a monitor showed it 5–10 s late, its reversal not at all), and so did the
+// signal evening out a DDC monitor's brightness step (`DisplayController.signalShare`): a dark
+// blink as a fade settled. The fix: a dot in a corner whose opacity flips between two values too
+// faint to see, which the window server must composite.
 
 import AppKit
 
@@ -44,6 +43,23 @@ final class Redraw {
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.black.cgColor
         panel.contentView = view
+        return panel
+    }
+}
+
+extension NSPanel {
+    /// A borderless panel above everything (the shielding level), on every Space, that never
+    /// takes clicks or focus and stays out of screenshots: `Redraw`'s dots.
+    static func clickThrough(frame: NSRect) -> NSPanel {
+        let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = true
+        panel.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.sharingType = .none
+        panel.hidesOnDeactivate = false
         return panel
     }
 }

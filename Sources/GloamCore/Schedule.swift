@@ -79,7 +79,7 @@ public struct Stage: Equatable, Sendable {
     public let brightness: Double
 
     public static let kelvinRange = 1200.0...6500.0
-    /// Below ~30% gamma dimming crushes shadows and bands; the hardware backlight should go first.
+    /// Below ~30% signal dimming crushes shadows and bands; the hardware backlight should go first.
     public static let brightnessRange = 0.3...1.0
 
     public init(kelvin: Double, brightness: Double) {

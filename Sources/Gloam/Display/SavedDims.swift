@@ -1,5 +1,5 @@
 // The dimmed backlights, saved by display UUID as they change. A backlight Gloam dimmed outlives
-// the process (a gamma table doesn't), so after a crash, a kill or a failed restore the next
+// the process, so after a crash, a kill or a failed restore the next
 // launch must not take that level for the user's own: `DisplayController.follow` picks the saved
 // baseline back up when the panel still shows a light on tonight's saved curve (a crash mid-fade
 // leaves it between saves), `BacklightDim.resumes`.

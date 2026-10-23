@@ -69,8 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .reduce(into: []) { all, app in if !all.contains(app) { all.append(app) } }
     }
 
-    /// `kill`, `pkill` and Ctrl-C quit like ⌘Q, so the backlight is restored: unlike a gamma
-    /// table, a dimmed backlight outlives the process. A main thread too stuck to quit gets five
+    /// `kill`, `pkill` and Ctrl-C quit like ⌘Q, so the backlight and the colour layer are restored:
+    /// both outlive the process. A main thread too stuck to quit gets five
     /// seconds, then the process exits anyway (the next launch restores what was saved).
     private func quitOnSignals() {
         for number in [SIGTERM, SIGINT] {

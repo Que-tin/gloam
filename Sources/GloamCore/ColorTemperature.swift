@@ -60,7 +60,7 @@ public typealias LinearRGB = @Sendable (XYZ) -> RGB
 public enum Kelvin {
     public static let daylight = 6500.0
     public static let range = 1000.0...6500.0
-    /// The display's transfer curve: a gamma table multiplies encoded values, light scales as value^2.2.
+    /// The display's transfer curve: light scales as the encoded value^2.2.
     public static let displayGamma = 2.2
 
     public static func mired(_ kelvin: Double) -> Double { 1e6 / kelvin }
@@ -76,7 +76,8 @@ public enum Kelvin {
         return RGB(r / peak, g / peak, b / peak)
     }
 
-    /// Gains in display-encoded space (what a gamma table multiplies), scaled by brightness.
+    /// Gains in display-encoded space, scaled by brightness (the UI's swatches; `Melanopic` takes
+    /// them back to light).
     public static func displayGain(_ tint: Tint, in space: LinearRGB = sRGB) -> RGB {
         let lin = linearGain(tint.kelvin, in: space)
         let encode = { (v: Double) in pow(v, 1 / displayGamma) * min(1, max(0, tint.brightness)) }
@@ -131,7 +132,7 @@ public enum Kelvin {
                 (d * h - e * g), -(a * h - b * g), (a * e - b * d)].map { $0 / det }
     }
 
-    /// Linear sRGB (IEC 61966-2-1): the UI's colours, the overlay, and any display whose
+    /// Linear sRGB (IEC 61966-2-1): the UI's colours, and any display whose
     /// colour space can't be read.
     public static let sRGB: LinearRGB = { c in
         RGB(3.2406 * c.x - 1.5372 * c.y - 0.4986 * c.z,

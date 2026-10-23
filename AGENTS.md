@@ -12,12 +12,12 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   `Smear` (the floor that stops built-in LCDs smearing), `BacklightDim` (a screen's backlight:
   position ↔ light from its day level, readings as moves, the floor in cd/m²), `BacklightReports` (what
   macOS's reports on one backlight mean: echoes, holds, whose move), `Shift` (a hand-set move from the plan
-  and when it ends, `ShiftClock`), `Location` (zone.tab), `EnginePolicy` (gamma vs overlay per
-  chip), `Command` (`gloam://` toggle/on/off/open), `DisplayIdentity` (reused ids, EDID pairing).
+  and when it ends, `ShiftClock`), `Location` (zone.tab), `ColourMatrix` (a display's colour-layer
+  matrix: the tint as linear-light gains), `Command` (`gloam://` toggle/on/off/open), `DisplayIdentity` (reused ids, EDID pairing).
 - `Sources/Gloam/App/` — `GloamApp` (`@main`: single instance, `--uninstall`, `Windows`, URLs, debug
   flags: see `Debug`), `MenuBarPanel` (status item: click popover, right-click menu), `Updates` (Sparkle), `Intents` (Shortcuts, Focus filter;
   `build-app.sh` builds their metadata). `Model/AppModel` — settings, clock, target tint.
-- `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `GammaEngine`, `OverlayEngine`,
+- `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `ColourLayer` (the tint, per display),
   `Displays`, `RoomLight` (the sensor's lux as macOS reports it), `Backlight`, `BrightnessEvents` (macOS's reports of backlight moves and who made them), `SavedDims` (crash recovery), `Redraw` (a frame now),
   `DDC` (monitors over DDC/CI, paired by EDID via core `DisplayIdentity`; verified on one monitor).
 - `Sources/Gloam/UI/` — the "light as material" design: `PopoverView`, `Lamp` (orb dial, dimming
@@ -99,16 +99,19 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   (`BacklightDim.floor`); a fraction of the maximum on monitors.
   Monitors opt in (`smearGuarded`): macOS reports nothing about their panels.
 - Every window is ours and AppKit-hosted: the popover is a borderless panel, not `MenuBarExtra`
-  (unstylable, can't be opened or captured); Settings isn't a SwiftUI `Settings` scene. Dark. One
-  app owns the gamma table; interference is detected generically, never by app name.
+  (unstylable, can't be opened or captured); Settings isn't a SwiftUI `Settings` scene. Dark.
+- The tint goes through macOS's per-display colour layer (`ColourLayer`, the one its Color Filters
+  use): it works on every Mac, leaves calibration alone and survives sleep and display changes,
+  but outlives the process, and a change shows at the screen's next frame (`Redraw` draws one).
+  Gamma tables (ignored on M5 Pro/Max under macOS 26+, reset by macOS, a calibration to capture
+  and repair) and a translucent overlay were dropped, and the choice between them with them.
 - Ticks (5 s; 60 s when nothing is due, the screens sleep, every screen is switched off in
   Settings, Gloam is held, or only held shifts show; early for a timed pause that ends,
   `nextExpiry`; `--speed` divides them, to 1.25 s at least) write the tint, read monitors and retry failed writes; a reported backlight is read only when
   macOS reports a move, and nothing is written over one under way. A monitor is read with nothing sent until it answers
   (`readFirst`), before a step once its reading is a few seconds old (in a fade, once at its
   start). Ticks write at once, apart from a brief glide over a visible step; launches, wakes and
-  clock changes ease. The gamma table is rewritten only if something overwrote it or left it black
-  (`repairBlank`). A timed pause
+  clock changes ease. A timed pause
   (right-click "Pause", Shortcuts' Pause Gloam) ends itself (`resumeAt`); app and Focus pauses don't.
 - Deliberately absent: an "Always" mode, presets, a scheduled daytime tint, per-stage tuning, a timeline or
   Kelvin numbers shown in the popover (only its tooltip and VoiceOver give them; Settings has the

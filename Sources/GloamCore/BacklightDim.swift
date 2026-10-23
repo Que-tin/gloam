@@ -2,8 +2,8 @@
 // user (or auto-brightness) had set: the "baseline", their day level.
 //
 // Why the backlight: a dimmed signal keeps the backlight at full power and drives the liquid
-// crystal into its slow dark range (light text on dark backgrounds smears), crushes shadows
-// below ~30%, and on some chips gamma tables no longer work at all. The backlight is the lever
+// crystal into its slow dark range (light text on dark backgrounds smears), and crushes shadows
+// below ~30%. The backlight is the lever
 // the brightness keys use: no smearing, no banding, less power, and it reaches the ~25 cd/m²
 // a dark room asks for. Dedicated brightness tools dim this way for the same reasons.
 //

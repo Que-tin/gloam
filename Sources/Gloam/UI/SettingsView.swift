@@ -201,17 +201,6 @@ struct SettingsView: View {
                                          set: { on in if on { model.smearGuarded.insert(display.uuid) } else { model.smearGuarded.remove(display.uuid) } }))
                         .help("Turn on if light text on dark backgrounds leaves trails on this display in the evening. Gloam then stops short of the darkest tints: less dimming, and at full brightness less warmth.")
                 }
-                if display.hdrActive && model.display.resolvedEngine == .gamma {
-                    Text("HDR is on for \(display.name), so the tint may look washed out. Turn HDR off in the evening, or use Overlay.")
-                        .font(.callout).foregroundStyle(.orange)
-                }
-            }
-            Picker(selection: $model.engine) {
-                Text("Automatic").tag(Engine.auto)
-                Text("Colour signal (best quality)").tag(Engine.gamma)
-                Text("Overlay (compatible)").tag(Engine.overlay)
-            } label: {
-                Text("Method")
             }
         } header: {
             Text("Displays")

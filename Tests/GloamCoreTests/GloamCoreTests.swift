@@ -432,14 +432,6 @@ private let p3: LinearRGB = { c in
     }
 }
 
-@Suite struct EnginePolicyTests {
-    @Test func autoPicksOverlayOnlyForKnownBrokenChips() {
-        #expect(EnginePolicy.resolve(.auto, chip: "Apple M5 Max") == .overlay)
-        #expect(EnginePolicy.resolve(.auto, chip: "Apple M2") == .gamma)
-        #expect(EnginePolicy.resolve(.gamma, chip: "Apple M5 Max") == .gamma)
-    }
-}
-
 @Suite struct LightTests {
     // The controls' scales and the settings' allowances are one scale: a value survives the round trip.
     @Test func scalesRoundTrip() {

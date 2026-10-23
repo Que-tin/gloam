@@ -1,15 +1,13 @@
-// Owns the active engine and moves the screen toward a target tint: eased fades for user
-// actions, direct writes for the clock's small steps (writes are skipped when nothing changed).
-// On each clock tick it checks whether the tint was overwritten (or left black) and only then
-// writes it again, because macOS quietly resets gamma tables on wake, display changes and some
-// ColorSync events.
+// Moves the screens toward a target tint: eased fades for user actions, direct writes for the
+// clock's small steps. The tint goes through each display's colour layer (`ColourLayer`), written
+// only when it changes.
 // Displays whose backlight macOS controls (built-in, Apple displays) and reports on
 // (`BrightnessEvents`) or never moves itself (no auto-brightness: read on the tick), and monitors
 // that answer DDC/CI, are dimmed by backlight, relative to the level found there (`BacklightDim`);
 // the rest by signal. Each screen shows the plan (the target tint) plus its own shift (`Shift`): the
 // brightness keys, its buttons, or the ladder moved it away from the plan tonight; the dial's
 // warmth shift applies to every screen, on each one's own warm range. A dimmed backlight
-// outlives the process (gamma tables don't), so what each one was dimmed from is saved as it
+// outlives the process, so what each one was dimmed from is saved as it
 // changes (`SavedDims`), and a launch after a crash puts it back.
 // Each built-in display's slider level (the user's, not Gloam's dimming) also eases its smear floor.
 
@@ -17,45 +15,12 @@ import AppKit
 import GloamCore
 import Observation
 
-protocol TintEngine: AnyObject {
-    /// Show each listed display at its tint; displays not listed are left neutral.
-    func apply(_ tints: [CGDirectDisplayID: Tint])
-    func reset()
-    /// On quit; defaults to `reset`.
-    func restoreAll()
-    /// Screens were added, removed or rearranged: drop per-display state.
-    func displaysChanged()
-    /// A change is arriving and nothing is tinted: clear what an earlier change left on screen.
-    func settleKept()
-    /// Whether another app has rewritten what this engine put on screen.
-    func isOverwritten() -> Bool
-    /// Puts back a table left black; true when it did (`GammaEngine.repairBlank`).
-    func repairBlank() -> Bool
-    /// The display's linear RGB, for estimates that should match what it really shows.
-    func colourSpace(_ id: CGDirectDisplayID) -> LinearRGB
-}
-
-extension TintEngine {
-    func isOverwritten() -> Bool { false }
-    func repairBlank() -> Bool { false }
-    func restoreAll() { reset() }
-    func settleKept() {}
-    func colourSpace(_ id: CGDirectDisplayID) -> LinearRGB { Kelvin.sRGB }
-}
-
 @Observable
 final class DisplayController {
     /// The plan Gloam shows, where the screens are going: each display shows it with its shifts,
     /// eased there (`animate`).
     private(set) var shown = Tint.neutral
     private(set) var displays: [DisplayInfo] = Displays.current()
-    /// Something else keeps rewriting the screen's colours, so it and Gloam take turns.
-    /// Detected, not guessed from a list of app names: it works for any app.
-    private(set) var interference = false
-    @ObservationIgnored private var overwrites: [Date] = []
-    /// macOS usually resets gamma tables itself just after a wake or reconfiguration; those resets are
-    /// not another app and must not count toward the interference notice.
-    @ObservationIgnored private var quietUntil = Date.distantPast
     /// Whether a display (by UUID) is tinted: Settings › Displays can leave one alone.
     @ObservationIgnored private(set) var tinted: (String) -> Bool = { _ in true }
     /// External displays (by UUID) held to the smear floor at the user's request. Their backlight
@@ -140,7 +105,7 @@ final class DisplayController {
     /// How much of daylight white's light a backlight's tint leaves at `warmth`, the smear floor's
     /// limit included; to 1/200, so the floor isn't set afresh on every frame of a warmth fade.
     private func whiteLeft(_ warmth: Double, on id: CGDirectDisplayID) -> Double {
-        let space = engine.colourSpace(id)
+        let space = layer.colourSpace(id)
         let kelvin = Smear.limited(Tint(kelvin: kelvin(share: warmth, on: id)), floor: smearFloor(for: id), in: space).kelvin
         return (Smear.luminance(Tint(kelvin: kelvin), in: space) * 200).rounded() / 200
     }
@@ -346,7 +311,7 @@ final class DisplayController {
     func onScreen(_ tint: Tint, _ id: CGDirectDisplayID) -> Tint {
         adjusted(levels(tint, for: id, shifted: shiftsShown), for: id)
     }
-    func colourSpace(of id: CGDirectDisplayID) -> LinearRGB { engine.colourSpace(id) }
+    func colourSpace(of id: CGDirectDisplayID) -> LinearRGB { layer.colourSpace(id) }
 
     /// The slider level the user set while Gloam dims: the one saved when dimming began (also
     /// after a crash, from the saved state), else the adopted baseline light turned back into a
@@ -416,7 +381,7 @@ final class DisplayController {
     /// on a backlight display can only ease warmth. As a signal brightness either way (the orb's
     /// reading is worked out from it).
     private func adjusted(_ levels: Levels, for id: CGDirectDisplayID) -> Tint {
-        let floor = smearFloor(for: id), space = engine.colourSpace(id), q = levels.position
+        let floor = smearFloor(for: id), space = layer.colourSpace(id), q = levels.position
         let kelvin = self.kelvin(share: levels.warmth, on: id)
         guard let dim = backlight(id) else {
             let here = Tint(kelvin: kelvin, brightness: 1 - min(1, q) * (1 - darkest(id)))
@@ -436,12 +401,12 @@ final class DisplayController {
         let floor = smearFloor(for: id)
         if let known = warmRanges[id], known.floor == floor { return known.range }
         let range = Light.warmth(max(Stage.kelvinRange.lowerBound,
-                                     Smear.warmest(brightness: 1, floor: floor, in: engine.colourSpace(id))))
+                                     Smear.warmest(brightness: 1, floor: floor, in: layer.colourSpace(id))))
         warmRanges[id] = (floor, range)
         return range
     }
     /// `warmRange` by display, for the smear floor it was found at: a search asked several times a
-    /// frame in a fade. Cleared with the colour spaces (`engine.displaysChanged`).
+    /// frame in a fade. Cleared with the colour spaces (`layer.displaysChanged`).
     @ObservationIgnored private var warmRanges: [CGDirectDisplayID: (floor: Double, range: Double)] = [:]
     /// A warmth as a share of this display's warm range, at most 1: a plan warmer than the screen
     /// can show sits at its end, as the screen shows it.
@@ -651,15 +616,12 @@ final class DisplayController {
             .filter { $0.value.isPlausible(at: Date()) }
     }
 
-    @ObservationIgnored private var engine: TintEngine
+    @ObservationIgnored private let layer = ColourLayer()
     @ObservationIgnored private let redraw = Redraw()
-    @ObservationIgnored private(set) var resolvedEngine: Engine
     @ObservationIgnored private var changeTask: Task<Void, Never>?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
 
-    init(engine choice: Engine) {
-        resolvedEngine = Self.resolve(choice)
-        engine = Self.make(resolvedEngine)
+    init() {
         adoptBacklights()
         pollBacklights()
         let workspace = NSWorkspace.shared.notificationCenter
@@ -681,17 +643,17 @@ final class DisplayController {
         }]
     }
 
-    /// A display's colour profile changed (Displays settings, a calibration): its calibration is
-    /// captured afresh under the tint. Not a whole display change, which puts the monitors in doubt
-    /// and probes them again (a ColorSync restore posts this too).
+    /// A display's colour profile changed (Displays settings, a calibration): the tint is worked
+    /// out afresh in its colour space. Not a whole display change, which puts the monitors in
+    /// doubt and probes them again.
     private func profileChanged() {
-        engine.displaysChanged()
+        layer.profileChanged()
         warmRanges = [:]
         push()
     }
 
     /// Screens off (the Mac may stay awake for hours): no backlight is read or written, a tint only
-    /// to clear it (`push`). macOS usually resets the tables on wake, and the wake pushes anyway.
+    /// to clear it (`push`).
     /// The monitors' handles are put in doubt by `displaysChangedSoon`, which the same wake
     /// notification calls.
     private func screens(asleep: Bool) {
@@ -738,29 +700,8 @@ final class DisplayController {
     /// The clock ticks slowly: nothing tinted, nothing due within the minute and a bit.
     @ObservationIgnored private var idle = false
 
-    /// Reasserts the tint only when something overwrote it (macOS on some ColorSync events, or
-    /// another tinting app); called on the clock's tick. Untinted there is nothing to reassert,
-    /// and an interference notice still up is left to clear.
-    func keepAlive() {
-        // Not in the seconds after a wake or a change: tables are briefly black while macOS settles.
-        if !asleep, Date().timeIntervalSince(changedAt) > 5, engine.repairBlank() { push() }
-        // A shift held by day tints a signal-dimmed screen with the plan neutral: reasserted too.
-        guard animator == nil, !asleep, interference || !shown.isNeutral
-                || shiftsShown && (!shifts.isEmpty || warmthShift != nil) else { return }
-        if noteInterference() { push() }
-    }
-
     /// A fade (from a user action) is under way; clock ticks wait rather than cut it short.
     var isFading: Bool { animator != nil }
-
-    func use(_ choice: Engine) {
-        engine.reset()
-        overwrites = []  // the overlay ends the tug of war: the notice goes with it
-        interference = false
-        resolvedEngine = Self.resolve(choice)
-        engine = Self.make(resolvedEngine)
-        push()
-    }
 
     /// Fade to `target` over `duration` seconds, from what each screen shows now (`animate`). A
     /// new target mid-way retargets the running ease instead of restarting it: a drag sends ~120
@@ -877,7 +818,7 @@ final class DisplayController {
 
     /// Quitting for an update that relaunches at once: backlights stay where they are, saved as
     /// dimmed, so the new copy resumes them (`follow`) without a flash of full brightness. The
-    /// gamma tables go back by themselves as the process ends.
+    /// colour layer keeps its tint until the new copy writes its own.
     func keepForRelaunch() {
         stopEasing()
         writeSaved()
@@ -934,7 +875,7 @@ final class DisplayController {
         }
         for (id, dim) in unsure { if let uuid = uuidOf[id] { _ = saved.set(dim, for: uuid) } }
         writeSaved()
-        engine.restoreAll()
+        layer.restore()
         redraw.nudge([])
     }
 
@@ -993,16 +934,16 @@ final class DisplayController {
             if backlight(display.id) != nil { setBacklight(display.id, position: 0) }
         }
         if !asleep {
-            engine.apply(tints)
-            // A monitor steps its own brightness at once; the signal evening it out must show now too.
-            // Only while that goes on: the dot stays off screen the rest of the time (removing it
-            // draws the frame that shows the last step's signal).
-            redraw.nudge(resolvedEngine == .gamma ? stepping : [])
+            // A changed matrix shows at the screen's next frame, which a still screen may not draw
+            // for seconds; and a monitor steps its own brightness at once, so the signal evening it
+            // out must show now too. The dot stays off screen the rest of the time (removing it
+            // draws the frame that shows the last change).
+            redraw.nudge(layer.apply(tints).union(stepping))
         } else if tints.values.allSatisfy(\.isNeutral) {
-            // The evening ending while the screens sleep: the tables go back now, so a screen that
-            // wakes (and a lid that opens) comes on neutral rather than flashing last night's tint.
+            // The evening ending while the screens sleep: the layer goes neutral now, so a screen
+            // that wakes (and a lid that opens) comes on neutral rather than with last night's tint.
             // A dimmed backlight waits for the wake (nothing is written asleep), which eases it up.
-            engine.apply(tints)
+            _ = layer.apply(tints)
             for id in rendered.keys {
                 rendered[id] = Levels(position: backlight(id)?.isDimming == true ? rendered[id]?.position ?? 0 : 0, warmth: 0)
             }
@@ -1516,29 +1457,13 @@ final class DisplayController {
         motions[id]?.byLadder = false
     }
 
-    /// Two overwrites within a minute raise the notice; two quiet minutes clear it. Returns
-    /// whether the tint was overwritten just now (and so needs writing again).
-    private func noteInterference() -> Bool {
-        let now = Date()
-        let overwritten = engine.isOverwritten()
-        if overwritten && now > quietUntil { overwrites.append(now) }
-        overwrites.removeAll { now.timeIntervalSince($0) > 120 }
-        let raised = overwrites.filter { now.timeIntervalSince($0) <= 60 }.count >= 2
-        if raised != interference && (raised || overwrites.isEmpty) { interference = raised }
-        return overwritten
-    }
-
     /// A wake sends several notifications at once (wake, screens wake, one or more parameter
     /// changes): handled once, together, 250 ms after the last.
     private func displaysChangedSoon() {
-        quietUntil = Date().addingTimeInterval(10)
         changedAt = Date()
         // After a wake or replug a monitor's I2C service is a new one, and writes through the old
         // handle "succeed" into nothing: none until the probe answers (`adopt`).
         doubtful.formUnion(monitors.keys)
-        // A screen back with a tint an earlier change left (lid opened in the morning) is cleared
-        // as it arrives, not 250 ms later on screen. Not while tinting: the push puts tonight's on.
-        if shown.isNeutral { engine.settleKept() }
         changeTask?.cancel()
         changeTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(250))
@@ -1549,7 +1474,6 @@ final class DisplayController {
 
     private func displaysChanged() {
         changeTask = nil
-        quietUntil = Date().addingTimeInterval(10)
         let known = Set(displays.map(\.uuid))
         displays = Displays.current()
         main = CGMainDisplayID()
@@ -1581,7 +1505,7 @@ final class DisplayController {
         reprobing = false
         doubtful = Set(monitors.keys)  // until the probe below answers for each
         silent.subtract(displays.map(\.uuid).filter { !known.contains($0) })  // reconnected: ask again
-        engine.displaysChanged()
+        layer.displaysChanged()
         warmRanges = [:]
         redraw.displaysChanged()
         // A screen macOS dims back after an unplug or power cycle at its own level, not Gloam's:
@@ -1600,30 +1524,4 @@ final class DisplayController {
         push()
         displaysDidChange()
     }
-
-    private static func resolve(_ choice: Engine) -> Engine {
-        EnginePolicy.resolve(choice, chip: SystemInfo.chip)
-    }
-
-    private static func make(_ engine: Engine) -> TintEngine {
-        if Debug.isShowcase { return NullEngine() }
-        return engine == .overlay ? OverlayEngine() : GammaEngine()
-    }
-}
-
-/// Leaves the screen alone in debug showcase runs.
-private final class NullEngine: TintEngine {
-    func apply(_ tints: [CGDirectDisplayID: Tint]) {}
-    func reset() {}
-    func displaysChanged() {}
-}
-
-enum SystemInfo {
-    static let chip: String = {
-        var size = 0
-        sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
-        var buffer = [CChar](repeating: 0, count: max(size, 1))
-        sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nil, 0)
-        return String(decoding: buffer.prefix { $0 != 0 }.map(UInt8.init), as: UTF8.self)
-    }()
 }
