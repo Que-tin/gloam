@@ -2,7 +2,8 @@ name: Release
 
 # Pushing a tag like v0.9.1 releases that commit: test, build, sign the update for Sparkle, publish.
 # Plain versions only: a v1.0.0-rc1 would become 1.0.0 too, reach every installed copy and hide
-# the real 1.0.0 from them. Needs the repository secret SPARKLE_PRIVATE_KEY (CONTRIBUTING.md).
+# the real 1.0.0 from them. Needs SPARKLE_PRIVATE_KEY, a secret of the "release" environment, which
+# waits for the owner's approval: a pushed tag alone can't sign an update (CONTRIBUTING.md).
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+']
@@ -13,11 +14,12 @@ permissions:
 jobs:
   release:
     runs-on: xcode-27  # see ci.yml
+    environment: release
     env:
       TAG: ${{ github.ref_name }}
       VERSION: ${{ github.ref_name }}  # build-app.sh drops the "v"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           persist-credentials: false  # the build runs with no write token on disk
       - name: Test
@@ -37,9 +39,11 @@ jobs:
           printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast \
             --ed-key-file - --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/" \
             .build/appcast
-          # A key that doesn't match SUPublicEDKey only warns and leaves the image unsigned, which
-          # every installed copy would then refuse without a word: fail here instead.
+          # A key that doesn't match SUPublicEDKey only warns and leaves the image (or the feed,
+          # which SURequireSignedFeed makes installed copies check) unsigned, which every installed
+          # copy would then refuse without a word: fail here instead.
           grep -q 'sparkle:edSignature=' .build/appcast/appcast.xml || { echo "appcast.xml is unsigned: check SPARKLE_PRIVATE_KEY" >&2; exit 1; }
+          grep -q 'sparkle-signatures:' .build/appcast/appcast.xml || { echo "appcast.xml has no feed signature" >&2; exit 1; }
       - name: Publish
         # gh uploads to a draft and publishes last, so no installed copy sees a release without
         # its appcast.xml.

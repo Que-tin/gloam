@@ -1,0 +1,12 @@
+# Keeps Sparkle (Package.swift) and the workflows' actions, pinned to commits, up to date: a pull
+# request per new version, to test and merge by hand.
+version: 2
+updates:
+  - package-ecosystem: swift
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

@@ -24,7 +24,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   ladder, small parts), `GloamGlyph` (menu-bar mark), `WelcomeView`, `SettingsView`,
   `EveningGraph` (Settings' evening, also its control), `CitySearch`, `Theme` (colours, names, formats),
   `Wordmark` (the logo, drawn from the SVG's path).
-- `.github/workflows/` — `ci` (tests, disk image, the private API on macOS 15, 26 and 27; 14 by hand), `release` (a pushed `v*` tag → signed GitHub release).
+- `.github/workflows/` — `ci` (tests, disk image, the private API on macOS 15, 26 and 27; 14 by hand), `release` (a pushed `v*` tag → signed GitHub release, after the owner's approval); actions pinned to commits; `dependabot.yml` proposes updates to them and Sparkle.
 - `Tests/GloamCoreTests/` — Swift Testing suites; `scripts/` — `build-app.sh` (app + dmg), `check-private-api.swift`,
   `make-icon.swift`, `make-dmg-background.swift`, `scrub-dmg-layout.swift`, `make-social-preview.swift`, `snapshots.sh`; `Resources/Info.plist` (template; `build-app.sh` fills `__VERSION__`), `Resources/dmg-layout` (the disk image's Finder layout, made once and scrubbed by `build-app.sh`); `docs/` (science, screenshots);
   `assets/` (icon, wordmark SVGs on dark and light, which `UI/Wordmark` draws too; the social preview).

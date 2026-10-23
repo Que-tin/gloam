@@ -42,8 +42,11 @@ commit, signs the disk image for Sparkle and publishes it with its `appcast.xml`
 copies check about once a day (`releases/latest/download/appcast.xml`). Edit the generated notes on
 GitHub afterwards if you like.
 
-It needs the update signing key as the repository secret `SPARKLE_PRIVATE_KEY`. The key was made
-once with Sparkle's `generate_keys` and lives in the maintainer's login Keychain; export it with
-`generate_keys -x <file>`, keep a copy somewhere safe (a GitHub secret can't be read back, and
-without the key installed copies can never be updated again), then
-`gh secret set SPARKLE_PRIVATE_KEY < <file>` and delete the file.
+It needs the update signing key as `SPARKLE_PRIVATE_KEY`, a secret of the `release` environment:
+that job waits for the maintainer's approval in the Actions tab, and only repository admins may
+push `v*` tags (the "Release tags" ruleset), so a token with write access alone can't ship an
+update. The key was made once with Sparkle's `generate_keys` and lives in the maintainer's login
+Keychain; export it with `generate_keys -x <file>`, keep a copy somewhere safe (a GitHub secret
+can't be read back, and without the key installed copies can never be updated again), then
+`gh secret set SPARKLE_PRIVATE_KEY --env release < <file>` and delete the file. Never as a
+repository secret: every workflow on any branch could read that.
