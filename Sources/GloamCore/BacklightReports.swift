@@ -44,8 +44,9 @@ public struct BacklightReports: Sendable {
     /// Forgets a move under way and the writes before it (the screens slept), not that the
     /// backlight is reported on.
     public mutating func forgetMoves() {
+        let confirmed = confirmed
         self = Self()
-        confirmed = true
+        self.confirmed = confirmed
     }
 
     /// Gloam wrote the backlight: its light (`level` false), or its slider level (the release).
@@ -82,6 +83,7 @@ public struct BacklightReports: Sendable {
     /// press's own report: taken first, the press became the day level and its report found
     /// nothing left.
     public mutating func settled(_ by: Source?) -> Source? {
+        confirmed = true
         if by == .macOS, seen.contains(.user) { return nil }
         defer { seen = []; moving = nil; masked = false }
         if by == .macOS, masked { return .macOS }

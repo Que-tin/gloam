@@ -102,7 +102,8 @@ import Testing
     @Test func reportsAreConfirmedByTheFirstAndKeptOverAWake() {
         var r = BacklightReports()
         r.wrote(at: Self.at(0), level: false)
-        #expect(!r.confirmed)
+        r.forgetMoves()
+        #expect(!r.confirmed)  // a wake confirms nothing
         r.step(byUser: false, at: Self.at(0.01))
         r.step(byUser: true, at: Self.at(5))
         #expect(r.confirmed && r.moving != nil)

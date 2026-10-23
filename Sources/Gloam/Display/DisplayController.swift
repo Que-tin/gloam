@@ -1,8 +1,8 @@
 // Moves the screens toward a target tint: eased fades for user actions, direct writes for the
 // clock's small steps. The tint goes through each display's colour layer (`ColourLayer`), written
 // only when it changes.
-// Displays whose backlight macOS controls (built-in, Apple displays) and reports on
-// (`BrightnessEvents`) or never moves itself (no auto-brightness: read on the tick), and monitors
+// Displays whose backlight macOS controls (built-in, Apple displays), reported on
+// (`BrightnessEvents`) or read on the tick until a report comes, and monitors
 // that answer DDC/CI, are dimmed by backlight, relative to the level found there (`BacklightDim`);
 // the rest by signal. Each screen shows the plan (the target tint) plus its own shift (`Shift`): the
 // brightness keys, its buttons, or the ladder moved it away from the plan tonight; the dial's
@@ -1527,6 +1527,9 @@ final class DisplayController {
         layer.displaysChanged()
         warmRanges = [:]
         redraw.displaysChanged()
+        // A screen back under its old id (a lid reopened, a replug) may have lost its registration,
+        // and stay confirmed with no reports: registered again, as on a wake.
+        BrightnessEvents.rewatch()
         // A screen macOS dims back after an unplug or power cycle at its own level, not Gloam's:
         // that level is the new baseline (as `adopt` does for monitors). Read as a key press it
         // scaled the baseline up, and the morning restore could go to full brightness.

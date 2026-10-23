@@ -90,7 +90,8 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   steps with no settled report and teach auto-brightness nothing; a slider-level write is reported
   as the user's, so only the release uses one. A backlight counts as reported once a report came
   for it (the echo of Gloam's first write); until then (no reports on that macOS, a display that
-  registers but isn't reported on) it is read on the tick, any change not Gloam's the user's. The room's
+  registers but isn't reported on) it is read on the tick, any change not Gloam's the user's (with
+  auto-brightness on, its ramps then pass for presses: guessed from readings, they did). The room's
   lux is watched, never read on its report: a read reports to every watcher, so that looped.
   The rest: signal, never below 30%.
 - A built-in LCD never draws a white under `DisplayController.smearFloor` of daylight white's light,
