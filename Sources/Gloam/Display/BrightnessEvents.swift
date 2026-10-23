@@ -114,6 +114,15 @@ enum BrightnessEvents {
         if luxDisplay != nil, let lux = readLux() { luxGate.withLock { $0.last = lux } }
     }
 
+    /// The panel's luminance at full brightness (cd/m², the slider's top: 600 on a 14" M3 MacBook
+    /// Pro), or nil where macOS doesn't say. Its linear brightness is that share of it.
+    static func maxNits(_ id: CGDirectDisplayID) -> Double? {
+        guard let client, let (sel, copy) = method("copyPropertyForKey:andDisplay:", as: CopyFor.self),
+              let caps = copy(client, sel, "BrightnessControlCapabilities" as NSString, UInt64(id))?.takeRetainedValue() as? NSDictionary,
+              let nits = (caps["MaxNits"] as? NSNumber)?.doubleValue, nits.isFinite, nits > 0 else { return nil }
+        return nits
+    }
+
     /// The room light the sensor measures now (lux), or nil where macOS has none (no sensor, no
     /// reports on this macOS): as last reported where watched, else read.
     static var roomLux: Double? {

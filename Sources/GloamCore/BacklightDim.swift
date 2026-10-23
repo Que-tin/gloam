@@ -4,7 +4,7 @@
 // Why the backlight: a dimmed signal keeps the backlight at full power and drives the liquid
 // crystal into its slow dark range (light text on dark backgrounds smears), crushes shadows
 // below ~30%, and on some chips gamma tables no longer work at all. The backlight is the lever
-// the brightness keys use: no smearing, no banding, less power, and it reaches the ~40 cd/m²
+// the brightness keys use: no smearing, no banding, less power, and it reaches the ~25 cd/m²
 // a dark room asks for. Dedicated brightness tools dim this way for the same reasons.
 //
 // Why a baseline and not a level: the slider belongs to the user and to auto-brightness. Gloam
@@ -28,20 +28,38 @@ public struct BacklightDim: Equatable, Codable, Sendable {
     /// The display's own step (a DDC monitor's 1/100): its rounded read-back of a write is the
     /// write, not an outside move. 0 for displays macOS controls.
     public var step = 0.0
-    /// The light floor in force: `floorLight` by default, eased towards `deepestFloorLight` when
-    /// the user's Dimmest setting goes past the recommended night (their consent to a dimmer
-    /// screen). Set by the controller on every change; not saved (a relaunch sets it again).
+    /// The light floor in force (`floor`), as a fraction of the panel's maximum. Set by the
+    /// controller on every change; not saved (a relaunch sets it again).
     public var lightFloor = Self.floorLight
 
-    /// Light is never taken below this fraction of the display's maximum (about 40 cd/m² on a
-    /// 500-nit panel: comfortable for sustained smartphone reading in low room light, Na & Suk
-    /// 2015; evening viewers preferred 21–75 cd/m² under 13–62 lx, Zhou et al. 2021).
+    /// The floor where the panel's luminance is known (macOS reports it for its own panels), in
+    /// cd/m² for the room at `lux`: 25 in the dark, where evening viewers tired least at ~21 and
+    /// found ~26 comfortable (Zhou et al. 2021), rising as they preferred more in a lit room
+    /// (~41 at 20 lx, 50 at 100 lx), at most 60. No reading (no sensor, the lid closed, the room
+    /// left out in Settings): 40, about the fraction floor on a 500-nit panel.
     /// See docs/science.md.
-    public static let floorLight = 0.08
-    /// How low the floor goes at the deepest Dimmest setting (~15 cd/m² on a 500-nit panel):
-    /// below the comfortable range, which is why only an explicit setting past the recommended
-    /// night reaches it.
-    public static let deepestFloorLight = 0.03
+    public static func floorNits(lux: Double?) -> Double {
+        guard let lux, !lux.isNaN else { return 40 }
+        return min(60, 25 + 12.5 * log10(1 + max(0, lux)))
+    }
+    /// How low the floor goes at the deepest Dimmest setting: the dark-adapted start Na & Suk
+    /// (2015) found comfortable, below the comfortable range, which is why only an explicit
+    /// setting past the recommended night reaches it.
+    public static let deepestFloorNits = 10.0
+    /// Where the luminance is unknown (monitors: DDC says nothing of it), the floor is a fraction
+    /// of the maximum instead, about 40 and 15 cd/m² on a 500-nit panel.
+    public static let floorLight = 0.08, deepestFloorLight = 0.03
+
+    /// The light floor as a fraction of the panel's maximum: `consent` (the user's Dimmest past
+    /// the recommended night, 0…1) eases it towards the deepest. `maxNits` nil: unknown. `white`:
+    /// the share of daylight white's light the tint leaves (`Smear.luminance`): the floor is on the
+    /// white seen, or at 1900 K (about half the light) the screen went to half of it.
+    public static func floor(maxNits: Double?, lux: Double?, consent: Double, white: Double = 1) -> Double {
+        let white = max(0.05, min(1, white))
+        guard let maxNits, maxNits > 0 else { return min(1, (floorLight + (deepestFloorLight - floorLight) * consent) / white) }
+        let base = floorNits(lux: lux), nits = base + (deepestFloorNits - base) * consent
+        return min(1, nits / maxNits / white)
+    }
     /// Readings this close to what was written are Gloam's own write, not an outside move: within
     /// 3 % on a display macOS controls (a key step near the bottom of the range moves the light very
     /// little), under one step on a monitor, which rounds a write by half a step at most (a full

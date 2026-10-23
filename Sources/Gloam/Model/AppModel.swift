@@ -490,6 +490,7 @@ final class AppModel {
         let wanted = !isHeld || preview != nil && !offByHand
         display.shiftsWanted = wanted
         display.previewing = preview != nil
+        display.roomLux = autoDimming ? roomLux : nil  // the floor follows the room (`BacklightDim.floorNits`)
         if !awaitingFocus || preview != nil { display.show(target, duration: fade) }
         wakeTickIfDue()
     }

@@ -108,8 +108,8 @@ goes very dark reads as a broken display. Settings can take it to ember (1200 K)
 sensitive people in dark rooms: about 4× less melanopic light from the screen each way. Below
 ~5 lx the dose-response is extrapolated, and in a lit room (homes average ~18 melanopic lux
 before bed, Cain et al. 2020, *J. Pineal Res.*) the room outweighs it. Past the default the user
-consents: the smear floor and the 8 % light floor ease off towards the ends (no smear floor at
-ember, 3 % light at 30 %), and going warmer shows a note naming the cost.
+consents: the smear floor and the light floor ease off towards the ends (no smear floor at
+ember, 10 cd/m² at 30 %), and going warmer shows a note naming the cost.
 
 Morning light should be bright: after waking Gloam ignores the sun for five hours (easing back
 in afterwards), so a dark winter morning isn't left filtered.
@@ -131,10 +131,14 @@ Transitions interpolate in mireds (10⁶/K), where equal steps look equally larg
 Where the brightness keys work (the built-in panel, Apple displays) Gloam dims the backlight
 itself through the same call, the schedule's dimming going the same share of the way to that panel's
 own floor, so a dim screen is dimmed less (with half the panel's light the night keeps 37 % of it,
-not 27 %; at full brightness it barely changes). The floor is 8 % of the panel's maximum (easing to 3 % only past the recommended night, by choice): about 40 cd/m² on a 500-nit screen, within what is comfortable for sustained
-smartphone reading in low room light (Na & Suk 2015, *Opt. Express* 23:16912) and inside the
-21–75 cd/m² evening viewers preferred under 13–62 lx room light (Zhou et al. 2021, *Appl. Sci.*
-11:4108; Gloam's dark-room case lies below that range, where the optimum trends lower). A key press shifts that screen from the plan for the night, fading out with the
+not 27 %; at full brightness it barely changes). Where macOS reports the panel's luminance the
+floor is 25 cd/m² of the white seen in a dark room (a 1900 K white has half the light, so twice
+the backlight), rising with the room (~41 at 20 lx, 50 at 100, at most 60; 40 without a reading):
+evening viewers tired least at ~21 and found ~26 comfortable at 0 lx, wanting more as the room grew
+lighter (Zhou et al. 2021, *Appl. Sci.* 11:4108, 0–100 lx), and white text gets uncomfortable under
+~20 (Mantiuk et al. 2009, APGV). Past the recommended night, by choice, it eases to 10 cd/m², the
+dark-adapted start of Na & Suk (2015, *Opt. Express* 23:16912). Monitors report no luminance: 8 %
+of their maximum (3 % by choice), as white seen. A key press shifts that screen from the plan for the night, fading out with the
 morning (`Shift`); auto-brightness's own move (macOS says which) is the new day level. Why not
 the signal: a dimmed signal leaves the backlight at full power,
 crushes shadows below ~30 %, pushes the liquid crystal into its slow dark range (below), and
@@ -148,11 +152,9 @@ channel, on their own scale (usually 0–100); the rest by signal, never below 3
 
 Observed on a mini-LED laptop panel with the slider at 100 %, scrolling white-on-black text:
 heavy trails with the whole signal scaled to 55 %, none at 80 %. Both slow parts of the panel
-are slowest around black: the liquid crystal (Notebookcheck: ~41–43 ms on current MacBook Pro
-panels, 67–80 ms on M2/M3, PWM-approximate; dark-grey transitions unmeasured) and the
-mini-LED zones. Apple calls "a slight blur or color change while
-scrolling against black backgrounds" normal behaviour of the dimming zones on the iPad Pro's
-XDR display, the same mini-LED design (support.apple.com/HT212527). To the panel a warm tint is
+are slowest around black: the liquid crystal (Notebookcheck: ~41–80 ms on recent MacBook Pro
+panels) and the mini-LED zones, whose "slight blur or color change while scrolling against black
+backgrounds" Apple calls normal on the iPad Pro's XDR display (support.apple.com/HT212527). To the panel a warm tint is
 a dim white: red stays at full drive, but green and blue carry three quarters of the light.
 Relative to daylight white at the same slider position:
 
@@ -182,7 +184,7 @@ Shift is on"; a floor on green's own drive would put the cap near 3000–3200 K 
 
 **Room light** (the sensor as macOS reports it; none means no change): with a MacBook's lid
 open, a bright room eases the dimming (all of it at ≤ 10 lx, a third at ≥ 500 lx, log-linear
-between). The sensor reads photopic lux at the lid, a proxy
+between) and raises the light floor (above). The sensor reads photopic lux at the lid, a proxy
 for the melanopic light at the eye that Brown et al. 2022's ≤ 10 lx ceiling refers to. In a bright
 room the room dominates the light reaching the eye (Gooley et al. 2011, *JCEM*: < 200 lx before
 bed delayed melatonin onset in nearly everyone), so a much darker screen mostly costs

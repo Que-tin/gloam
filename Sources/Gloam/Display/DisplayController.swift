@@ -80,28 +80,69 @@ final class DisplayController {
     @ObservationIgnored var displaysDidChange: () -> Void = {}
     /// How far the user's settings go past the recommended night (`Schedule.pastRecommended`):
     /// their consent to what deeper costs. Warmth eases the smear floor away (none at ember),
-    /// dimming eases the backlight's light floor down to `BacklightDim.deepestFloorLight`.
+    /// dimming eases the backlight's light floor down to its deepest (`BacklightDim.floor`).
     var consent: (warmth: Double, dimming: Double) = (0, 0) {
         didSet {
             consentKnown = true
-            guard consent != oldValue else { return }
-            for (id, var dim) in dims {
-                // A shift below the floor keeps the light it shows: the same position on a lower
-                // floor was darker than what was pressed. Moved by the difference, so its distance
-                // from the plan (and its morning) stay its own. Not before the first target: at
-                // launch the saved shifts were taken on the consent being set now.
-                let uuid = uuidOf[id], plan = shiftPlan(for: id)
-                let shift = uuid.flatMap { shifts[$0] }
-                let below = firstTargetShown ? shift.map { $0.position(plan: plan, now: clock.now) }.flatMap { $0 > 1 ? $0 : nil } : nil
-                let shownLight = below.map { dim.light(at: $0) }
-                dim.lightFloor = lightFloor
-                store(dim, for: id)
-                if let uuid, let shift, let below, let shownLight {
-                    shifts[uuid] = shift.moved(by: dim.position(of: shownLight) - below)
-                }
-            }
-            push()
+            if consent != oldValue { refreshFloors() }
         }
+    }
+    /// The room's light (lux, smoothed; nil: no sensor, or the room left out): where a panel's
+    /// luminance is known its floor follows the room (`BacklightDim.floorNits`).
+    var roomLux: Double? {
+        didSet { if roomLux != oldValue { refreshFloors() } }
+    }
+    /// Each panel's luminance at full brightness, where macOS reports it (`BrightnessEvents.maxNits`).
+    @ObservationIgnored private var maxNits: [CGDirectDisplayID: Double] = [:]
+    /// The share of daylight white's light each backlight's tint leaves (warmth takes light from
+    /// white): the floor is on the white seen (`BacklightDim.floor`).
+    @ObservationIgnored private var whiteShare: [CGDirectDisplayID: Double] = [:]
+
+    private func lightFloor(_ id: CGDirectDisplayID) -> Double {
+        BacklightDim.floor(maxNits: maxNits[id], lux: roomLux, consent: consent.dimming, white: whiteShare[id] ?? 1)
+    }
+
+    /// Every backlight's floor set afresh (consent or the room changed).
+    private func refreshFloors() {
+        for id in dims.keys { setFloor(id) }
+        push()
+    }
+
+    /// A backlight's floor set to what's due now. Moved far enough to see (the room-light switch,
+    /// the lid closing, consent), the screen eases there from the light it shows over 2 s: pushed
+    /// at once, a 40 → 25 cd/m² floor was a step. True when it eases (the caller's levels moved).
+    @discardableResult private func setFloor(_ id: CGDirectDisplayID) -> Bool {
+        guard var dim = dims[id] else { return false }
+        let floor = lightFloor(id)
+        guard abs(floor - dim.lightFloor) > 1e-6 else { return false }
+        // A shift below the floor keeps the light it shows: the same position on a lower floor was
+        // darker than what was pressed. Moved by the difference, so its distance from the plan
+        // (and its morning) stay its own. Not before the first target: at launch the saved shifts
+        // were taken on the consent being set now.
+        let uuid = uuidOf[id], plan = shiftPlan(for: id)
+        let shift = uuid.flatMap { shifts[$0] }
+        let below = firstTargetShown ? shift.map { $0.position(plan: plan, now: clock.now) }.flatMap { $0 > 1 ? $0 : nil } : nil
+        let pressedLight = below.map { dim.light(at: $0) }
+        let now = levelsNow(id), was = dim.light(at: now.position)
+        dim.lightFloor = floor
+        store(dim, for: id)
+        if let uuid, let shift, let below, let pressedLight {
+            shifts[uuid] = shift.moved(by: dim.position(of: pressedLight) - below)
+        }
+        // Not over an ease already running (a warmth fade moves the floor on every frame): restarted
+        // each time, it stretched and reshaped that fade.
+        guard dim.isDimming, firstTargetShown, motions[id] == nil,
+              !BacklightDim.unseen(dim.light(at: levelsNow(id).position), was) else { return false }
+        animate([id], over: 2, from: [id: Levels(position: dim.position(of: was), warmth: now.warmth)])
+        return true
+    }
+
+    /// How much of daylight white's light a backlight's tint leaves at `warmth`, the smear floor's
+    /// limit included; to 1/200, so the floor isn't set afresh on every frame of a warmth fade.
+    private func whiteLeft(_ warmth: Double, on id: CGDirectDisplayID) -> Double {
+        let space = engine.colourSpace(id)
+        let kelvin = Smear.limited(Tint(kelvin: kelvin(share: warmth, on: id)), floor: smearFloor(for: id), in: space).kelvin
+        return (Smear.luminance(Tint(kelvin: kelvin), in: space) * 200).rounded() / 200
     }
     /// The model has set `consent` (just after `init`, where the saved dims are followed).
     @ObservationIgnored private var consentKnown = false
@@ -157,9 +198,6 @@ final class DisplayController {
             guard animator == nil else { return }
             if shifts.values.contains(where: { $0.isShrinking(clock.now) }) || warmthShift?.isShrinking(warmthClock.now) == true { push() }
         }
-    }
-    private var lightFloor: Double {
-        BacklightDim.floorLight + (BacklightDim.deepestFloorLight - BacklightDim.floorLight) * consent.dimming
     }
     /// Each built-in display's share of the smear floor (`Schedule.backlightFactor`) from its
     /// slider; read on the tick and with a reported move, not per fade frame. Missing means all of it. Eased
@@ -922,7 +960,11 @@ final class DisplayController {
         for display in displays {
             guard tinted(display.uuid) else { continue }
             let asked = shown
-            let levels = levelsNow(display.id)
+            var levels = levelsNow(display.id)
+            if dims[display.id] != nil {
+                whiteShare[display.id] = whiteLeft(levels.warmth, on: display.id)
+                if setFloor(display.id) { levels = levelsNow(display.id) }
+            }
             if !asleep { rendered[display.id] = levels }
             var t = adjusted(levels, for: display.id)
             let q = levels.position
@@ -1221,11 +1263,11 @@ final class DisplayController {
             // launch the settings' consent isn't known yet (it's set just after `init`): the
             // deepest floor any consent allows decides then.
             left.step = step
-            left.lightFloor = consentKnown ? lightFloor : BacklightDim.deepestFloorLight
+            left.lightFloor = consentKnown ? lightFloor(id) : BacklightDim.floor(maxNits: maxNits[id], lux: nil, consent: 1)
             if saved.isRecent(uuid) ? left.resumes(at: light) : left.written.map({ left.same(light, $0) }) == true {
                 // Mid-fade the panel isn't at what was saved: continue from where it is.
                 if !firstTargetShown { holdForFirstTarget() }
-                left.lightFloor = lightFloor
+                left.lightFloor = lightFloor(id)
                 left.resume(at: light)
                 return store(left, for: id)
             }
@@ -1249,7 +1291,7 @@ final class DisplayController {
     /// Follows a display afresh from the light it shows now, as its baseline.
     private func restart(_ id: CGDirectDisplayID, at light: Double, step: Double = 0) {
         var dim = BacklightDim(baseline: light, step: step)
-        dim.lightFloor = lightFloor
+        dim.lightFloor = lightFloor(id)
         store(dim, for: id)
     }
 
@@ -1259,6 +1301,7 @@ final class DisplayController {
         guard !Debug.isShowcase else { return }  // showcase runs never touch the real screen
         for display in displays where dims[display.id] == nil && Backlight.canDim(display.id) {
             guard let light = Backlight.light(display.id) else { continue }
+            maxNits[display.id] = BrightnessEvents.maxNits(display.id)
             follow(display.id, uuid: display.uuid, light: light)
             if BrightnessEvents.watch(display.id, { [weak self] in self?.reported($0, $1, at: $2) }) {
                 reports[display.id] = BacklightReports()
@@ -1564,6 +1607,8 @@ final class DisplayController {
             reports[id] = nil
             quiet.remove(id)
             readOnTick.remove(id)
+            maxNits[id] = nil
+            whiteShare[id] = nil
         }
         // Normally cleared by the screens' wake; also here, so a missed notification can't stop
         // backlights being read for good.

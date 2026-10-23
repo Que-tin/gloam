@@ -49,6 +49,22 @@ import Testing
         #expect(!day.isDimming && day.baseline == 0.5)
     }
 
+    // Where the panel's luminance is known the floor is in cd/m², following the room: 25 in the
+    // dark, more in a lit room, at most 60, consent easing it to 10; unknown, fractions of the
+    // maximum.
+    @Test func theFloorFollowsTheRoomInCandelas() {
+        let at = { (lux: Double?, consent: Double) in BacklightDim.floor(maxNits: 600, lux: lux, consent: consent) * 600 }
+        #expect(abs(at(0, 0) - 25) < 1e-9 && abs(at(100, 0) - 50) < 0.1 && at(1e6, 0) == 60 && at(nil, 0) == 40)
+        #expect(at(0.5, 0) < at(5, 0) && at(5, 0) < at(20, 0))
+        #expect(abs(at(0, 1) - 10) < 1e-9 && abs(at(500, 1) - 10) < 1e-9)
+        #expect(BacklightDim.floor(maxNits: 1, lux: 0, consent: 0) == 1)
+        #expect(BacklightDim.floor(maxNits: nil, lux: 0, consent: 0) == BacklightDim.floorLight)
+        #expect(BacklightDim.floor(maxNits: nil, lux: 0, consent: 1) == BacklightDim.deepestFloorLight)
+        // On the white seen: a tint leaving half of white's light takes twice the backlight.
+        #expect(abs(BacklightDim.floor(maxNits: 600, lux: 0, consent: 0, white: 0.5) * 600 - 50) < 1e-9)
+        #expect(abs(BacklightDim.floor(maxNits: 600, lux: 0, consent: 1, white: 0.4) * 600 - 25) < 1e-9)
+    }
+
     // A move macOS says is the user's counts however small: near the bottom a key step moves the
     // light less than `same` lets through, and was lost.
     @Test func aReportedPressIsTakenHoweverSmall() {

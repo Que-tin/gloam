@@ -10,7 +10,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   `evening(around:)` gives the night as dates, DST-safe; bedtime/wake as `ClockTime`),
   `ColorTemperature` (Kelvin → gains, `Tint`), `Light` (the controls' warmth and dimming scales), `SolarPosition`, `Melanopic` ("blue" light),
   `Smear` (the floor that stops built-in LCDs smearing), `BacklightDim` (a screen's backlight:
-  position ↔ light from its day level, readings as moves), `BacklightReports` (what
+  position ↔ light from its day level, readings as moves, the floor in cd/m²), `BacklightReports` (what
   macOS's reports on one backlight mean: echoes, holds, whose move), `Shift` (a hand-set move from the plan
   and when it ends, `ShiftClock`), `Location` (zone.tab), `EnginePolicy` (gamma vs overlay per
   chip), `Command` (`gloam://` toggle/on/off/open), `DisplayIdentity` (reused ids, EDID pairing).
@@ -93,7 +93,9 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   The rest: signal, never below 30%.
 - A built-in LCD never draws a white under `DisplayController.smearFloor` of daylight white's light,
   scaled by the user's slider (all from 85 %, none ≤ 50 %, measured): dimming goes first, then warmth. Past
-  the recommended night the user consents: this floor and the 8 % light floor ease off (`consent`).
+  the recommended night the user consents: this floor and the light floor ease off (`consent`). The
+  light floor is in cd/m² where macOS reports the panel's luminance, following the room
+  (`BacklightDim.floor`); a fraction of the maximum on monitors.
   Monitors opt in (`smearGuarded`): macOS reports nothing about their panels.
 - Every window is ours and AppKit-hosted: the popover is a borderless panel, not `MenuBarExtra`
   (unstylable, can't be opened or captured); Settings isn't a SwiftUI `Settings` scene. Dark. One
