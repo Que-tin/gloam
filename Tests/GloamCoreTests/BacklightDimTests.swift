@@ -35,6 +35,30 @@ import Testing
         min(2, max(0, shift?.position(plan: plan, now: now) ?? plan))
     }
 
+    // macOS's own move (auto-brightness) is the room's level: the evening dims from it at once,
+    // as from any day level, and the morning restores it.
+    @Test func macOSSetsTheDayLevel() {
+        var d = BacklightDim(baseline: 0.3)
+        Self.push(&d, 0.5)
+        d.macOSSet(0.6)
+        #expect(d.isDimming && d.written == 0.6 && d.baseline == 0.6)
+        #expect(d.light(at: 0.5) == BacklightDim(baseline: 0.6).light(at: 0.5))
+        #expect(d.light(for: 0) == 0.6)
+        var day = BacklightDim(baseline: 0.3)
+        day.macOSSet(0.5)
+        #expect(!day.isDimming && day.baseline == 0.5)
+    }
+
+    // A move macOS says is the user's counts however small: near the bottom a key step moves the
+    // light less than `same` lets through, and was lost.
+    @Test func aReportedPressIsTakenHoweverSmall() {
+        var d = BacklightDim(baseline: 0.3)
+        let w = Self.push(&d, 0.9)!
+        var guessed = d
+        #expect(guessed.observe(light: w * 1.02, plan: 0.9, setsDayLevel: false) == .none)
+        #expect(d.moved(to: w * 1.02, plan: 0.9, setsDayLevel: false) != .none)
+    }
+
     // Positions map onto the screen's own range: 0 the day level, 1 the floor, 2 black, and back.
     @Test func positionsMapOntoTheScreensRange() {
         let d = BacklightDim(baseline: 0.5)

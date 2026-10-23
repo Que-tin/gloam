@@ -10,14 +10,15 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   `evening(around:)` gives the night as dates, DST-safe; bedtime/wake as `ClockTime`),
   `ColorTemperature` (Kelvin → gains, `Tint`), `Light` (the controls' warmth and dimming scales), `SolarPosition`, `Melanopic` ("blue" light),
   `Smear` (the floor that stops built-in LCDs smearing), `BacklightDim` (a screen's backlight:
-  position ↔ light from its day level, readings as moves), `Shift` (a hand-set move from the plan
+  position ↔ light from its day level, readings as moves), `BacklightReports` (what
+  macOS's reports on one backlight mean: echoes, holds, whose move), `Shift` (a hand-set move from the plan
   and when it ends, `ShiftClock`), `Location` (zone.tab), `EnginePolicy` (gamma vs overlay per
   chip), `Command` (`gloam://` toggle/on/off/open), `DisplayIdentity` (reused ids, EDID pairing).
 - `Sources/Gloam/App/` — `GloamApp` (`@main`: single instance, `--uninstall`, `Windows`, URLs, debug
   flags: see `Debug`), `MenuBarPanel` (status item: click popover, right-click menu), `Updates` (Sparkle), `Intents` (Shortcuts, Focus filter;
   `build-app.sh` builds their metadata). `Model/AppModel` — settings, clock, target tint.
 - `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `GammaEngine`, `OverlayEngine`,
-  `Displays`, `RoomLight` (sensor), `Backlight`, `SavedDims` (crash recovery), `Redraw` (a frame now),
+  `Displays`, `RoomLight` (sensor), `Backlight`, `BrightnessEvents` (macOS's reports of backlight moves and who made them), `SavedDims` (crash recovery), `Redraw` (a frame now),
   `DDC` (monitors over DDC/CI, paired by EDID via core `DisplayIdentity`; verified on one monitor).
 - `Sources/Gloam/UI/` — the "light as material" design: `PopoverView`, `Lamp` (orb dial, dimming
   ladder, small parts), `GloamGlyph` (menu-bar mark), `WelcomeView`, `SettingsView`,
@@ -76,10 +77,19 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   with brightness only while the plan sits below the limit. Off or paused, the controls show 0 %
   and daylight, and a move switches on from there by hand (every other screen at 0: nothing jumps).
 - Tint gains use each display's own colour space (sRGB on P3 turns warm white red); private APIs
-  (`RoomLight`/`Backlight`) return nil for "no change".
+  (`RoomLight`/`Backlight`/`BrightnessEvents`) return nil (or false) for "no change", and are called only with
+  the argument types measured.
 - Built-in, Apple and DDC/CI displays are dimmed by backlight relative to the level found
-  (`BacklightDim`): key presses and auto-brightness are adopted, never fought; quitting (or, after a
-  crash, the next launch) restores. The rest: signal, never below 30%.
+  (`BacklightDim`): moves made elsewhere are adopted, never fought; quitting (or, after a crash,
+  the next launch) restores. macOS reports its backlights' moves and who made them
+  (`BrightnessEvents`, read by `BacklightReports`): the user's become shifts, auto-brightness's the
+  new day level (the evening eases back down from it). Gloam's light writes come back as plain
+  steps with no settled report and teach auto-brightness nothing; a slider-level write is reported
+  as the user's, so only the release uses one. Without reports (none on that macOS, or Gloam's
+  writes stopped being echoed; tried again at each display change) a screen with no
+  auto-brightness is read on the tick (any change not Gloam's is the user's); one with it is
+  dimmed by signal: guessed from readings, ramps became shifts and presses were undone.
+  The rest: signal, never below 30%.
 - A built-in LCD never draws a white under `DisplayController.smearFloor` of daylight white's light,
   scaled by the user's slider (all from 85 %, none ≤ 50 %, measured): dimming goes first, then warmth. Past
   the recommended night the user consents: this floor and the 8 % light floor ease off (`consent`).
@@ -89,8 +99,8 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   app owns the gamma table; interference is detected generically, never by app name.
 - Ticks (5 s; 60 s when nothing is due, the screens sleep, every screen is switched off in
   Settings, Gloam is held, or only held shifts show; early for a timed pause that ends,
-  `nextExpiry`; `--speed` divides them, to 1.25 s at least) write the tint and read backlights; 2 Hz only while the popover is open. Backlights
-  are read before a push works out positions, so key presses are adopted, never written over; a monitor is read with nothing sent until it answers
+  `nextExpiry`; `--speed` divides them, to 1.25 s at least) write the tint, read monitors and retry failed writes; a reported backlight is read only when
+  macOS reports a move, and nothing is written over one under way. A monitor is read with nothing sent until it answers
   (`readFirst`), before a step once its reading is a few seconds old (in a fade, once at its
   start). Ticks write at once, apart from a brief glide over a visible step; launches, wakes and
   clock changes ease. The gamma table is rewritten only if something overwrote it or left it black

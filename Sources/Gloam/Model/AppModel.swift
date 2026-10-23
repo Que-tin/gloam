@@ -183,8 +183,8 @@ final class AppModel {
                 guard let quiet = self?.isQuiet else { return }
                 self?.tickingSlowly = quiet
                 // Faster with `--speed`, so a debug morning eases rather than jumps.
-                // Not under 1.25 s: a reading within a second of a write is the write itself, so
-                // writing faster than that left a key press nothing to be read from.
+                // Not under 1.25 s: a monitor's reading within a second of a write is the write
+                // itself, so writing faster than that left its buttons nothing to be read from.
                 var every: Duration = .seconds(max(1.25, (quiet ? 60 : 5) / Self.clockSpeed))
                 // A timed pause ends when it says, not at the next slow tick.
                 if let due = self?.nextExpiry, let now = self?.now {
@@ -417,17 +417,20 @@ final class AppModel {
         // taken afresh when the quiet ends (`update`).
         if !tickingSlowly { readRoom() }
         expireHolds()
-        // Before the comparison below: a key press since the last tick moves what's on screen.
+        // Before the comparison below: a monitor's buttons since the last tick move what's on screen.
         display.tickBacklights(idle: tickingSlowly)
         settleShifts()
         display.keepAlive()
         guard !display.isFading else { return }
-        // The room reading appearing or going (lid opened or closed) eases instead of jumping. A
-        // step the eye would catch (a lamp switched on moves the smoothed room light fastest at
-        // first) glides briefly; the evening's own steps are far below that and go at once. Under
-        // 0.3 s, which `show` would stretch for a monitor's steps: readings within a second of a
-        // write are ignored, so a longer glide each tick left key presses and auto-brightness no
-        // reading to be adopted from, and wrote over them.
+        followRoom(hadRoom: hadRoom)
+    }
+
+    /// The room reading appearing or going (lid opened or closed) eases instead of jumping. A step
+    /// the eye would catch (a lamp switched on moves the smoothed room light fastest at first)
+    /// glides briefly; the evening's own steps are far below that and go at once. Under 0.3 s,
+    /// which `show` would stretch for a monitor's steps: a monitor's readings within a second of a
+    /// write are ignored, so a longer glide left its buttons no reading to be adopted from.
+    private func followRoom(hadRoom: Bool) {
         let visible = abs(target.brightness - display.shown.brightness) > 0.01
         update(fade: hadRoom != (roomLux != nil) ? 3 : visible ? 0.29 : 0)
     }
@@ -495,7 +498,7 @@ final class AppModel {
         }
     }
 
-    /// The popover is opening: what it shows is worked out now (backlights read included), not
+    /// The popover is opening: what it shows is worked out now (the room and monitors read), not
     /// at the next tick, which may be a minute off.
     func refreshNow() { tick() }
 

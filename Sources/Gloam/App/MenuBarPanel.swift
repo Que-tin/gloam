@@ -108,7 +108,6 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
         guard panel == nil, let button = item.button, let buttonWindow = button.window else { return }
         screenID = buttonWindow.screen?.displayID
         AppModel.shared.refreshNow()
-        AppModel.shared.display.watchingClosely = true  // follow brightness keys at 2 Hz while visible
         let panel = LampPanel()
         // The controller sizes the panel to its content, so a notice appearing while it's open
         // grows it rather than clipping it (`LampPanel.top` keeps the top edge in place).
@@ -145,7 +144,6 @@ final class MenuBarPanel: NSObject, NSWindowDelegate {
     func close() {
         // Nothing open (a right-click): hiding the app would hide whatever is in front.
         guard panel != nil else { return }
-        AppModel.shared.display.watchingClosely = false
         if let outsideClicks { NSEvent.removeMonitor(outsideClicks) }
         outsideClicks = nil
         item.button?.highlight(false)

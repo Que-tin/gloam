@@ -1,9 +1,7 @@
 # The science behind Gloam's defaults
 
-Gloam's schedule and numbers come from the research below, not from habit. This page is the
-reasoning; the implementation is in `Sources/GloamCore/`: `Schedule`, `Melanopic`,
-`ColorTemperature`, `Smear` and `BacklightDim`. Gloam is a general-wellness tool, not a medical
-device.
+Gloam's numbers come from the research below; the implementation is in `Sources/GloamCore/`
+(`Schedule`, `Melanopic`, `ColorTemperature`, `Smear`, `BacklightDim`). A general-wellness tool, not a medical device.
 
 ## What actually matters: melanopic light
 
@@ -23,9 +21,8 @@ doi:10.1371/journal.pbio.3001571; also published as the workshop report CIE TN 0
 | From 3 h before bedtime | ≤ 10 lx |
 | Sleep environment | ≤ 1 lx |
 
-Individual sensitivity varies more than 50-fold (Phillips et al. 2019, *PNAS*
-doi:10.1073/pnas.1901824116), which is why Warmest and Dimmest (Settings) set where the
-night goes: lighter for those it suits, deeper for the sensitive.
+Individual sensitivity varies more than 50-fold (Phillips et al. 2019, *PNAS*), which is why
+Warmest and Dimmest (Settings) set where the night goes: lighter for some, deeper for the sensitive.
 
 ## How much light a screen gives off
 
@@ -137,8 +134,9 @@ own floor, so a dim screen is dimmed less (with half the panel's light the night
 not 27 %; at full brightness it barely changes). The floor is 8 % of the panel's maximum (easing to 3 % only past the recommended night, by choice): about 40 cd/m² on a 500-nit screen, within what is comfortable for sustained
 smartphone reading in low room light (Na & Suk 2015, *Opt. Express* 23:16912) and inside the
 21–75 cd/m² evening viewers preferred under 13–62 lx room light (Zhou et al. 2021, *Appl. Sci.*
-11:4108; Gloam's dark-room case lies below that range, where the optimum trends lower). A key press or auto-brightness moving the backlight is adopted, not fought:
-it shifts that screen from the plan for the night, and the shift fades out with the morning, which restores the day level (`Shift`). Why not the signal: a dimmed signal leaves the backlight at full power,
+11:4108; Gloam's dark-room case lies below that range, where the optimum trends lower). A key press shifts that screen from the plan for the night, fading out with the
+morning (`Shift`); auto-brightness's own move (macOS says which) is the new day level. Why not
+the signal: a dimmed signal leaves the backlight at full power,
 crushes shadows below ~30 %, pushes the liquid crystal into its slow dark range (below), and
 on M5 Pro and M5 Max MacBook Pros (and the MacBook Neo's external displays) macOS 26 and
 later ignore gamma tables altogether, an open Apple bug. Third-party

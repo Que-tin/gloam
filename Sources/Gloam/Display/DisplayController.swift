@@ -3,9 +3,10 @@
 // On each clock tick it checks whether the tint was overwritten (or left black) and only then
 // writes it again, because macOS quietly resets gamma tables on wake, display changes and some
 // ColorSync events.
-// Displays whose backlight macOS controls (built-in, Apple displays), and monitors that answer
-// DDC/CI, are dimmed by backlight, relative to the level found there (`BacklightDim`); the rest
-// by signal. Each screen shows the plan (the target tint) plus its own shift (`Shift`): the
+// Displays whose backlight macOS controls (built-in, Apple displays) and reports on
+// (`BrightnessEvents`) or never moves itself (no auto-brightness: read on the tick), and monitors
+// that answer DDC/CI, are dimmed by backlight, relative to the level found there (`BacklightDim`);
+// the rest by signal. Each screen shows the plan (the target tint) plus its own shift (`Shift`): the
 // brightness keys, its buttons, or the ladder moved it away from the plan tonight; the dial's
 // warmth shift applies to every screen, on each one's own warm range. A dimmed backlight
 // outlives the process (gamma tables don't), so what each one was dimmed from is saved as it
@@ -161,7 +162,7 @@ final class DisplayController {
         BacklightDim.floorLight + (BacklightDim.deepestFloorLight - BacklightDim.floorLight) * consent.dimming
     }
     /// Each built-in display's share of the smear floor (`Schedule.backlightFactor`) from its
-    /// slider; read with the backlight poll, not per fade frame. Missing means all of it. Eased
+    /// slider; read on the tick and with a reported move, not per fade frame. Missing means all of it. Eased
     /// there over 0.6 s when it moves while tinted (`shareEase`, `floorShare`): taken at once, the
     /// warmth jumped with a key press (read as Gloam fighting the key) and the dial's knob dipped.
     private var share: [CGDirectDisplayID: Double] = [:]
@@ -225,9 +226,9 @@ final class DisplayController {
     /// The last undimmed (slider level, light) pair, to turn an adopted baseline light back into
     /// a slider level while dimming, and to tell when the light reading moved.
     @ObservationIgnored private var undimmed: [CGDirectDisplayID: (level: Double, light: Double)] = [:]
-    /// A built-in's slider level is a second call per poll; it moves only with the light, so it
+    /// A built-in's slider level is a second call per read; it moves only with the light, so it
     /// is read when the light reading moved, or once a minute (the light can be capped while the
-    /// slider moves). The factor from the last read is kept for the polls in between. Only read
+    /// slider moves). The factor from the last read is kept for the reads in between. Only read
     /// while Gloam isn't dimming; while it is, the smear floor follows the level the user set
     /// (`userLevel`), not Gloam's own dimming below it.
     @ObservationIgnored private var levelReadAt: [CGDirectDisplayID: Date] = [:]
@@ -236,18 +237,28 @@ final class DisplayController {
     /// idle-dim level, and adopting one would make it the morning's level. No backlight is read or
     /// written; a tint is only cleared (`push`), so a screen wakes neutral after the evening.
     @ObservationIgnored private var asleep = false
-    /// Readings within a second of a write are the write itself, not an outside move. (Adopting a
-    /// built-in's reading that differs from the write was tried: unmeasured whether DisplayServices
-    /// reports a write at once, a trailing read mid-fade would be taken for a key press and drift
-    /// the baseline. A press during a fade is undone instead.)
+    /// A reading within a second of a write is the write itself, not an outside move (a monitor,
+    /// a backlight read on the tick); writes also keep 11 ms apart (`setBacklight`).
     @ObservationIgnored private var backlightWritten: [CGDirectDisplayID: Date] = [:]
-    /// When each backlight macOS controls was last read: one read longer ago than half a second
-    /// is read again right before Gloam writes it, so a key press is adopted, not overwritten
-    /// (outside fades; see `backlightWritten`).
-    @ObservationIgnored private var backlightRead: [CGDirectDisplayID: Date] = [:]
-    /// The popover is open: brightness keys are read twice a second, so what it shows follows
-    /// them. Closed, backlights are read on the clock's tick (`tickBacklights`) and before writes.
-    @ObservationIgnored var watchingClosely = false { didSet { repace() } }
+    /// The backlights macOS reports on (`BrightnessEvents`), with what its reports mean
+    /// (`BacklightReports`): read when it says they moved, never polled. One it doesn't (no
+    /// reports on this macOS, or they stopped) is read on the tick where macOS never moves it
+    /// itself (`readOnTick`), else dimmed by signal.
+    @ObservationIgnored private var reports: [CGDirectDisplayID: BacklightReports] = [:]
+    /// Unreported backlights with no auto-brightness: any change Gloam didn't write is the user's.
+    @ObservationIgnored private var readOnTick: Set<CGDirectDisplayID> = []
+    /// Backlights whose reports stopped (`reportsBroke`): their `reports` stay, still told of every
+    /// write, so the report that brings them back isn't taken for a move (the release's own "user"
+    /// report, a late echo). Started afresh, those became a press, or the new day level.
+    @ObservationIgnored private var quiet: Set<CGDirectDisplayID> = []
+    /// The push that ends a move's hold (`reported`): its own task, as `pushLater` keeps the first
+    /// of several and a frame's push due sooner swallowed it.
+    @ObservationIgnored private var holdPush: Task<Void, Never>?
+    /// macOS reports this backlight's moves now.
+    private func heard(_ id: CGDirectDisplayID) -> Bool { reports[id] != nil && !quiet.contains(id) }
+    /// How long a dimmed screen takes to settle back from where auto-brightness put it: a gentle
+    /// adjustment after macOS's own ramp rather than a second step.
+    static let afterMacOS = 4.0
 
     /// Light text on a dark background smears on built-in LCD panels once the white they draw is
     /// dim, whether the signal was dimmed or warmed (`Smear`). Measured on an XDR panel at a
@@ -271,7 +282,9 @@ final class DisplayController {
     /// writes before it was dimmed: its evening falls back to the signal rather than not happening.
     private func backlight(_ id: CGDirectDisplayID) -> BacklightDim? {
         guard let dim = dims[id] else { return nil }
-        return !dim.isDimming && monitors[id]?.isFailing == true ? nil : dim
+        if let monitor = monitors[id] { return dim.isDimming || !monitor.isFailing ? dim : nil }
+        // Unreported with auto-brightness on: by signal (`push` releases it).
+        return heard(id) || readOnTick.contains(id) ? dim : nil
     }
 
     /// The smear floor in force: all of it on a built-in (eased by the user's slider, `share`) or
@@ -601,9 +614,6 @@ final class DisplayController {
     @ObservationIgnored private var engine: TintEngine
     @ObservationIgnored private let redraw = Redraw()
     @ObservationIgnored private(set) var resolvedEngine: Engine
-    @ObservationIgnored private var pollTask: Task<Void, Never>?
-    /// How often the backlight poll's own timer runs now (`pollPace`); nil when it doesn't.
-    @ObservationIgnored private var pollEvery: Duration?
     @ObservationIgnored private var changeTask: Task<Void, Never>?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
 
@@ -640,15 +650,13 @@ final class DisplayController {
     }
 
     /// Screens off (the Mac may stay awake for hours): no backlight is read or written, a tint only
-    /// to clear it (`push`), and the popover's poll stops. macOS usually resets the tables on
-    /// wake, and the wake pushes anyway.
+    /// to clear it (`push`). macOS usually resets the tables on wake, and the wake pushes anyway.
     /// The monitors' handles are put in doubt by `displaysChangedSoon`, which the same wake
     /// notification calls.
     private func screens(asleep: Bool) {
         if self.asleep && !asleep { return woke() }
         self.asleep = asleep
         changedAt = Date()
-        repace()
     }
 
     private func woke() {
@@ -656,8 +664,10 @@ final class DisplayController {
         changedAt = Date()
         // A reprobe still out answers for before the wake: its answer mustn't clear the doubt.
         reprobing = false
+        // A move under way when the screens slept isn't one now.
+        for id in reports.keys { reports[id] = BacklightReports() }
+        BrightnessEvents.rewatch()
         easeFromApplied()
-        repace()
     }
 
     /// What the screens last showed (`rendered`, kept while they slept) eases to what's due now:
@@ -668,8 +678,8 @@ final class DisplayController {
     }
 
     /// The routine read, on the clock's tick (every 5 s while anything is tinted or due, every
-    /// minute idle): brightness keys and auto-brightness are adopted, failed writes retried.
-    /// `idle` (the slow tick) also slows the monitors' reads.
+    /// minute idle): monitors' buttons are adopted, failed writes retried. `idle` (the slow tick)
+    /// also slows the monitors' reads.
     func tickBacklights(idle: Bool) {
         self.idle = idle
         wakeIfMissed()
@@ -697,34 +707,6 @@ final class DisplayController {
         guard animator == nil, !asleep, interference || !shown.isNeutral
                 || shiftsShown && (!shifts.isEmpty || warmthShift != nil) else { return }
         if noteInterference() { push() }
-    }
-
-    /// The poll's own timer: only while the popover is open, twice a second for a backlight macOS
-    /// controls (macOS offers no public change hook). Otherwise the clock's tick does the routine
-    /// reads (`tickBacklights`, from the model's launch on), and every write reads first
-    /// (`setBacklight`), so a key press is adopted within 5 s, not overwritten (but undone
-    /// mid-fade): the 500 ms poll all evening was ~7,000 wakeups an hour. Monitors keep their own
-    /// pace in `pollBacklights`. The popover opening reads at once (the model's `refreshNow`).
-    private var pollPace: Duration? {
-        let readsMacOS = displays.contains { $0.isBuiltin || (dims[$0.id] != nil && monitors[$0.id] == nil) }
-        return !asleep && watchingClosely && readsMacOS ? .milliseconds(500) : nil
-    }
-
-    private func repace() {
-        let pace = pollPace
-        guard pace != pollEvery else { return }
-        pollEvery = pace
-        pollTask?.cancel()
-        pollTask = nil
-        guard pollEvery != nil else { return }
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let every = self?.pollEvery else { return }
-                try? await Task.sleep(for: every, tolerance: every / 5)
-                guard !Task.isCancelled else { return }
-                self?.pollBacklights()
-            }
-        }
     }
 
     /// A fade (from a user action) is under way; clock ticks wait rather than cut it short.
@@ -871,11 +853,11 @@ final class DisplayController {
     func restore() {
         stopEasing()
         tasks.forEach { $0.cancel() }
-        pollTask?.cancel()
         changeTask?.cancel()
         deferredPush?.cancel()
-        restoring = true  // quitting writes now: a press being waited out mustn't leave it dimmed
-        settling = [:]
+        holdPush?.cancel()
+        restoring = true  // quitting writes now: a move being waited out mustn't leave it dimmed
+        for id in reports.keys { reports[id] = BacklightReports() }
         // Asleep (an overnight update restart, a shutdown with the display off) or gone (lid
         // closed, unplugged), a write may not stick though it reports success: it is sent, but the
         // display stays saved as dimmed, and the next launch finds which (`follow`).
@@ -915,17 +897,10 @@ final class DisplayController {
         redraw.nudge([])
     }
 
-    /// A press found inside a write (`setBacklight`): one more push once this one is through.
-    @ObservationIgnored private var pushAgain = false
-    /// Inside `push`: `store` leaves `refreshEffective` to its end, and only there does a press
-    /// found mid-write ask for another (`pushAgain`).
+    /// Inside `push`: `store` leaves `refreshEffective` to its end.
     @ObservationIgnored private var pushing = false
     /// A write held back for being too close to the last one (`setBacklight`), sent by this push.
     @ObservationIgnored private var deferredPush: Task<Void, Never>?
-    /// A press macOS may still be animating (its keys ease over ~0.2 s): nothing is written to that
-    /// display until this, and it is read again first. Adopted mid-animation and written at once,
-    /// the rest of the press was undone.
-    @ObservationIgnored private var settling: [CGDirectDisplayID: Date] = [:]
     @ObservationIgnored private var restoring = false
 
     private func pushLater(by seconds: Double) {
@@ -942,22 +917,11 @@ final class DisplayController {
         // pushing after it dimmed the screens again on the way out.
         guard !resumedAtLaunch, !restoring else { return }
         pushing = true
-        defer {
-            pushing = false
-            if pushAgain { pushAgain = false; push() }
-        }
+        defer { pushing = false }
         var tints: [CGDirectDisplayID: Tint] = [:], stepping: Set<CGDirectDisplayID> = []
         for display in displays {
             guard tinted(display.uuid) else { continue }
             let asked = shown
-            // Read before the position is worked out (unless it just was): a press since the last
-            // read becomes the shift first. Read inside the write instead, the position worked out
-            // from the old shift was written over the press (the morning's tail: all day). The
-            // evening's first write likewise maps onto the range of the light shown now.
-            if !asleep, monitors[display.id] == nil, let dim = dims[display.id], asked.brightness < 1 || dim.isDimming,
-               Date().timeIntervalSince(backlightRead[display.id] ?? .distantPast) > 0.5 {
-                readBacklight(display.id)
-            }
             let levels = levelsNow(display.id)
             if !asleep { rendered[display.id] = levels }
             var t = adjusted(levels, for: display.id)
@@ -966,8 +930,10 @@ final class DisplayController {
             // that brings the screen to its day level mid-evening keeps dimming engaged, so the
             // next press is a shift, not a new day level.
             let release = asked.brightness >= 1 || !shiftsWanted
-            if backlight(display.id) == nil, dims[display.id] != nil {
+            if backlight(display.id) == nil, let dim = dims[display.id] {
                 requested[display.id] = (q, release)  // on the signal fallback: for the retry
+                // A backlight macOS stopped reporting on goes back to its day level first.
+                if monitors[display.id] == nil, dim.isDimming { setBacklight(display.id, position: 0) }
             } else if dims[display.id] != nil {
                 setBacklight(display.id, position: q, release: release)
                 t.brightness = signalShare(display.id, position: q)
@@ -981,7 +947,8 @@ final class DisplayController {
         // A display switched off in Settings gets its backlight back.
         for display in displays where tints[display.id] == nil {
             if !asleep { rendered[display.id] = .untinted }
-            if backlight(display.id) != nil { setBacklight(display.id, position: 0) }
+            // Also one macOS stopped reporting on that's still dimmed (its release failed).
+            if backlight(display.id) != nil || dims[display.id]?.isDimming == true { setBacklight(display.id, position: 0) }
         }
         if !asleep {
             engine.apply(tints)
@@ -999,7 +966,6 @@ final class DisplayController {
             }
         }
         refreshEffective()
-        repace()
     }
 
     /// A monitor moves a whole step at a time, a few times a second (`DDC`): until it shows the
@@ -1020,35 +986,20 @@ final class DisplayController {
         // Dimming starting here (even where nothing is written yet: `settle` records it) begins
         // from what the panel shows now, not a reading from the last tick or poll.
         let starting = !found.isDimming && position > 0
-        // A press still settling (`settling`): nothing written until it has, then read once more.
-        var settled = false
-        if let until = settling[id] {
-            if Date() < until { return pushLater(by: until.timeIntervalSinceNow) }
-            settling[id] = nil
-            settled = true
-        }
-        // A backlight macOS controls is read before it's written unless it just was: undimmed its
-        // baseline is only read on the tick, dimmed a key press since must be adopted, not undone.
-        if monitors[id] == nil, settled || starting || found.light(for: position, release: release) != nil,
-           settled || Date().timeIntervalSince(backlightRead[id] ?? .distantPast) > 0.5 {
-            let before = shift(for: id), written = found.written
-            let light = readBacklight(id)
-            // The read found a press: `position` was worked out before it, from the old shift.
-            // Written anyway, the old level went out a moment before the new one, and the panel
-            // stayed on the old one (two writes 2 ms apart): every press undone, and the next read
-            // taking that for another press, back and forth. Worked out again after this push.
-            // Outside a push (`restore`'s release) nothing pushes again: written as asked there.
-            if shift(for: id) != before, pushing { pushAgain = true; return }
-            // A settled press that moved on from where it was adopted mid-animation by less than
-            // `same` counts (an own write can't explain it: nothing was written while it settled).
-            // Left alone, the write put back the mid-animation level over the end of the press.
-            if settled, let light, let written, abs(light - written) > 0.0005, let dim = dims[id],
-               let uuid = uuidOf[id], shiftsWanted, !previewing {
-                shifts[uuid] = newShift(to: dim.position(of: light), plan: shiftPlan(for: id))
-                pressed(id)
-                if pushing { pushAgain = true; return }
+        // A move under way (a press animating, a ramp): written once it settles (`reported`). Its
+        // report never came: taken from the panel as whoever moved it, rather than written over.
+        if !restoring, heard(id) {
+            if reports[id]!.holds(at: Date()) { return }
+            // Taken, then pushed afresh: written on from here, the position worked out before the
+            // move was taken overwrote it.
+            if let by = reports[id]!.expired(at: Date()) {
+                taken(Backlight.light(id), by: by, on: id)
+                return pushLater(by: 0)
             }
         }
+        // Dimming starts from the panel as it is now: a report missed while the screens slept
+        // left an old day level.
+        if starting, monitors[id] == nil { readBacklight(id) }
         guard var dim = dims[id] else { return }
         // A dark reading (a panel still waking) isn't the evening's level: started from it, the
         // night had no range and went undimmed. Read again on the next push.
@@ -1092,7 +1043,10 @@ final class DisplayController {
 
         if !dim.isDimming { dim.baselineLevel = Backlight.level(id) }
         let ending = position <= 0 && release
-        let ok = if position <= 0, let level = dim.baselineLevel { Backlight.set(level: level, on: id) }
+        // The release goes back to the exact slider level (the light lands a step low). Only the
+        // release: macOS reports a level write as the user's, so one mid-evening (a shift at the
+        // day level) came back as a press.
+        let ok = if ending, let level = dim.baselineLevel { Backlight.set(level: level, on: id) }
             else { Backlight.set(light: light, on: id) }
         // A failed write changes nothing: the next push tries again from what the panel shows.
         Debug.log("write \(id) position \(String(format: "%.3f", position)) light \(String(format: "%.4f", light)) ok \(ok) shift \(uuidOf[id].flatMap { shifts[$0] }.map { "\($0)" } ?? "none")")
@@ -1100,6 +1054,89 @@ final class DisplayController {
         backlightWritten[id] = Date()
         dim.wrote(light, release: ending)
         store(dim, for: id)
+        if reports[id] != nil {
+            reports[id]!.wrote(at: Date(), level: ending && dim.baselineLevel != nil)
+            if !quiet.contains(id), reports[id]!.broken(at: Date()) { reportsBroke(id) }
+        }
+    }
+
+    /// What macOS reports about a backlight it controls (`BrightnessEvents`), read by
+    /// `BacklightReports`: Gloam's own writes coming back are nothing; a move under way (a press
+    /// animating, an auto-brightness ramp) holds writes until it settles; settled, the user's move
+    /// is theirs as before (a shift, or the day level), and macOS's own the new day level.
+    private func reported(_ id: CGDirectDisplayID, _ event: BrightnessEvents.Event, at: Date) {
+        guard dims[id] != nil, monitors[id] == nil, !asleep, !restoring else { return }
+        guard reports[id] != nil else { return }
+        // Reports that broke and were registered again (`adoptBacklights`) count once one comes.
+        if quiet.remove(id) != nil {
+            Debug.log("reports back on \(id)")
+            readOnTick.remove(id)
+        }
+        switch event {
+        case .step(let byUser):
+            reports[id]!.step(byUser: byUser, at: at)  // when macOS sent it: the main thread may lag
+            // The hold ends with a push: on the minute's tick a move with no settled report
+            // otherwise waited that long to be taken.
+            if reports[id]!.moving != nil {
+                holdPush?.cancel()
+                holdPush = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(BacklightReports.stepGap + 0.1))
+                    if !Task.isCancelled { self?.push() }
+                }
+            }
+        case .settled(let reason):
+            guard let by = reports[id]!.settled(reason) else { return }
+            taken(Backlight.light(id), by: by, on: id)
+            refreshShares()
+            push()
+        }
+    }
+
+    /// A move macOS reported is done: the user's is theirs (`observe`), macOS's own the new day level.
+    private func taken(_ light: Double?, by: BacklightReports.Source, on id: CGDirectDisplayID) {
+        Debug.log("reported \(id) \(by == .user ? "user" : "macOS") light \(light.map { String(format: "%.4f", $0) } ?? "nil")")
+        if by == .user { observe(light, on: id, byUser: true) } else if let light { macOSMoved(id, to: light) }
+    }
+
+    /// macOS moved the backlight itself (auto-brightness): its level for the room is the new day
+    /// level (`BacklightDim.macOSSet`), and a dimmed screen eases back down from it. Taken as a
+    /// shift, as a press is, the evening's dimming was lost until the morning and "Manual" showed
+    /// for a move nobody made. A dark reading is never the room's level (a panel coming on).
+    /// Not where the panel still shows what Gloam wrote: an "Ambient" report whose steps passed for
+    /// echoes (in a fade) with nothing moved, taken, made the dimmed level the day level.
+    private func macOSMoved(_ id: CGDirectDisplayID, to light: Double) {
+        guard var dim = dims[id], light > 0.001, !(dim.written.map { BacklightDim.unseen(light, $0) } ?? false) else { return }
+        let dimming = dim.isDimming
+        dim.macOSSet(light)
+        if dimming { dim.baselineLevel = Backlight.level(id) }
+        store(dim, for: id)
+        if dimming { animate([id], over: Self.afterMacOS, from: [id: Levels(position: 0, warmth: levelsNow(id).warmth)]) }
+    }
+
+    /// Gloam's writes to `id` stopped being reported (a macOS update, say): the screen is dimmed
+    /// as on a Mac without the reports (`readUnreported`) until one comes again. Written on
+    /// unreported, a press or a ramp would be read as nothing and undone.
+    private func reportsBroke(_ id: CGDirectDisplayID) {
+        Debug.log("reports broke on \(id)")
+        quiet.insert(id)
+        readUnreported(id)
+        pushLater(by: 0)
+    }
+
+    /// A backlight macOS doesn't report on, on the tick: where macOS never moves it itself (no
+    /// auto-brightness: an Apple monitor, a MacBook with it off) it is dimmed all the same and read,
+    /// any change Gloam didn't write being the user's (a press during a fade is lost). With
+    /// auto-brightness on, a reading can't tell a ramp from a press (ramps became shifts, the
+    /// evening was lost): by signal. A built-in macOS says nothing about is taken to have it.
+    private func readUnreported(_ id: CGDirectDisplayID) {
+        let builtin = displays.first { $0.id == id }?.isBuiltin ?? true
+        if BrightnessEvents.autoBrightness(id) ?? builtin {
+            if readOnTick.remove(id) != nil { pushLater(by: 0) }
+        } else if readOnTick.insert(id).inserted {
+            pushLater(by: 0)
+        } else {
+            readBacklight(id)
+        }
     }
 
     /// Reads a monitor with nothing sent until the answer: a step queued behind the read went out
@@ -1221,7 +1258,19 @@ final class DisplayController {
     private func adoptBacklights() {
         guard !Debug.isShowcase else { return }  // showcase runs never touch the real screen
         for display in displays where dims[display.id] == nil && Backlight.canDim(display.id) {
-            if let light = Backlight.light(display.id) { follow(display.id, uuid: display.uuid, light: light) }
+            guard let light = Backlight.light(display.id) else { continue }
+            follow(display.id, uuid: display.uuid, light: light)
+            if BrightnessEvents.watch(display.id, { [weak self] in self?.reported($0, $1, at: $2) }) {
+                reports[display.id] = BacklightReports()
+            } else {
+                readUnreported(display.id)
+            }
+        }
+        // Reports that stopped (`reportsBroke`) are registered again with each display change (a
+        // silence can be passing: corebrightnessd restarting), and count once one comes
+        // (`reported`): counted at once, every wake handed the backlight over and back.
+        for display in displays where dims[display.id] != nil && monitors[display.id] == nil && quiet.contains(display.id) {
+            _ = BrightnessEvents.watch(display.id) { [weak self] in self?.reported($0, $1, at: $2) }
         }
         probeMonitors()
     }
@@ -1306,17 +1355,16 @@ final class DisplayController {
         push()
     }
 
-    /// Re-reads the backlights: outside moves of a dimmed display are adopted (`BacklightDim`),
-    /// and when a built-in display's share of the smear floor moved it eases there over 0.6 s (a
+    /// Re-reads the monitors (their buttons' moves are adopted, `BacklightDim`), retries failed
+    /// writes, and when a built-in display's share of the smear floor moved it eases there over 0.6 s (a
     /// key press can move it a lot; a jump read as Gloam fighting the key).
     private func pollBacklights() {
         guard !asleep else { return }
-        // DDC reads are slow and some links drop them, so each monitor is asked every 20 s, not
-        // twice a second; every 5 minutes while the clock idles, unless one is still dimmed or
+        // DDC reads are slow and some links drop them, so each monitor is asked every 20 s; every
+        // 5 minutes while the clock idles, unless one is still dimmed or
         // refusing writes: its release is retried on the next tick (a minute at most), not in 5.
         let settled = !displays.contains { d in monitors[d.id].map { $0.isFailing || dims[d.id]?.isDimming == true } ?? false }
         let monitorGap: TimeInterval = idle && settled ? 300 : 20
-        var lights: [CGDirectDisplayID: Double] = [:]
         for display in displays where dims[display.id] != nil {
             let id = display.id
             if let monitor = monitors[id] {
@@ -1348,40 +1396,34 @@ final class DisplayController {
                     readFirst(id, monitor)
                 }
             } else {
-                let before = shift(for: id), written = dims[id]?.written
-                lights[id] = readBacklight(id)
-                // The reading was a press (a new shift or day level): `requested` is the position
-                // from before it. Retried, it wrote the old level straight over every press.
-                if shift(for: id) != before || dims[id]?.written != written {
-                    push()
-                    continue
-                }
-                // A write that failed (the morning restore, say) is tried again here: in the day
-                // nothing else may push for hours.
-                if let asked = requested[id], dims[id]?.light(for: asked.position, release: asked.release) != nil {
+                if !heard(id) { readUnreported(id) }
+                // macOS reports its moves (`reported`): nothing to read. A write that failed (the
+                // morning restore, say) is tried again here: in the day nothing else may push for hours.
+                if let asked = requested[id], backlight(id) != nil, dims[id]?.light(for: asked.position, release: asked.release) != nil {
                     setBacklight(id, position: asked.position, release: asked.release)
                 }
             }
         }
-        refreshShares(lights)
+        refreshShares()
     }
 
-    /// Each built-in's share of the smear floor, from the brightness the user set (`lights`: this
-    /// poll's readings), eased there over 0.6 s when it moved.
-    private func refreshShares(_ lights: [CGDirectDisplayID: Double]) {
+    /// Each built-in's share of the smear floor, from the brightness the user set, eased there over
+    /// 0.6 s when it moved.
+    private func refreshShares() {
         var next: [CGDirectDisplayID: Double] = [:]
         for display in displays where display.isBuiltin {
-            let id = display.id, light = lights[id] ?? Backlight.light(id)
+            let id = display.id
             // The floor eases with the brightness the user set, not with Gloam's own dimming, or
             // dimming would move the warmth dial's end (and the warmth with it) under the user's
             // hand. Undimmed that is the slider read directly; while dimming, the user's level.
             if let dim = dims[id], dim.isDimming {
                 if let level = userLevel(id, dim) { levelShare[id] = Schedule.backlightFactor(level) }
-            } else if light != undimmed[id]?.light || Date().timeIntervalSince(levelReadAt[id] ?? .distantPast) > 60 {
+            } else if let light = Backlight.light(id),
+                      light != undimmed[id]?.light || Date().timeIntervalSince(levelReadAt[id] ?? .distantPast) > 60 {
                 levelReadAt[id] = Date()
                 let level = Backlight.level(id)
-                if let level, let light { undimmed[id] = (level, light) }
-                if shown.isNeutral, animator == nil, let light { dayLight[display.uuid] = light }
+                if let level { undimmed[id] = (level, light) }
+                if shown.isNeutral, animator == nil { dayLight[display.uuid] = light }
                 levelShare[id] = level.map(Schedule.backlightFactor)
             }
             if let factor = levelShare[id] { next[id] = factor }
@@ -1404,12 +1446,12 @@ final class DisplayController {
     @discardableResult private func readBacklight(_ id: CGDirectDisplayID) -> Double? {
         let light = Backlight.light(id)
         Debug.log("read \(id) \(light.map { String(format: "%.4f", $0) } ?? "nil") written \(dims[id]?.written.map { String(format: "%.4f", $0) } ?? "nil") sinceWrite \(String(format: "%.2f", Date().timeIntervalSince(backlightWritten[id] ?? .distantPast)))s")
-        backlightRead[id] = Date()
         observe(light, on: id)
         return light
     }
 
-    /// A reading of a followed display; within a second of a write it is the write itself. A move
+    /// A reading of a followed display: a monitor's within a second of a write is the write itself;
+    /// `byUser`, macOS reported it as the user's move (`reported`), taken however small. A move
     /// becomes the screen's shift from the plan, or its day level (`BacklightDim.Move`): in the
     /// evening's first minutes (the plan and what it shows both under `Shift.threshold`, not the
     /// morning's tail) and once the morning's plan is done. During Settings' preview (shifts off) a move is
@@ -1417,9 +1459,9 @@ final class DisplayController {
     /// A dark reading in the seconds after a wake or a display change is a panel still coming on
     /// (or going off with the lid), not a light to keep: adopted while dimming, the night ended
     /// near black. Later it is the user's (the keys switch the backlight off), and kept.
-    private func observe(_ light: Double?, on id: CGDirectDisplayID) {
+    private func observe(_ light: Double?, on id: CGDirectDisplayID, byUser: Bool = false) {
         guard let light, var dim = dims[id],
-              Date().timeIntervalSince(backlightWritten[id] ?? .distantPast) > 1,
+              byUser || Date().timeIntervalSince(backlightWritten[id] ?? .distantPast) > 1,
               light > 0.001 || Date().timeIntervalSince(changedAt) > 5 else { return }
         // Off, paused, or Settings' preview: a press is only taken as what the panel shows. Measured
         // from the preview, a shift landed wrong after it.
@@ -1438,11 +1480,12 @@ final class DisplayController {
         // it, not a new day level, or pressing brighter left the day darker than not pressing.
         let upThroughFade = fading != nil && dim.written.map { light > $0 && light < min(1, dim.baseline) } == true
         let setsDayLevel = !upThroughFade && (clock.planDone || morningTail || max(plan, showing) < Shift.threshold && !clock.inMorning)
-        let move = dim.observe(light: light, plan: clock.planDone || morningTail ? 0 : plan, setsDayLevel: setsDayLevel)
+        let from = clock.planDone || morningTail ? 0 : plan
+        let move = byUser ? dim.moved(to: light, plan: from, setsDayLevel: setsDayLevel)
+            : dim.observe(light: light, plan: from, setsDayLevel: setsDayLevel)
         Debug.log("observe \(id) light \(String(format: "%.4f", light)) plan \(String(format: "%.3f", plan)) showing \(String(format: "%.3f", showing)) setsDay \(setsDayLevel) -> \(move) baseline \(String(format: "%.4f", dim.baseline))")
         store(dim, for: id)
         guard let uuid = uuidOf[id] else { return }
-        if move != .none, monitors[id] == nil, !restoring { settling[id] = Date().addingTimeInterval(0.35) }
         switch move {
         case .none: return
         case .shift(let to):
@@ -1518,6 +1561,9 @@ final class DisplayController {
             readingFirst.remove(id)
             monitorReadAt[id] = nil
             uuidOf[id] = nil
+            reports[id] = nil
+            quiet.remove(id)
+            readOnTick.remove(id)
         }
         // Normally cleared by the screens' wake; also here, so a missed notification can't stop
         // backlights being read for good.

@@ -11,7 +11,8 @@
 // shows a position (the ladder's: 0 untouched, 1 the light floor) the same share of the way down
 // from the day level as on any screen, and a move made elsewhere (a key press, the monitor's
 // buttons) is never fought: it becomes that screen's shift from the plan (`Shift`), or in the
-// evening's first minutes and once the morning's plan is done, a new day level.
+// evening's first minutes and once the morning's plan is done, a new day level. A move macOS
+// makes itself (auto-brightness) is always a new day level (`macOSSet`).
 
 import Foundation
 
@@ -117,6 +118,18 @@ public struct BacklightDim: Equatable, Codable, Sendable {
             return .none
         }
         guard !same(light, w) else { return .none }
+        return moved(to: light, plan: plan, setsDayLevel: setsDayLevel)
+    }
+
+    /// A move macOS reports as the user's (`observe` without its guess): taken even when it is
+    /// smaller than `same`, which near the bottom of the range swallowed a key step.
+    public mutating func moved(to light: Double, plan: Double, setsDayLevel: Bool) -> Move {
+        guard light.isFinite, light >= 0 else { return .none }
+        guard let w = written else {
+            baseline = light
+            return .none
+        }
+        guard abs(light - w) > 1e-6 else { return .none }
         written = light
         if setsDayLevel {
             baselineLevel = nil
@@ -135,6 +148,16 @@ public struct BacklightDim: Equatable, Codable, Sendable {
             return .shift(to: 0)
         }
         return .shift(to: position(of: light))
+    }
+
+    /// macOS moved the light itself (auto-brightness): its level for the room, the new day level,
+    /// which Gloam dims from as before. Taken as a shift, the evening's dimming was lost until
+    /// morning; the panel shows that light now, so dimming resumes from there.
+    public mutating func macOSSet(_ light: Double) {
+        guard light.isFinite, light > 0 else { return }
+        baseline = light
+        baselineLevel = nil
+        if written != nil { written = light }
     }
 
     /// The day level at which `plan` shows `light` (the evening's first minutes, where a move sets
@@ -184,7 +207,7 @@ public struct BacklightDim: Equatable, Codable, Sendable {
 
     /// A change of light too small to see at once (well under the ~1–2 % brightness step the eye
     /// notices): written only when the difference grows past it.
-    static func unseen(_ a: Double, _ b: Double) -> Bool {
+    public static func unseen(_ a: Double, _ b: Double) -> Bool {
         abs(a - b) <= max(0.0005, 0.005 * max(a, b))
     }
 
