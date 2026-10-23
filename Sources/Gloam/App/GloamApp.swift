@@ -327,7 +327,8 @@ enum Windows {
 ///   --onboarded, --off   start as if set up / switched off
 ///   --showcase [welcome]  show the popover (or the welcome view) in an ordinary window
 ///   --snapshot PATH   render the showcase to PATH and quit (never touches the screen)
-///   --log-brightness  every backlight read, write and shift, to /tmp/gloam-brightness.log (to see
+///   --log-brightness  every backlight read, write and shift, to gloam-brightness.log in the user's
+///                     temporary folder (`$TMPDIR`; /tmp is shared, a link planted there redirected it) (to see
 ///                     why a press moved; written line by line, so a Ctrl-C loses nothing)
 enum Debug {
     /// Flags that keep a run off the screen. In release builds too: the bundled app must recognise
@@ -357,9 +358,10 @@ enum Debug {
     /// Started empty at launch.
     private static let logFile: FileHandle? = {
         guard logsBrightness else { return nil }
-        let path = "/tmp/gloam-brightness.log"
-        FileManager.default.createFile(atPath: path, contents: nil)
-        return FileHandle(forWritingAtPath: path)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("gloam-brightness.log")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        print("Brightness log: \(url.path)")
+        return try? FileHandle(forWritingTo: url)
     }()
 
     static func applyLaunchArguments() {
