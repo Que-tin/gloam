@@ -1,5 +1,5 @@
 // The core's main suite: colour temperature, the sun, the schedule's stages and saving,
-// colour spaces, clock times, commands, smearing, melanopic light, locations, engine policy.
+// colour spaces, clock times, commands, smearing, melanopic light, locations.
 
 import Foundation
 import Testing

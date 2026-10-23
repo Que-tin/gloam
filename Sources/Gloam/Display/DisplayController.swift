@@ -835,8 +835,6 @@ final class DisplayController {
     }
     /// The last wake or display change (`observe` distrusts dark readings for a few seconds after).
     @ObservationIgnored private var changedAt = Date()
-    /// Each monitor's signal share at the last push: the redraw dot shows only while it moves.
-    @ObservationIgnored private var lastShare: [CGDirectDisplayID: Double] = [:]
 
     /// Quitting for an update that relaunches at once: backlights stay where they are, saved as
     /// dimmed, so the new copy resumes them (`follow`) without a flash of full brightness. The
@@ -944,10 +942,9 @@ final class DisplayController {
             } else if dims[display.id] != nil {
                 setBacklight(display.id, position: q, release: release)
                 t.brightness = signalShare(display.id, position: q)
-                // Not merely below 1: a monitor's step is rounded up, so its share sits a hair under
-                // all evening, and the dot was flipped on every push until morning.
-                if inFlight[display.id] != nil || lastShare[display.id] != t.brightness { stepping.insert(display.id) }
-                lastShare[display.id] = t.brightness
+                // A monitor's step in flight: the signal evening it out must show with it (a changed
+                // share changes the matrix, which `ColourLayer.apply` reports itself).
+                if inFlight[display.id] != nil { stepping.insert(display.id) }
             }
             tints[display.id] = t
         }
@@ -1069,8 +1066,7 @@ final class DisplayController {
     /// animating, an auto-brightness ramp) holds writes until it settles; settled, the user's move
     /// is theirs as before (a shift, or the day level), and macOS's own the new day level.
     private func reported(_ id: CGDirectDisplayID, _ event: BrightnessEvents.Event, at: Date) {
-        guard dims[id] != nil, monitors[id] == nil, !asleep, !restoring else { return }
-        guard reports[id] != nil else { return }
+        guard dims[id] != nil, reports[id] != nil, monitors[id] == nil, !asleep, !restoring else { return }
         switch event {
         case .step(let byUser):
             reports[id]!.step(byUser: byUser, at: at)  // when macOS sent it: the main thread may lag
@@ -1366,7 +1362,7 @@ final class DisplayController {
                 if !heard(id) { readBacklight(id) }
                 // A write that failed (the morning restore, say) is tried again here: in the day
                 // nothing else may push for hours.
-                if let asked = requested[id], backlight(id) != nil, dims[id]?.light(for: asked.position, release: asked.release) != nil {
+                if let asked = requested[id], dims[id]?.light(for: asked.position, release: asked.release) != nil {
                     setBacklight(id, position: asked.position, release: asked.release)
                 }
             }

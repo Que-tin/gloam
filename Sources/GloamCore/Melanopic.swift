@@ -16,8 +16,8 @@ public enum Melanopic {
     /// `space`: the display's own linear RGB; a P3 panel keeps more blue and green at warm
     /// temperatures than sRGB numbers suggest, so the estimate follows what it really shows.
     public static func relative(_ tint: Tint, in space: LinearRGB = Kelvin.sRGB) -> Double {
-        let gain = Kelvin.displayGain(tint, in: space)  // display-encoded, brightness included
-        let lin = { (v: Double) in pow(max(0, v), Kelvin.displayGamma) }
-        return weights.red * lin(gain.red) + weights.green * lin(gain.green) + weights.blue * lin(gain.blue)
+        let gain = Kelvin.linearGain(tint.kelvin, in: space)
+        let light = pow(min(1, max(0, tint.brightness)), Kelvin.displayGamma)
+        return (weights.red * gain.red + weights.green * gain.green + weights.blue * gain.blue) * light
     }
 }

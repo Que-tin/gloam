@@ -18,7 +18,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
 - `Sources/Gloam/App/` — `GloamApp` (`@main`: single instance, `--uninstall`, `Windows`, URLs, debug
   flags: see `Debug`), `MenuBarPanel` (status item: click popover, right-click menu), `Updates` (Sparkle), `Intents` (Shortcuts, Focus filter;
   `build-app.sh` builds their metadata). `Model/AppModel` — settings, clock, target tint.
-- `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `ColourLayer` (the tint, per display), `ColourGuard` (clears it when Gloam dies),
+- `Sources/Gloam/Display/` — `DisplayController` (fades, backlights), `ColourLayer` (the tint, per display), `ColourGuard` (clears it when Gloam dies),
   `Displays`, `RoomLight` (the sensor's lux as macOS reports it), `Backlight`, `BrightnessEvents` (macOS's reports of backlight moves and who made them), `SavedDims` (crash recovery), `Redraw` (a frame now),
   `DDC` (monitors over DDC/CI, paired by EDID via core `DisplayIdentity`; verified on one monitor).
 - `Sources/Gloam/UI/` — the "light as material" design: `PopoverView`, `Lamp` (orb dial, dimming

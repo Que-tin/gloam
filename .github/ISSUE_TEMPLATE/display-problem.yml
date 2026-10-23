@@ -23,11 +23,6 @@ body:
       description: Each display's name (System Settings › Displays), how it's connected (cable, hub, dock), and whether HDR is on.
     validations:
       required: true
-  - type: dropdown
-    id: method
-    attributes:
-      label: Method in Settings
-      options: [Automatic, Colour signal, Overlay, Not sure]
   - type: input
     id: version
     attributes:

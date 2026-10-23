@@ -14,9 +14,7 @@ enum Lamp {
     static let well = Color(rgb: 0x050404)
     /// Warm off-white. Secondary text never drops below 0.6 (≈ 6:1 on the surface).
     static let ink = Color(rgb: 0xF4E9DC)
-    static let amber = Color(rgb: 0xFF9A3C)
     static let label = Font.system(size: 10, weight: .medium, design: .monospaced)
-
 
     /// A tick on a trackpad that supports it; silent elsewhere.
     static func detent() {

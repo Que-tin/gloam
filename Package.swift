@@ -19,7 +19,7 @@ let package = Package(
         .target(name: "GloamCore"),
         // The system Color Filter's matrix, which only C can take from MediaAccessibility.
         .target(name: "ColourFilter"),
-        // The menu-bar app: display engines, model, SwiftUI. Everything here touches
+        // The menu-bar app: display control, model, SwiftUI. Everything here touches
         // AppKit or UI state, so the main actor is the default.
         .executableTarget(
             name: "Gloam",
