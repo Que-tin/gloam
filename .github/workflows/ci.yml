@@ -25,7 +25,7 @@ jobs:
           path: .build/Gloam.dmg
 
   private-api:
-    # The private brightness API Gloam relies on, on every macOS GitHub still runs: a removal or a
+    # The private API Gloam relies on, on every macOS GitHub still runs: a removal or a
     # changed signature shows here first (`scripts/check-private-api.swift`). A plain script, so
     # it runs on images whose Xcode can't build the app.
     strategy:

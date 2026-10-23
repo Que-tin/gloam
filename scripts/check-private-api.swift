@@ -1,6 +1,7 @@
-// Checks that the private brightness API Gloam relies on is still there on this macOS: the
-// DisplayServices calls (`Backlight`), CoreBrightness's client with the exact argument types
-// `BrightnessEvents` calls it with, and the report keys in the framework's strings. Run as
+// Checks that the private API Gloam relies on is still there on this macOS: the DisplayServices
+// calls (`Backlight`), CoreBrightness's client with the exact argument types `BrightnessEvents`
+// calls it with, the report keys in the framework's strings, and the colour layer (SkyLight's
+// accessibility matrix, MediaAccessibility's system filter and its change notification). Run as
 // `swift scripts/check-private-api.swift` (CI runs it on every macOS it can: a removal or a
 // changed signature shows there before users find their screens dimmed by signal).
 //
@@ -38,19 +39,41 @@ for (selector, types) in ["registerDisplayNotificationCallbackBlock:": "v24@0:8@
     check(found == types, "\(selector) \(found ?? "missing")")
 }
 
-// The report keys, in the framework's own C strings.
-let image = (0..<_dyld_image_count()).first { String(cString: _dyld_get_image_name($0)).hasSuffix("/CoreBrightness") }
-var strings = Data()
-if let image, let header = _dyld_get_image_header(image) {
-    header.withMemoryRebound(to: mach_header_64.self, capacity: 1) {
-        var size: UInt = 0
-        if let bytes = getsectiondata($0, "__TEXT", "__cstring", &size) { strings = Data(bytes: bytes, count: Int(size)) }
+/// A loaded framework's own C strings.
+func strings(of framework: String) -> Data {
+    let image = (0..<_dyld_image_count()).first { String(cString: _dyld_get_image_name($0)).hasSuffix("/" + framework) }
+    var strings = Data()
+    if let image, let header = _dyld_get_image_header(image) {
+        header.withMemoryRebound(to: mach_header_64.self, capacity: 1) {
+            var size: UInt = 0
+            if let bytes = getsectiondata($0, "__TEXT", "__cstring", &size) { strings = Data(bytes: bytes, count: Int(size)) }
+        }
     }
+    return strings
 }
+func contains(_ strings: Data, _ key: String) -> Bool { strings.range(of: Data([0]) + Data(key.utf8) + Data([0])) != nil }
+
+// The report keys.
+let reportStrings = strings(of: "CoreBrightness")
 for key in ["DisplayServicesUserBrightness", "DisplayServicesBrightness", "CBDisplayBrightnessState",
             "CBReasonForBrightnessChange", "AggregatedLux", "BrightnessControlCapabilities", "MaxNits"] {
-    check(strings.range(of: Data([0]) + Data(key.utf8) + Data([0])) != nil, "key \(key)")
+    check(contains(reportStrings, key), "key \(key)")
 }
+
+// The colour layer: SkyLight's per-display matrix and its keys, the system Color Filter it must
+// carry, and the notification of a change to it. C symbols: present, their types unchecked.
+let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW)
+check(skyLight != nil, "SkyLight loads")
+for symbol in ["SLSSetAccessibilityAdjustments", "kSLSAccessibilityAdjustmentMatrix", "kSLSAccessibilityTargetDisplay"] {
+    check(skyLight.flatMap { dlsym($0, symbol) } != nil, symbol)
+}
+let accessibility = dlopen("/System/Library/Frameworks/MediaAccessibility.framework/MediaAccessibility", RTLD_NOW)
+check(accessibility != nil, "MediaAccessibility loads")
+for symbol in ["MADisplayFilterCopySystemFilter", "MADisplayFilterGetMatrix", "MADisplayFilterPrefGetCategoryEnabled"] {
+    check(accessibility.flatMap { dlsym($0, symbol) } != nil, symbol)
+}
+check(contains(strings(of: "MediaAccessibility"), "com.apple.mediaaccessibility.displayFilterSettingsChanged"),
+      "notification displayFilterSettingsChanged")
 
 print(ProcessInfo.processInfo.operatingSystemVersionString)
 exit(failed ? 1 : 0)
