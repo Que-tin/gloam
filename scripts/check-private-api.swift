@@ -32,8 +32,7 @@ check(client != nil, "BrightnessSystemClient")
 // The encodings `BrightnessEvents` requires before it calls (its `encodings`: keep the two alike).
 for (selector, types) in ["registerDisplayNotificationCallbackBlock:": "v24@0:8@?16",
                           "registerNotificationForKeys:andDisplay:": "v32@0:8@16Q24",
-                          "copyPropertyForKey:": "@24@0:8@16", "copyPropertyForKey:andDisplay:": "@32@0:8@16Q24",
-                          "unregisterNotificationForKeys:andDisplay:": "v32@0:8@16Q24"] {
+                          "copyPropertyForKey:": "@24@0:8@16", "copyPropertyForKey:andDisplay:": "@32@0:8@16Q24"] {
     let found = client.flatMap { class_getInstanceMethod($0, NSSelectorFromString(selector)) }
         .flatMap { method_getTypeEncoding($0) }.map { String(cString: $0) }
     check(found == types, "\(selector) \(found ?? "missing")")
@@ -49,8 +48,7 @@ if let image, let header = _dyld_get_image_header(image) {
     }
 }
 for key in ["DisplayServicesUserBrightness", "DisplayServicesBrightness", "CBDisplayBrightnessState",
-            "CBReasonForBrightnessChange", "AggregatedLux", "BrightnessControlCapabilities", "MaxNits",
-            "CBAutoBrightnessEnabled"] {
+            "CBReasonForBrightnessChange", "AggregatedLux", "BrightnessControlCapabilities", "MaxNits"] {
     check(strings.range(of: Data([0]) + Data(key.utf8) + Data([0])) != nil, "key \(key)")
 }
 

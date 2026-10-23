@@ -2,7 +2,7 @@
 // user (brightness keys, Control Center's or System Settings' slider) or macOS itself
 // (auto-brightness). Read through CoreBrightness's `BrightnessSystemClient` (private: no public API
 // tells a change, let alone its source), loaded at run time, so a macOS without it yields false
-// (the controller then reads a screen without auto-brightness on the tick, else dims by signal).
+// (the controller then reads the backlight on the tick).
 //
 // What macOS sends, measured on an Apple silicon MacBook (macOS 27):
 // - the user: `DisplayServicesUserBrightness` and `DisplayServicesBrightness` per step, then, about
@@ -19,8 +19,7 @@
 // watched on the built-in display and never read while watched: any client's read sends every
 // watcher a report, so reading on a report looped (~10,000 a second, unchanged; Gloam and
 // corebrightnessd at 60 % and 120 % CPU). Reports come in bursts while the sensor works, often
-// unchanged: each is only stored where it arrives, for the clock's tick to take. A flood all the
-// same (another app looping) stops the watch, and the light is read on the tick instead.
+// unchanged: each is only stored where it arrives, for the clock's tick to take.
 //
 // The block takes (key, display, value): three objects crashed (the display is a plain integer).
 // One client, one kind of block: a property block registered too took every report from it.
@@ -55,17 +54,14 @@ enum BrightnessEvents {
     private static var watched: Set<CGDirectDisplayID> = []
     /// The display the room light is watched on (the built-in's sensor).
     private static var luxDisplay: CGDirectDisplayID?
-    /// Lux as last reported (or read before watching; -1: none), and this second's count of reports.
-    private nonisolated static let luxGate = OSAllocatedUnfairLock(initialState: (last: -1.0, second: 0.0, count: 0))
-    /// More lux reports than this in a second is a loop, not a sensor (it bursts ~2 a second).
-    private nonisolated static let luxFlood = 50
+    /// Lux as last reported (or read before watching; -1: none), written on CoreBrightness's queue.
+    private nonisolated static let lastLux = OSAllocatedUnfairLock(initialState: -1.0)
 
     /// The method's implementation, only while its argument types are still the ones measured: a
     /// macOS that changed them gets no call (the screens are dimmed by signal) rather than a crash.
     private static let encodings = [
         "registerDisplayNotificationCallbackBlock:": "v24@0:8@?16", "registerNotificationForKeys:andDisplay:": "v32@0:8@16Q24",
         "copyPropertyForKey:": "@24@0:8@16", "copyPropertyForKey:andDisplay:": "@32@0:8@16Q24",
-        "unregisterNotificationForKeys:andDisplay:": "v32@0:8@16Q24",
     ]
     private static func method<T>(_ name: String, as type: T.Type) -> (Selector, T)? {
         let sel = NSSelectorFromString(name)
@@ -75,16 +71,16 @@ enum BrightnessEvents {
     }
 
     /// Reports for `id` from now on, to `handle`, with when macOS sent each (one handler for all
-    /// displays: the last set wins). Registered again if it was: reports that went quiet may come
-    /// back. False where this macOS doesn't offer them.
+    /// displays: the last set wins). False where this macOS doesn't offer them.
     static func watch(_ id: CGDirectDisplayID, _ handle: @escaping (CGDirectDisplayID, Event, Date) -> Void) -> Bool {
         handler = handle
+        guard !watched.contains(id) else { return true }
         guard let client, let (watchSel, watch) = method("registerNotificationForKeys:andDisplay:", as: Watch.self) else { return false }
         if watched.isEmpty {
             guard let (sel, register) = method("registerDisplayNotificationCallbackBlock:", as: Register.self) else { return false }
             // Called on CoreBrightness's own queue.
             let block: @convention(block) @Sendable (AnyObject?, UInt64, AnyObject?) -> Void = { key, display, value in
-                if key as? String == "AggregatedLux" { return luxReported(value) }
+                if key as? String == "AggregatedLux" { return luxReported(value) }  // the room: stored, no event
                 guard let event = event(key as? String, value) else { return }
                 let at = Date()
                 DispatchQueue.main.async {
@@ -94,8 +90,8 @@ enum BrightnessEvents {
             register(client, sel, block as AnyObject)
         }
         // The room light, on the built-in: read once now, then only as reported.
-        if luxDisplay == nil, !watched.contains(id), CGDisplayIsBuiltin(id) != 0, let lux = readLux() {
-            luxGate.withLock { $0.last = lux }
+        if luxDisplay == nil, CGDisplayIsBuiltin(id) != 0, let lux = readLux() {
+            lastLux.withLock { $0 = lux }
             luxDisplay = id
         }
         watch(client, watchSel, keys(for: id) as NSArray, UInt64(id))
@@ -111,7 +107,7 @@ enum BrightnessEvents {
     static func rewatch() {
         guard let client, let (sel, watch) = method("registerNotificationForKeys:andDisplay:", as: Watch.self) else { return }
         for id in watched { watch(client, sel, keys(for: id) as NSArray, UInt64(id)) }
-        if luxDisplay != nil, let lux = readLux() { luxGate.withLock { $0.last = lux } }
+        if luxDisplay != nil, let lux = readLux() { lastLux.withLock { $0 = lux } }
     }
 
     /// The panel's luminance at full brightness (cd/m², the slider's top: 600 on a 14" M3 MacBook
@@ -127,14 +123,8 @@ enum BrightnessEvents {
     /// reports on this macOS): as last reported where watched, else read.
     static var roomLux: Double? {
         guard luxDisplay != nil else { return readLux() }
-        let lux = luxGate.withLock { $0.last }
+        let lux = lastLux.withLock { $0 }
         return lux >= 0 ? lux : nil
-    }
-
-    /// Whether macOS brightens and dims `id` for the room itself, or nil where it doesn't say.
-    static func autoBrightness(_ id: CGDirectDisplayID) -> Bool? {
-        guard let client, let (sel, copy) = method("copyPropertyForKey:andDisplay:", as: CopyFor.self) else { return nil }
-        return (copy(client, sel, "CBAutoBrightnessEnabled" as NSString, UInt64(id))?.takeRetainedValue() as? NSNumber)?.boolValue
     }
 
     /// Never on a lux report while watched: the read itself sends one (a single read, on wake, is fine).
@@ -145,29 +135,10 @@ enum BrightnessEvents {
         return lux
     }
 
-    /// A lux report, on CoreBrightness's queue: kept for `roomLux`; a flood stops the watch.
+    /// A lux report, on CoreBrightness's queue: kept for `roomLux`.
     private nonisolated static func luxReported(_ value: AnyObject?) {
         guard let lux = (value as? NSNumber)?.doubleValue, lux.isFinite, lux >= 0 else { return }
-        let now = Date().timeIntervalSinceReferenceDate
-        let flooded = luxGate.withLock { gate in
-            if now - gate.second >= 1 { gate.second = now; gate.count = 0 }
-            gate.count += 1
-            gate.last = lux
-            return gate.count == luxFlood
-        }
-        if flooded { DispatchQueue.main.async { MainActor.assumeIsolated { stopLux() } } }
-    }
-
-    /// The lux watch stops for good, and the light is read on the tick. The display's other keys
-    /// are registered again, in case unregistering one took them all.
-    private static func stopLux() {
-        guard let id = luxDisplay, let client,
-              let (sel, unwatch) = method("unregisterNotificationForKeys:andDisplay:", as: Watch.self) else { return }
-        unwatch(client, sel, ["AggregatedLux"] as NSArray, UInt64(id))
-        luxDisplay = nil
-        if let (sel, watch) = method("registerNotificationForKeys:andDisplay:", as: Watch.self) {
-            watch(client, sel, keys as NSArray, UInt64(id))
-        }
+        lastLux.withLock { $0 = lux }
     }
 
     private nonisolated static func event(_ key: String?, _ value: AnyObject?) -> Event? {

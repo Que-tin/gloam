@@ -1,6 +1,7 @@
 // How Gloam reads macOS's reports about one backlight it dims (the app's `BrightnessEvents`):
-// which steps are its own writes coming back, which are a move under way (and whose), when
-// writes must wait for it, which settled reports to act on, and when the reports have stopped.
+// whether that backlight is reported on at all, which steps are its own writes coming back,
+// which are a move under way (and whose), when writes must wait for it, and which settled
+// reports to act on.
 //
 // What macOS sends, measured: a user's move (keys, slider) is user steps, then a settled report
 // marked as the user's; auto-brightness is plain steps, then a settled report; Gloam's own light
@@ -17,9 +18,11 @@ import Foundation
 public struct BacklightReports: Sendable {
     public enum Source: Sendable, Equatable { case user, macOS }
 
-    /// Gloam's recent light writes, oldest first, and when the last of them was reported back.
+    /// A report has come: macOS reports on this backlight (a display that registers but is never
+    /// reported on is read instead). Usually the echo of Gloam's first write.
+    public private(set) var confirmed = false
+    /// Gloam's recent light writes, oldest first.
     private var writes: [Date] = []
-    private var echoedAt = Date.distantPast
     /// When Gloam last wrote the slider level (the release): its own "user" report follows.
     private var levelWrittenAt = Date.distantPast
     /// The move under way: whose, since when, its last step, and until when writes wait for it.
@@ -36,21 +39,24 @@ public struct BacklightReports: Sendable {
     public static let echoWindow: TimeInterval = 1
     /// How long after one of Gloam's light writes a plain step counts as its echo.
     public static let lightEcho: TimeInterval = 0.5
-    /// This many of Gloam's writes unreported, the first `silentFor` ago: the reports stopped.
-    public static let silentWrites = 5, silentFor: TimeInterval = 5
-
     public init() {}
+
+    /// Forgets a move under way and the writes before it (the screens slept), not that the
+    /// backlight is reported on.
+    public mutating func forgetMoves() {
+        self = Self()
+        confirmed = true
+    }
 
     /// Gloam wrote the backlight: its light (`level` false), or its slider level (the release).
     public mutating func wrote(at date: Date, level: Bool) {
-        if level { levelWrittenAt = date } else { writes = writes.suffix(63) + [date] }
+        if level { levelWrittenAt = date } else { writes = writes.suffix(15) + [date] }
     }
 
     /// A step macOS reported, at the time it sent it.
     public mutating func step(byUser: Bool, at date: Date) {
+        confirmed = true
         if date.timeIntervalSince(levelWrittenAt) < Self.echoWindow { return }
-        // macOS reports on: whatever came before this wasn't lost.
-        echoedAt = max(echoedAt, date)
         // A plain step just after a light write is its echo (one for several close together); a
         // user's never is. Only writes made before it was sent.
         if !byUser, writes.contains(where: { $0 <= date && date.timeIntervalSince($0) < Self.lightEcho }) {
@@ -93,12 +99,5 @@ public struct BacklightReports: Sendable {
         moving = nil
         seen = []
         return m.by == .user ? .user : nil
-    }
-
-    /// Gloam's writes stopped being reported (a macOS update, or a display that registered but
-    /// isn't reported on).
-    public func broken(at date: Date) -> Bool {
-        let unechoed = writes.filter { $0 > echoedAt }
-        return unechoed.count >= Self.silentWrites && date.timeIntervalSince(unechoed[0]) > Self.silentFor
     }
 }

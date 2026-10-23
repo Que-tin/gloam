@@ -78,17 +78,18 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   and daylight, and a move switches on from there by hand (every other screen at 0: nothing jumps).
 - Tint gains use each display's own colour space (sRGB on P3 turns warm white red); private APIs
   (`RoomLight`/`Backlight`/`BrightnessEvents`) return nil (or false) for "no change", and are called only with
-  the argument types measured.
+  the argument types measured. Fallbacks only for cases that exist today (a monitor without
+  backlight control, a display without reports): a private API changing under Gloam is caught by
+  CI's check and fixed in a release, not prepared for with a second path.
 - Built-in, Apple and DDC/CI displays are dimmed by backlight relative to the level found
   (`BacklightDim`): moves made elsewhere are adopted, never fought; quitting (or, after a crash,
   the next launch) restores. macOS reports its backlights' moves and who made them
   (`BrightnessEvents`, read by `BacklightReports`): the user's become shifts, auto-brightness's the
   new day level (the evening eases back down from it). Gloam's light writes come back as plain
   steps with no settled report and teach auto-brightness nothing; a slider-level write is reported
-  as the user's, so only the release uses one. Without reports (none on that macOS, or Gloam's
-  writes stopped being echoed; tried again at each display change) a screen with no
-  auto-brightness is read on the tick (any change not Gloam's is the user's); one with it is
-  dimmed by signal: guessed from readings, ramps became shifts and presses were undone. The room's
+  as the user's, so only the release uses one. A backlight counts as reported once a report came
+  for it (the echo of Gloam's first write); until then (no reports on that macOS, a display that
+  registers but isn't reported on) it is read on the tick, any change not Gloam's the user's. The room's
   lux is watched, never read on its report: a read reports to every watcher, so that looped.
   The rest: signal, never below 30%.
 - A built-in LCD never draws a white under `DisplayController.smearFloor` of daylight white's light,

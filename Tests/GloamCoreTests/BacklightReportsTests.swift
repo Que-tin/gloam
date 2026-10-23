@@ -12,7 +12,7 @@ import Testing
         var r = BacklightReports()
         for i in 0..<5 { r.wrote(at: Self.at(Double(i) * 0.016), level: false) }
         r.step(byUser: false, at: Self.at(0.08))
-        #expect(!r.holds(at: Self.at(0.1)) && !r.broken(at: Self.at(60)))
+        #expect(!r.holds(at: Self.at(0.1)) && r.confirmed)
         #expect(r.settled(.user) == nil)
     }
 
@@ -97,14 +97,16 @@ import Testing
         #expect(r.settled(.macOS) == nil)
     }
 
-    // Writes nobody reports back, five of them over five seconds: the reports stopped.
-    @Test func silentWritesMeanTheReportsBroke() {
+    // A backlight is reported on once any report has come, its own echo included; a wake forgets
+    // the move under way but not that.
+    @Test func reportsAreConfirmedByTheFirstAndKeptOverAWake() {
         var r = BacklightReports()
-        for i in 0..<4 { r.wrote(at: Self.at(Double(i) * 2), level: false) }
-        #expect(!r.broken(at: Self.at(20)))
-        r.wrote(at: Self.at(8), level: false)
-        #expect(!r.broken(at: Self.at(4)) && r.broken(at: Self.at(8.1)))
-        r.step(byUser: false, at: Self.at(9))
-        #expect(!r.broken(at: Self.at(9.1)))
+        r.wrote(at: Self.at(0), level: false)
+        #expect(!r.confirmed)
+        r.step(byUser: false, at: Self.at(0.01))
+        r.step(byUser: true, at: Self.at(5))
+        #expect(r.confirmed && r.moving != nil)
+        r.forgetMoves()
+        #expect(r.confirmed && r.moving == nil && !r.holds(at: Self.at(5.1)))
     }
 }
