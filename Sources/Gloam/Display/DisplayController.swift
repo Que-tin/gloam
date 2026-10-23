@@ -895,7 +895,7 @@ final class DisplayController {
         for (id, dim) in unsure { if let uuid = uuidOf[id] { _ = saved.set(dim, for: uuid) } }
         writeSaved()
         layer.restore()
-        redraw.nudge([])
+        redraw.everyScreen()  // a still screen showed the cleared layer only when something moved
     }
 
     /// Inside `push`: `store` leaves `refreshEffective` to its end.

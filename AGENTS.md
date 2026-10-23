@@ -18,7 +18,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
 - `Sources/Gloam/App/` — `GloamApp` (`@main`: single instance, `--uninstall`, `Windows`, URLs, debug
   flags: see `Debug`), `MenuBarPanel` (status item: click popover, right-click menu), `Updates` (Sparkle), `Intents` (Shortcuts, Focus filter;
   `build-app.sh` builds their metadata). `Model/AppModel` — settings, clock, target tint.
-- `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `ColourLayer` (the tint, per display),
+- `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `ColourLayer` (the tint, per display), `ColourGuard` (clears it when Gloam dies),
   `Displays`, `RoomLight` (the sensor's lux as macOS reports it), `Backlight`, `BrightnessEvents` (macOS's reports of backlight moves and who made them), `SavedDims` (crash recovery), `Redraw` (a frame now),
   `DDC` (monitors over DDC/CI, paired by EDID via core `DisplayIdentity`; verified on one monitor).
 - `Sources/Gloam/UI/` — the "light as material" design: `PopoverView`, `Lamp` (orb dial, dimming
@@ -103,7 +103,8 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   (unstylable, can't be opened or captured); Settings isn't a SwiftUI `Settings` scene. Dark.
 - The tint goes through macOS's per-display colour layer (`ColourLayer`, the one its Color Filters
   use): it works on every Mac, leaves calibration alone and survives sleep and display changes,
-  but outlives the process, and a change shows at the screen's next frame (`Redraw` draws one).
+  but outlives the process (so a launch clears it first, and a guard process clears it the moment
+  Gloam dies, `ColourGuard`), and a change shows at the screen's next frame (`Redraw` draws one).
   A screen's matrix replaces the system Color Filter there, so the filter is carried in, and is
   what neutral restores; a filter change (Darwin notification) clears Gloam's, written again.
   Gamma tables (ignored on M5 Pro/Max under macOS 26+, reset by macOS, a calibration to capture

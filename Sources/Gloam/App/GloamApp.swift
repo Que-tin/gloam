@@ -13,6 +13,11 @@ enum GloamMain {
     private static let delegate = AppDelegate()  // NSApplication holds its delegate weakly
 
     static func main() {
+        // `Gloam --guard <pid>`: no app, only the wait to clear the colour layer (`ColourGuard`).
+        if let i = CommandLine.arguments.firstIndex(of: ColourGuard.flag), CommandLine.arguments.indices.contains(i + 1),
+           let pid = pid_t(CommandLine.arguments[i + 1]) {
+            ColourGuard.run(watching: pid)
+        }
         let app = NSApplication.shared
         app.delegate = delegate
         app.mainMenu = mainMenu()
@@ -58,12 +63,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Other running copies: the bundled app by its identifier, and any copy by name (a `swift
     /// run` build has no identifier, and the bundled app must not run beside one that tints).
     /// Copies run with a showcase flag never touch the screen and are left out, read from their
-    /// arguments: matching by name alone made the bundled app quit for a snapshot run.
+    /// arguments: matching by name alone made the bundled app quit for a snapshot run. So is a
+    /// running copy's guard (`ColourGuard`), the same executable.
     private static func otherCopies() -> [NSRunningApplication] {
         let me = ProcessInfo.processInfo.processIdentifier
         let byID = Bundle.main.bundleIdentifier.map(NSRunningApplication.runningApplications(withBundleIdentifier:)) ?? []
         let byName = Debug.isShowcase ? [] : NSWorkspace.shared.runningApplications.filter {
-            $0.executableURL?.lastPathComponent == "Gloam" && !Self.isShowcase($0.processIdentifier)
+            $0.executableURL?.lastPathComponent == "Gloam" && !Self.isLeftOut($0.processIdentifier)
         }
         return (byID + byName).filter { $0.processIdentifier != me }
             .reduce(into: []) { all, app in if !all.contains(app) { all.append(app) } }
@@ -139,7 +145,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Also covers `swift run`, where there is no Info.plist to say LSUIElement.
         NSApp.setActivationPolicy(.accessory)
-        if !Debug.isShowcase { quitOnSignals() }  // showcase runs are killed by their watchdog
+        if !Debug.isShowcase {  // showcase runs are killed by their watchdog, and never tint
+            quitOnSignals()
+            // A crash may have left the colour layer tinted; the guard clears it after the next.
+            ColourLayer.clearAll()
+            ColourGuard.start()
+        }
         Debug.applyLaunchArguments()
         _ = Updates.updater
         if !Debug.isShowcase {  // showcase runs share the real app's settings; they leave these alone
@@ -192,13 +203,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Whether another process was started with a flag that keeps it off the screen.
-    private static func isShowcase(_ pid: pid_t) -> Bool {
+    private static func isLeftOut(_ pid: pid_t) -> Bool {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid], size = 0
         guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return false }
         var buffer = [UInt8](repeating: 0, count: size)
         guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return false }
         let args = buffer.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
-        return args.contains(where: Debug.offScreenFlags.contains)
+        return args.contains { Debug.offScreenFlags.contains($0) || $0 == ColourGuard.flag }
     }
 
     /// When a process started, from the kernel: unlike `launchDate`, set however it was started.

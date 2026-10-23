@@ -30,6 +30,9 @@ final class Redraw {
         CATransaction.commit()
     }
 
+    /// A new frame on every screen: a change made for all of them (the layer cleared) shows now.
+    func everyScreen() { nudge(Set(NSScreen.screens.compactMap(\.displayID))) }
+
     /// Screens moved: dots are placed afresh on the next nudge.
     func displaysChanged() {
         dots.values.forEach { $0.orderOut(nil) }
