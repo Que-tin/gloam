@@ -1,7 +1,8 @@
 // Owns the active engine and moves the screen toward a target tint: eased fades for user
 // actions, direct writes for the clock's small steps (writes are skipped when nothing changed).
-// On each clock tick it checks whether the tint was overwritten and only then writes it again,
-// because macOS quietly resets gamma tables on wake, display changes and some ColorSync events.
+// On each clock tick it checks whether the tint was overwritten (or left black) and only then
+// writes it again, because macOS quietly resets gamma tables on wake, display changes and some
+// ColorSync events.
 // Displays whose backlight macOS controls (built-in, Apple displays), and monitors that answer
 // DDC/CI, are dimmed by backlight, relative to the level found there (`BacklightDim`); the rest
 // by signal. Each screen shows the plan (the target tint) plus its own shift (`Shift`): the
@@ -27,12 +28,15 @@ protocol TintEngine: AnyObject {
     func settleKept()
     /// Whether another app has rewritten what this engine put on screen.
     func isOverwritten() -> Bool
+    /// Puts back a table left black; true when it did (`GammaEngine.repairBlank`).
+    func repairBlank() -> Bool
     /// The display's linear RGB, for estimates that should match what it really shows.
     func colourSpace(_ id: CGDirectDisplayID) -> LinearRGB
 }
 
 extension TintEngine {
     func isOverwritten() -> Bool { false }
+    func repairBlank() -> Bool { false }
     func restoreAll() { reset() }
     func settleKept() {}
     func colourSpace(_ id: CGDirectDisplayID) -> LinearRGB { Kelvin.sRGB }
@@ -621,7 +625,18 @@ final class DisplayController {
             Task { [weak self] in
                 for await _ in workspace.notifications(named: name) { self?.screens(asleep: sleeping) }
             }
-        }
+        } + [Task { [weak self] in
+            let profiles = Notification.Name("com.apple.ColorSync.DisplayProfileNotification")
+            for await _ in DistributedNotificationCenter.default().notifications(named: profiles) { self?.profileChanged() }
+        }]
+    }
+
+    /// A display's colour profile changed (Displays settings, a calibration): its calibration is
+    /// captured afresh under the tint. Not a whole display change, which puts the monitors in doubt
+    /// and probes them again (a ColorSync restore posts this too).
+    private func profileChanged() {
+        engine.displaysChanged()
+        push()
     }
 
     /// Screens off (the Mac may stay awake for hours): no backlight is read or written, a tint only
@@ -676,6 +691,8 @@ final class DisplayController {
     /// another tinting app); called on the clock's tick. Untinted there is nothing to reassert,
     /// and an interference notice still up is left to clear.
     func keepAlive() {
+        // Not in the seconds after a wake or a change: tables are briefly black while macOS settles.
+        if !asleep, Date().timeIntervalSince(changedAt) > 5, engine.repairBlank() { push() }
         // A shift held by day tints a signal-dimmed screen with the plan neutral: reasserted too.
         guard animator == nil, !asleep, interference || !shown.isNeutral
                 || shiftsShown && (!shifts.isEmpty || warmthShift != nil) else { return }

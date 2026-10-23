@@ -8,6 +8,9 @@
 // it looks tinted, because another tinting app owns the table, identity is used instead:
 // baking someone else's tint into the base would double the warmth until relaunch.
 //
+// macOS occasionally leaves a table all zeros, a black screen: Gloam puts its last write back, or
+// ColorSync's own restore when that doesn't take (`repairBlank`).
+//
 // Gains are computed in each display's own colour space (P3 for built-in screens), read from
 // its ColorSync profile; see ColorTemperature.swift for why sRGB gains look wrong on P3.
 
@@ -64,6 +67,28 @@ final class GammaEngine: TintEngine {
             }
         }
         return false
+    }
+
+    /// A table Gloam wrote that now reads black (macOS occasionally leaves one all zeros: a black
+    /// screen, also by day when nothing is tinted and `isOverwritten` doesn't look) gets Gloam's
+    /// last write back; if that doesn't take, ColorSync's own restore, and everything is captured
+    /// and written afresh. True when the caller must push again.
+    func repairBlank() -> Bool {
+        var repaired = false
+        for (id, ours) in lastWrite where ours.top.contains(where: { $0 > 0.05 }) {
+            guard let read = table(id, size: ours.red.count), read.top.allSatisfy({ $0 < 0.01 }) else { continue }
+            CGSetDisplayTransferByTable(id, UInt32(ours.red.count), ours.red, ours.green, ours.blue)
+            if let again = table(id, size: ours.red.count), again.top.allSatisfy({ $0 < 0.01 }) {
+                CGDisplayRestoreColorSyncSettings()
+                calibration.removeAll()
+                lastWrite.removeAll()
+                gains = [:]
+                return true  // every display's table is ColorSync's now
+            }
+            gains = [:]
+            repaired = true
+        }
+        return repaired
     }
 
     /// Puts the displays Gloam tinted back to their calibration, one by one: the global

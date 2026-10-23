@@ -93,7 +93,8 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   are read before a push works out positions, so key presses are adopted, never written over; a monitor is read with nothing sent until it answers
   (`readFirst`), before a step once its reading is a few seconds old (in a fade, once at its
   start). Ticks write at once, apart from a brief glide over a visible step; launches, wakes and
-  clock changes ease. The gamma table is rewritten only if something overwrote it. A timed pause
+  clock changes ease. The gamma table is rewritten only if something overwrote it or left it black
+  (`repairBlank`). A timed pause
   (right-click "Pause", Shortcuts' Pause Gloam) ends itself (`resumeAt`); app and Focus pauses don't.
 - Deliberately absent: an "Always" mode, presets, a scheduled daytime tint, per-stage tuning, a timeline or
   Kelvin numbers shown in the popover (only its tooltip and VoiceOver give them; Settings has the
