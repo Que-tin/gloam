@@ -91,7 +91,7 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             // Bedtime and wake are set in the graph only: its markers, by drag, keyboard or VoiceOver.
-            if model.roomLight.isAvailable {
+            if RoomLight.isAvailable {
                 Toggle("Adapt to room light", isOn: $model.autoDimming)  // "Auto dimming" read as all of it
             }
         } header: {

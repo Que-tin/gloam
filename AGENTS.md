@@ -18,7 +18,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   flags: see `Debug`), `MenuBarPanel` (status item: click popover, right-click menu), `Updates` (Sparkle), `Intents` (Shortcuts, Focus filter;
   `build-app.sh` builds their metadata). `Model/AppModel` — settings, clock, target tint.
 - `Sources/Gloam/Display/` — `DisplayController` (fades and reapply), `GammaEngine`, `OverlayEngine`,
-  `Displays`, `RoomLight` (sensor), `Backlight`, `BrightnessEvents` (macOS's reports of backlight moves and who made them), `SavedDims` (crash recovery), `Redraw` (a frame now),
+  `Displays`, `RoomLight` (the sensor's lux as macOS reports it), `Backlight`, `BrightnessEvents` (macOS's reports of backlight moves and who made them), `SavedDims` (crash recovery), `Redraw` (a frame now),
   `DDC` (monitors over DDC/CI, paired by EDID via core `DisplayIdentity`; verified on one monitor).
 - `Sources/Gloam/UI/` — the "light as material" design: `PopoverView`, `Lamp` (orb dial, dimming
   ladder, small parts), `GloamGlyph` (menu-bar mark), `WelcomeView`, `SettingsView`,
@@ -88,7 +88,8 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   as the user's, so only the release uses one. Without reports (none on that macOS, or Gloam's
   writes stopped being echoed; tried again at each display change) a screen with no
   auto-brightness is read on the tick (any change not Gloam's is the user's); one with it is
-  dimmed by signal: guessed from readings, ramps became shifts and presses were undone.
+  dimmed by signal: guessed from readings, ramps became shifts and presses were undone. The room's
+  lux is watched, never read on its report: a read reports to every watcher, so that looped.
   The rest: signal, never below 30%.
 - A built-in LCD never draws a white under `DisplayController.smearFloor` of daylight white's light,
   scaled by the user's slider (all from 85 %, none ≤ 50 %, measured): dimming goes first, then warmth. Past

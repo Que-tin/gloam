@@ -74,8 +74,8 @@ final class AppModel {
     @ObservationIgnored private var switchingInPlace = false
     /// The room's light, smoothed; nil when no sensor can see it.
     private(set) var roomLux: Double?
-    @ObservationIgnored let roomLight = RoomLight()
     @ObservationIgnored private var missedReads = 0
+    @ObservationIgnored private var roomReadAt = Date.distantPast
     /// Until the welcome window is finished the screen stays untouched (Preview aside).
     var hasOnboarded: Bool { didSet { save(hasOnboarded, "hasOnboarded"); update(fade: 2) } }
 
@@ -413,8 +413,8 @@ final class AppModel {
         let hadRoom = roomLux != nil
         // A missed wake notification mustn't leave the clock on the minute's tick all evening.
         if screensAsleep, CGDisplayIsAsleep(CGMainDisplayID()) == 0 { screensAsleep = false }
-        // Not on the minute's tick: the smoothing assumes 5 s. The reading is kept meanwhile and
-        // taken afresh when the quiet ends (`update`).
+        // Not on the minute's tick: nothing is dimmed then. The reading is kept meanwhile and taken
+        // afresh when the quiet ends (`update`).
         if !tickingSlowly { readRoom() }
         expireHolds()
         // Before the comparison below: a monitor's buttons since the last tick move what's on screen.
@@ -436,8 +436,9 @@ final class AppModel {
     }
 
     /// Smoothed over about a minute and a half (in log terms, as eyes see light), so a lamp
-    /// switched on eases the screen over a minute rather than in one 5-second step. A missed
-    /// read keeps the last value; three in a row (about 15 s) mean the sensor is gone.
+    /// switched on eases the screen over a minute rather than in one step: by the time since the
+    /// last read, on each tick (the sensor's value as macOS last reported it). A missed read keeps the last
+    /// value; three in a row mean the sensor is gone (the lid closed).
     private func readRoom() {
         // No sensor reads while unused, nor while the schedule isn't dimming (room light only
         // eases dimming); the first read once it is starts unsmoothed.
@@ -445,15 +446,19 @@ final class AppModel {
             roomLux = nil
             return
         }
-        guard !Debug.isShowcase, let lux = roomLight.read() else {
+        guard !Debug.isShowcase, let lux = RoomLight.read() else {
             missedReads += 1
             if missedReads >= 3 { roomLux = nil }
             return
         }
         missedReads = 0
+        let since = Date().timeIntervalSince(roomReadAt)
+        roomReadAt = Date()
         guard let last = roomLux else { roomLux = lux; return }
-        let k = 1 - exp(-5.0 / 90)
-        roomLux = pow(10, log10(max(last, 1)) + (log10(max(lux, 1)) - log10(max(last, 1))) * k)
+        // On log10(1 + lux), as the floor takes it (`BacklightDim.floorNits`): on log10(lux) held at
+        // 1 lx, a dark room's fractions of a lux were all read as 1.
+        let k = 1 - exp(-min(30, since) / 90), from = log10(1 + last)
+        roomLux = pow(10, from + (log10(1 + lux) - from) * k) - 1
     }
 
     private func frontmostChanged(_ app: NSRunningApplication?) {

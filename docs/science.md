@@ -180,14 +180,13 @@ Shift is on"; a floor on green's own drive would put the cap near 3000–3200 K 
 
 ## Adapting to room light (optional input)
 
-**Room light** (read through a private macOS interface; no reading means no change): with a
-MacBook's lid open, the ambient light sensor eases the dimming in a bright room: all of it at
-≤ 10 lx, a third of it at ≥ 500 lx, log-linear between. The sensor reads photopic lux at the
-lid, a proxy for the melanopic light at the eye that Brown et al. 2022's ≤ 10 lx ceiling
-refers to; the two points are a heuristic. In a bright room the room dominates the light
-reaching the eye (Gooley et al. 2011, *JCEM*: room light < 200 lx before bed delayed melatonin
-onset in nearly everyone), so a much darker screen mostly costs readability. This is a
-reasoned default, not a trial result.
+**Room light** (the sensor as macOS reports it; none means no change): with a MacBook's lid
+open, a bright room eases the dimming (all of it at ≤ 10 lx, a third at ≥ 500 lx, log-linear
+between). The sensor reads photopic lux at the lid, a proxy
+for the melanopic light at the eye that Brown et al. 2022's ≤ 10 lx ceiling refers to. In a bright
+room the room dominates the light reaching the eye (Gooley et al. 2011, *JCEM*: < 200 lx before
+bed delayed melatonin onset in nearly everyone), so a much darker screen mostly costs
+readability. A reasoned default, not a trial result.
 
 ## What Gloam does not claim
 
