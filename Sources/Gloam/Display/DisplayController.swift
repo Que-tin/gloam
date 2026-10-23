@@ -14,6 +14,7 @@
 import AppKit
 import GloamCore
 import Observation
+import notify
 
 @Observable
 final class DisplayController {
@@ -641,6 +642,24 @@ final class DisplayController {
             let profiles = Notification.Name("com.apple.ColorSync.DisplayProfileNotification")
             for await _ in DistributedNotificationCenter.default().notifications(named: profiles) { self?.profileChanged() }
         }]
+        // Only the Darwin center carries this one (measured).
+        var token: Int32 = 0
+        notify_register_dispatch("com.apple.mediaaccessibility.displayFilterSettingsChanged", &token, .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.filterChanged() }
+        }
+    }
+
+    /// The system Color Filter changed: macOS's global write cleared every screen's tint, which is
+    /// written again with the new filter carried in, at once and half a second on (in case macOS's
+    /// write lands after its announcement).
+    private func filterChanged() {
+        layer.filterChanged()
+        push()
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            self?.layer.filterChanged()
+            self?.push()
+        }
     }
 
     /// A display's colour profile changed (Displays settings, a calibration): the tint is worked

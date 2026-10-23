@@ -10,7 +10,12 @@
 // in, and is gone after a restart; it is not in screenshots; HDR video is tinted with the rest;
 // ~0.02 ms a write. It also outlives the process that set it: a crash would leave the tint on.
 // A global write (no display named) clears every display's matrix, which is how it is restored.
+//
+// A display's matrix replaces the system Color Filter on it (grayscale vanished), so the filter
+// is carried in (`ColourMatrix`) and is what "neutral" restores. Changing it, macOS writes it
+// globally, clearing Gloam's: announced on the Darwin center, and written again (`filterChanged`).
 
+import ColourFilter
 import CoreGraphics
 import Foundation
 import GloamCore
@@ -31,14 +36,17 @@ final class ColourLayer {
     private var spaces: [CGDirectDisplayID: LinearRGB] = [:]
     /// Each display's matrix as last written: the same again is a WindowServer call for nothing.
     private var written: [CGDirectDisplayID: [Float]] = [:]
+    /// The system Color Filter, identity when none is on.
+    private var filter = ColourLayer.systemFilter()
 
     /// Shows each listed display at its tint and the rest neutral. Returns the displays whose
     /// matrix changed: they need a new frame to show it (`Redraw`).
     func apply(_ tints: [CGDirectDisplayID: Tint]) -> Swift.Set<CGDirectDisplayID> {
         var changed = Swift.Set<CGDirectDisplayID>()
         for id in Swift.Set(tints.keys).union(written.keys) {
-            let matrix = tints[id].map { ColourMatrix.shown($0, in: colourSpace(id)) } ?? ColourMatrix.identity
-            guard !ColourMatrix.same(matrix, written[id] ?? ColourMatrix.identity) else { continue }
+            let matrix = ColourMatrix.shown(tints[id] ?? .neutral, in: colourSpace(id), after: filter)
+            // Never written, a display shows the filter macOS set for all.
+            guard !ColourMatrix.same(matrix, written[id] ?? filter) else { continue }
             Self.write(matrix, to: id)
             written[id] = matrix
             changed.insert(id)
@@ -64,12 +72,24 @@ final class ColourLayer {
     /// A colour profile changed: the gains are worked out afresh in the new colour space.
     func profileChanged() { spaces = [:] }
 
-    /// Clears every display's matrix, whoever set it: at launch (a crash may have left one) and
-    /// on quit.
+    /// The system Color Filter changed, and macOS's global write cleared every display's matrix:
+    /// each is written afresh, carrying the new filter, by the next push.
+    func filterChanged() {
+        filter = Self.systemFilter()
+        written = [:]
+    }
+
+    /// Clears every display's matrix, whoever set it, back to the system Color Filter alone: at
+    /// launch (a crash may have left one) and on quit.
     static func clearAll() {
         guard let api else { return }
-        var matrix = ColourMatrix.identity
+        var matrix = systemFilter()
         _ = api.set([api.matrix: Data(bytes: &matrix, count: 36) as CFData] as CFDictionary)
+    }
+
+    private static func systemFilter() -> [Float] {
+        var matrix = ColourMatrix.identity
+        return gloamSystemColourFilter(&matrix) ? matrix : ColourMatrix.identity
     }
 
     private static func write(_ matrix: [Float], to id: CGDirectDisplayID) {

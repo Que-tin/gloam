@@ -17,11 +17,13 @@ let package = Package(
         // Pure, AppKit-free logic: colour science, sun position, the schedule curve.
         // Deliberately nonisolated so tests and callers aren't tied to the main actor.
         .target(name: "GloamCore"),
+        // The system Color Filter's matrix, which only C can take from MediaAccessibility.
+        .target(name: "ColourFilter"),
         // The menu-bar app: display engines, model, SwiftUI. Everything here touches
         // AppKit or UI state, so the main actor is the default.
         .executableTarget(
             name: "Gloam",
-            dependencies: ["GloamCore", .product(name: "Sparkle", package: "Sparkle")],
+            dependencies: ["GloamCore", "ColourFilter", .product(name: "Sparkle", package: "Sparkle")],
             swiftSettings: [.defaultIsolation(MainActor.self)]
         ),
         .testTarget(name: "GloamCoreTests", dependencies: ["GloamCore"]),

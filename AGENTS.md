@@ -14,6 +14,7 @@ open-source, better-looking alternative to the usual screen-warming apps. Why ev
   macOS's reports on one backlight mean: echoes, holds, whose move), `Shift` (a hand-set move from the plan
   and when it ends, `ShiftClock`), `Location` (zone.tab), `ColourMatrix` (a display's colour-layer
   matrix: the tint as linear-light gains), `Command` (`gloam://` toggle/on/off/open), `DisplayIdentity` (reused ids, EDID pairing).
+- `Sources/ColourFilter/` — C: the system Color Filter's matrix (MediaAccessibility returns a C struct).
 - `Sources/Gloam/App/` — `GloamApp` (`@main`: single instance, `--uninstall`, `Windows`, URLs, debug
   flags: see `Debug`), `MenuBarPanel` (status item: click popover, right-click menu), `Updates` (Sparkle), `Intents` (Shortcuts, Focus filter;
   `build-app.sh` builds their metadata). `Model/AppModel` — settings, clock, target tint.
@@ -103,6 +104,8 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
 - The tint goes through macOS's per-display colour layer (`ColourLayer`, the one its Color Filters
   use): it works on every Mac, leaves calibration alone and survives sleep and display changes,
   but outlives the process, and a change shows at the screen's next frame (`Redraw` draws one).
+  A screen's matrix replaces the system Color Filter there, so the filter is carried in, and is
+  what neutral restores; a filter change (Darwin notification) clears Gloam's, written again.
   Gamma tables (ignored on M5 Pro/Max under macOS 26+, reset by macOS, a calibration to capture
   and repair) and a translucent overlay were dropped, and the choice between them with them.
 - Ticks (5 s; 60 s when nothing is due, the screens sleep, every screen is switched off in
