@@ -650,10 +650,12 @@ final class DisplayController {
 
     private static func loadWarmth() -> Shift? {
         UserDefaults.standard.data(forKey: "warmthShift").flatMap { try? JSONDecoder().decode(Shift.self, from: $0) }
+            .flatMap { $0.isPlausible(at: Date()) ? $0 : nil }
     }
 
     private static func loadShifts() -> [String: Shift] {
-        UserDefaults.standard.data(forKey: "dimShifts").flatMap { try? JSONDecoder().decode([String: Shift].self, from: $0) } ?? [:]
+        (UserDefaults.standard.data(forKey: "dimShifts").flatMap { try? JSONDecoder().decode([String: Shift].self, from: $0) } ?? [:])
+            .filter { $0.value.isPlausible(at: Date()) }
     }
 
     @ObservationIgnored private var engine: TintEngine

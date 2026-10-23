@@ -19,6 +19,13 @@
 import Foundation
 
 public struct Shift: Codable, Equatable, Sendable {
+    /// Read back from storage: on the scales, and ending within two days (a hand-edited or corrupt
+    /// one could otherwise hold a screen dark, the backlight off, every evening for years).
+    public func isPlausible(at now: Date) -> Bool {
+        [to, at].allSatisfy { $0.isFinite && (0...2).contains($0) } && (distance?.isFinite ?? true)
+            && chosenWeight > 0 && chosenWeight <= 1 && span > 0 && until.timeIntervalSince(now) < 2 * 86_400
+    }
+
     /// The position chosen, and the plan's position when it was.
     public let to: Double
     public let at: Double

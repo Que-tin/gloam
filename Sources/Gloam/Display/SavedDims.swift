@@ -49,13 +49,14 @@ struct SavedDims {
     }
 
     /// Entries from the last month that make sense (a hand-edited or corrupt one could otherwise
-    /// make the morning write 0).
+    /// make the morning, or quitting, write 0: a black panel).
     static func load() -> SavedDims {
         let entries = UserDefaults.standard.data(forKey: key)
             .flatMap { try? JSONDecoder().decode([String: Entry].self, from: $0) } ?? [:]
         let fresh = entries.filter { _, e in
-            Date().timeIntervalSince(e.at) < kept && e.dim.baseline.isFinite && (0...1).contains(e.dim.baseline)
+            Date().timeIntervalSince(e.at) < kept && e.dim.baseline.isFinite && e.dim.baseline > 0.001 && e.dim.baseline <= 1
                 && e.dim.written.map { $0.isFinite && (0...1).contains($0) } ?? false
+                && e.dim.baselineLevel.map { $0.isFinite && $0 > 0.001 && $0 <= 1 } ?? true
         }
         var saved = SavedDims()
         saved.entries = fresh

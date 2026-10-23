@@ -407,6 +407,16 @@ import Testing
         #expect(Shift.make(to: 0.5, at: 0.4, now: Self.now, until: Self.until) != nil)
     }
 
+    // A stored shift is taken back only on the scales and ending within two days: a corrupt one
+    // could otherwise keep a screen dark every evening.
+    @Test func onlyPlausibleShiftsAreReadBack() {
+        let shift = Shift.make(to: 0.5, at: 0.4, now: Self.now, until: Self.until)!
+        #expect(shift.isPlausible(at: Self.now))
+        #expect(!shift.isPlausible(at: Self.until.addingTimeInterval(-3 * 86_400)))
+        let off = Shift.make(to: 2.5, at: 0.4, now: Self.now, until: Self.until)!
+        #expect(!off.isPlausible(at: Self.now))
+    }
+
     // The morning, with the plan easing out as the schedule does (20 minutes, a smoothstep): a
     // screen made brighter (to its day level) never dims on the way; one the floor held darker
     // comes back in small, steady steps rather than at its full distance once the plan falls clear.
