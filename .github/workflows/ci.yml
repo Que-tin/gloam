@@ -9,6 +9,21 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    # Xcode 27, as Gloam is built locally: the macos-26 image tops out at Xcode 26.6, whose
+    # compiler (Swift 6.3) crashes on the UI code.
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Test
+        run: swift test
+      - name: Build app and disk image
+        run: ./scripts/build-app.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: Gloam
+          path: .build/Gloam.dmg
+
   private-api:
     # The private API Gloam relies on, on every macOS GitHub still runs: a removal or a
     # changed signature shows here first (`scripts/check-private-api.swift`). A plain script, so
@@ -21,4 +36,4 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Check private API
-        run: swift scripts/diag-filter-notification.swift
+        run: swift scripts/check-private-api.swift

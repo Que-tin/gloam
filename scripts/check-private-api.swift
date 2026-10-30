@@ -51,7 +51,8 @@ func strings(of framework: String) -> Data {
     }
     return strings
 }
-func contains(_ strings: Data, _ key: String) -> Bool { strings.range(of: Data([0]) + Data(key.utf8) + Data([0])) != nil }
+/// A whole string, the section's first too (nothing before it to match a 0 against).
+func contains(_ strings: Data, _ key: String) -> Bool { (Data([0]) + strings).range(of: Data([0]) + Data(key.utf8) + Data([0])) != nil }
 
 // The report keys.
 let reportStrings = strings(of: "CoreBrightness")
@@ -72,8 +73,10 @@ check(accessibility != nil, "MediaAccessibility loads")
 for symbol in ["MADisplayFilterCopySystemFilter", "MADisplayFilterGetMatrix", "MADisplayFilterPrefGetCategoryEnabled"] {
     check(accessibility.flatMap { dlsym($0, symbol) } != nil, symbol)
 }
-check(contains(strings(of: "MediaAccessibility"), "com.apple.mediaaccessibility.displayFilterSettingsChanged"),
-      "notification displayFilterSettingsChanged")
+// The name Gloam registers for, as MediaAccessibility exports it.
+let changed = accessibility.flatMap { dlsym($0, "kMADisplayFilterSettingsChangedNotification") }
+    .map { $0.assumingMemoryBound(to: CFString.self).pointee as String }
+check(changed == "com.apple.mediaaccessibility.displayFilterSettingsChanged", "notification \(changed ?? "missing")")
 
 print(ProcessInfo.processInfo.operatingSystemVersionString)
 exit(failed ? 1 : 0)
