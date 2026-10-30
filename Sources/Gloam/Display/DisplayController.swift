@@ -44,6 +44,9 @@ final class DisplayController {
     }
     /// Told after the screens change: a new one can end the model's quiet (all others at 0).
     @ObservationIgnored var displaysDidChange: () -> Void = {}
+    /// Told when auto-brightness moved a dimmed backlight, before it eases back: the room changed,
+    /// and the model takes its light at once (`AppModel.roomJumped`).
+    @ObservationIgnored var ambientMoved: () -> Void = {}
     /// How far the user's settings go past the recommended night (`Schedule.pastRecommended`):
     /// their consent to what deeper costs. Warmth eases the smear floor away (none at ember),
     /// dimming eases the backlight's light floor down to its deepest (`BacklightDim.floor`).
@@ -1105,7 +1108,12 @@ final class DisplayController {
         dim.macOSSet(light)
         if dimming { dim.baselineLevel = Backlight.level(id) }
         store(dim, for: id)
-        if dimming { animate([id], over: Self.afterMacOS, from: [id: Levels(position: 0, warmth: levelsNow(id).warmth)]) }
+        guard dimming else { return }
+        // Back down to the plan for the room as it is now: to the plan for the room as it was a
+        // minute and a half ago (the room light's smoothing), a lamp switched on brightened the
+        // screen and Gloam took it straight back.
+        ambientMoved()
+        animate([id], over: Self.afterMacOS, from: [id: Levels(position: 0, warmth: levelsNow(id).warmth)])
     }
 
     /// Reads a monitor with nothing sent until the answer: a step queued behind the read went out

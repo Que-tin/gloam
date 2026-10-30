@@ -133,6 +133,7 @@ final class AppModel {
         display = DisplayController()
         applyDisplaySettings()
         display.displaysDidChange = { [weak self] in self?.wakeTickIfDue() }
+        display.ambientMoved = { [weak self] in self?.roomJumped() }
         readRoom()
 
         tasks = [
@@ -435,7 +436,7 @@ final class AppModel {
     /// switched on eases the screen over a minute rather than in one step: by the time since the
     /// last read, on each tick (the sensor's value as macOS last reported it). A missed read keeps the last
     /// value; three in a row mean the sensor is gone (the lid closed).
-    private func readRoom() {
+    private func readRoom(smoothed: Bool = true) {
         // No sensor reads while unused, nor while the schedule isn't dimming (room light only
         // eases dimming); the first read once it is starts unsmoothed.
         guard enabled && autoDimming, !screensAsleep, schedule.tint(at: now, place.coordinate).brightness < 0.999 else {
@@ -450,11 +451,18 @@ final class AppModel {
         missedReads = 0
         let since = Date().timeIntervalSince(roomReadAt)
         roomReadAt = Date()
-        guard let last = roomLux else { roomLux = lux; return }
+        guard smoothed, let last = roomLux else { roomLux = lux; return }
         // On log10(1 + lux), as the floor takes it (`BacklightDim.floorNits`): on log10(lux) held at
         // 1 lx, a dark room's fractions of a lux were all read as 1.
         let k = 1 - exp(-min(30, since) / 90), from = log10(1 + last)
         roomLux = pow(10, from + (log10(1 + lux) - from) * k) - 1
+    }
+
+    /// Auto-brightness moved a dimmed screen: the room's light changed (a lamp), and is taken as it
+    /// is now, not smoothed in over the next minutes, so the screen settles where the room wants it.
+    private func roomJumped() {
+        readRoom(smoothed: false)
+        update(fade: DisplayController.afterMacOS)  // every screen, as the moved one eases back
     }
 
     private func frontmostChanged(_ app: NSRunningApplication?) {

@@ -86,7 +86,9 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   (`BacklightDim`): moves made elsewhere are adopted, never fought; quitting (or, after a crash,
   the next launch) restores. macOS reports its backlights' moves and who made them
   (`BrightnessEvents`, read by `BacklightReports`): the user's become shifts, auto-brightness's the
-  new day level (the evening eases back down from it). Gloam's light writes come back as plain
+  new day level (the evening eases back down from it; letting the signal follow its ramp at
+  Gloam's level fluttered with auto-brightness's small corrections and flashed at the hand-over,
+  and was dropped). Gloam's light writes come back as plain
   steps with no settled report and teach auto-brightness nothing; a slider-level write is reported
   as the user's, so only the release uses one. A backlight counts as reported once a report came
   for it (the echo of Gloam's first write); until then (no reports on that macOS, a display that
