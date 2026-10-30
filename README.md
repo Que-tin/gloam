@@ -56,7 +56,7 @@ Settings shows your evening as a graph: drag bedtime, wake and how warm and dim 
 
 ## How it compares
 
-|  | Gloam | f.lux | Night Shift |
+|  | Gloam | f.lux | macOS Night Shift |
 |---|---|---|---|
 | Warms the screen on a schedule | ✓ | ✓ | ✓ |
 | Dims as part of the schedule | ✓ | – (dim by hand) | – |
@@ -79,7 +79,7 @@ Settings shows your evening as a graph: drag bedtime, wake and how warm and dim 
 ## Questions
 
 <details>
-<summary><b>Can I use Gloam together with Night Shift, f.lux or similar apps?</b></summary>
+<summary><b>Can I use Gloam together with f.lux, similar apps or macOS Night Shift?</b></summary>
 
 Better not: they all change your screen's colours, and two at the same time could make the screen
 flicker. Turn the other one off while using Gloam.
