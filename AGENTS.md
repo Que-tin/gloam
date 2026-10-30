@@ -65,8 +65,10 @@ swift run Gloam --capture DIR          # photographs of the real popover, Welcom
   level it becomes the day level. Never written back. Holding a press until morning, bending the
   night's curve through it, or shrinking it with the plan's fall (room light amplified it) were
   tried and dropped. A move by day is held until the plan reaches 10 %, then rides from there
-  (worked out, not settled when seen). A move onto the plan stores nothing; bedtime or wake moved
-  tonight move tonight's shifts' end with them; a pause ending in the morning drops a shrinking one.
+  (worked out, not settled when seen). A move onto the plan is a shift too: "Manual" stays until
+  Auto (cleared there, dragging past the plan flickered), in the morning only while it still
+  shows; bedtime or wake moved tonight move tonight's shifts' end with them; a pause ending in the
+  morning drops a shrinking one.
 - Popover controls are positions: the ladder's scale never moves under the brightness keys (a
   press moves it only by the press); no notices. Dimming: each screen takes the position the same
   share of the way to its own darkest (its light floor against its day level; past 1, key presses

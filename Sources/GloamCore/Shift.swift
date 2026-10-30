@@ -60,9 +60,8 @@ public struct Shift: Codable, Equatable, Sendable {
     public static let perUnit: TimeInterval = 30 * 60
     static let leastFade: TimeInterval = 3 * 60
 
-    /// A shift chosen now, or nil where it would sit on the plan: nothing to remember (the ladder
-    /// dragged back onto the plan, a move by day to 0). Kept, a shift of nothing still showed
-    /// "Manual" and kept the clock ticking fast all day.
+    /// A shift Gloam sets itself (screens held where they are as Gloam switches on), or nil where
+    /// it would sit on the plan: nothing for "Manual" to show. A move by hand is a shift even there.
     public static func make(to: Double, at plan: Double, now: Date, until: Date) -> Shift? {
         abs(to - max(0, plan)) < 1e-6 ? nil : Shift(to: to, at: plan, now: now, until: until)
     }
@@ -90,6 +89,9 @@ public struct Shift: Codable, Equatable, Sendable {
     }
 
     public var isHeld: Bool { distance == nil }
+
+    /// Sits on the plan however the plan moves: a move by hand onto it.
+    public var isOnPlan: Bool { distance == 0 }
 
     /// 1 all evening, easing to 0 over the morning's ramp and the fade-out after it. Eased like
     /// the plan's own morning (a smoothstep, over longer): a shift that made the screen brighter

@@ -452,12 +452,13 @@ final class DisplayController {
         return (heading ? goal(id) : levelsNow(id)).warmth
     }
 
-    /// The dial's shift moves at least `threshold` on some tinted screen ("Manual").
+    /// The dial was turned and some screen is tinted ("Manual"): in the morning, while its shift
+    /// still moves at least `threshold` there.
     func warmthShows(threshold: Double) -> Bool {
         guard let warmthShift else { return false }
         return displays.contains { d in
             guard tinted(d.uuid) else { return false }
-            return abs(warmthShift.offset(plan: dialPlan(d.id), now: clock.now)) >= threshold
+            return !warmthShift.isShrinking(warmthClock.now) || abs(warmthShift.offset(plan: dialPlan(d.id), now: clock.now)) >= threshold
         }
     }
 
@@ -465,7 +466,7 @@ final class DisplayController {
     /// there (`dialPlan`), eased there briefly.
     func turnDial(_ id: CGDirectDisplayID, to w: Double) {
         let c = warmthClock
-        setWarmthShift(Shift.make(to: w, at: c.planDone ? 0 : dialPlan(id), now: c.now, until: c.until), over: 0.15)
+        setWarmthShift(Shift(to: w, at: c.planDone ? 0 : dialPlan(id), now: c.now, until: c.until), over: 0.15)
     }
 
     private func setWarmthShift(_ new: Shift?, over duration: Double) {
@@ -536,7 +537,7 @@ final class DisplayController {
     func startFromOff(plan: Tint) {
         for display in displays where tinted(display.uuid) {
             let p = shiftPlan(Light.dimming(plan.brightness), for: display.id)
-            shifts[display.uuid] = newShift(to: 0, plan: p)
+            shifts[display.uuid] = Shift.make(to: 0, at: p, now: clock.now, until: clock.until)
         }
         let c = warmthClock
         warmthShift = Shift.make(to: 0, at: c.planDone ? 0 : warmestShare(plan), now: c.now, until: c.until)
@@ -570,19 +571,20 @@ final class DisplayController {
         push()
     }
 
-    /// Some screen shows a shift that moves it at least half a ladder step: "Manual". Screens
-    /// that aren't there or aren't tinted don't count.
+    /// Some screen was moved by hand: "Manual", until Auto, also where the move sits on the plan
+    /// (cleared there, dragging the ladder past the plan flickered between Manual and Auto). In
+    /// the morning, while it still moves the screen at least half a ladder step. Screens that
+    /// aren't there or aren't tinted don't count.
     var showsShift: Bool {
         displays.contains { display in
             guard tinted(display.uuid), let shift = shifts[display.uuid] else { return false }
-            return abs(shift.offset(plan: shiftPlan(for: display.id), now: clock.now)) >= 0.025
+            return !shift.isShrinking(clock.now) || abs(shift.offset(plan: shiftPlan(for: display.id), now: clock.now)) >= 0.025
         }
     }
 
     /// A shift chosen now: tonight's until the morning is done; after it, the coming evening's.
-    /// None where it sits on the plan.
-    private func newShift(to position: Double, plan: Double) -> Shift? {
-        Shift.make(to: position, at: plan, now: clock.now, until: clock.until)
+    private func newShift(to position: Double, plan: Double) -> Shift {
+        Shift(to: position, at: plan, now: clock.now, until: clock.until)
     }
 
     /// Bedtime or wake moved tonight: shifts belonging to this evening end with its new morning.
@@ -1462,8 +1464,8 @@ final class DisplayController {
         case .shift(let to):
             let p = shiftPlan(plan, for: id)
             // In the morning's tail it fades with the shift it replaces, not into the next evening.
-            shifts[uuid] = upThroughFade && clock.planDone ? fading.flatMap {
-                Shift.make(to: to, at: p, now: clock.now, until: $0.until) } : newShift(to: to, plan: p)
+            shifts[uuid] = upThroughFade && clock.planDone ? fading.map {
+                Shift(to: to, at: p, now: clock.now, until: $0.until) } : newShift(to: to, plan: p)
         case .dayLevel:
             shifts[uuid] = nil
         }

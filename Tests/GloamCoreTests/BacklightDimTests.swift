@@ -400,11 +400,17 @@ import Testing
         #expect(held.position(plan: 0, now: morning) < 0.5 && held.position(plan: 0, now: Self.until) == 0)
     }
 
-    // Moved onto the plan, nothing is kept: no "Manual", no fast clock for a shift of nothing.
-    @Test func aShiftOntoThePlanIsNone() {
+    // Gloam's own hold onto the plan keeps nothing; a move by hand there is a shift ("Manual"
+    // until Auto) that rides the plan, not one held, which would stay put by day.
+    @Test func onlyAHandMoveOntoThePlanIsKept() {
         #expect(Shift.make(to: 0, at: 0, now: Self.now, until: Self.until) == nil)
         #expect(Shift.make(to: 0.4, at: 0.4, now: Self.now, until: Self.until) == nil)
         #expect(Shift.make(to: 0.5, at: 0.4, now: Self.now, until: Self.until) != nil)
+        for plan in [0, 0.4] {
+            let onPlan = Shift(to: plan, at: plan, now: Self.now, until: Self.until)
+            #expect(onPlan.isOnPlan && !onPlan.isHeld && onPlan.position(plan: 0.6, now: Self.now) == 0.6)
+        }
+        #expect(!Shift(to: 0.5, at: 0.4, now: Self.now, until: Self.until).isOnPlan)
     }
 
     // A stored shift is taken back only on the scales and ending within two days: a corrupt one

@@ -28,7 +28,7 @@ struct PopoverView: View {
     /// is being turned, where it is heading: following the 0.15 s ease, the knob lagged the finger
     /// and a drag compared against the lagging value, a detent firing twice per notch. Keyed on
     /// the hand rather than on a warmth shift existing: with one, switching off snapped the knob
-    /// instead of gliding; a turn onto the plan (no shift) lagged again. Not Settings' "Preview
+    /// instead of gliding. Not Settings' "Preview
     /// tonight": the knob stays at what's asked without it (the plan and the dial's shift), and rests.
     private var dialPosition: Double {
         if model.preview != nil { return model.display.dialPosition(screen, asked: model.asked) }

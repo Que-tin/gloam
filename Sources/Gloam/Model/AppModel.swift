@@ -292,9 +292,9 @@ final class AppModel {
     /// Checked on every update and tick; the tick wakes for it (`nextExpiry`), so it ends on time.
     private(set) var resumeAt: Date? { didSet { save(resumeAt, "resumeAt") } }
 
-    /// Something moved by hand tonight shows (the dial by half a notch, a screen by half a ladder
-    /// step): "Manual · Auto". A shift dragged back onto the plan, or on a screen that's gone,
-    /// doesn't count.
+    /// Something was moved by hand tonight, even onto the plan: "Manual · Auto" (in the morning
+    /// while it still shows: the dial by half a notch, a screen by half a ladder step). A shift on
+    /// a screen that's gone doesn't count.
     var hasShifts: Bool { display.warmthShows(threshold: Self.halfNotch) || display.showsShift }
 
     /// Half a step of the dial (49 ticks over its scale): a warmth shift under it doesn't show.
@@ -395,14 +395,14 @@ final class AppModel {
     /// (Gloam on, an app switch, the dial) updates at once, whatever the tick.
     /// Every display switched off in Settings counts too: nothing is tinted all night. Held
     /// (off or paused), a shift waits too: lifting the pause updates at once.
-    /// A shift held by day shows the same all day: it doesn't keep the clock fast. One shrinking
-    /// in the morning does (stepped a minute at a time, it showed).
+    /// A shift held by day (or one on the plan) shows the same all day: it doesn't keep the clock
+    /// fast. One shrinking in the morning does (stepped a minute at a time, it showed).
     private var isQuiet: Bool {
         if screensAsleep || !display.displays.isEmpty && display.displays.allSatisfy({ !isTinted($0) }) { return true }
         if preview != nil { return false }
         if isHeld { return true }
         let shifts = Array(display.shifts.values) + (display.warmthShift.map { [$0] } ?? [])
-        return automatic.isNeutral && shifts.allSatisfy { $0.isHeld && !$0.isShrinking(now) }
+        return automatic.isNeutral && shifts.allSatisfy { ($0.isHeld || $0.isOnPlan) && !$0.isShrinking(now) }
             && schedule.tint(at: now.addingTimeInterval(80), place.coordinate).isNeutral
     }
 
