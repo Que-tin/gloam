@@ -7,7 +7,9 @@
 // the system Color Filter, draws a frame on every screen (a still screen showed the cleared layer
 // only when something moved: measured, it stayed warm) and exits. It is no running application
 // until then, and the single-instance check also skips it by its argument; Gloam starts it again
-// if it ends first. Both killed together (logout, shutdown) leaves the layer to the next
+// if it ends first. An update's quit ends it first (`stop`): clearing, it checks in as Gloam
+// (`NSApplication`), and Sparkle's relaunch went to it as it ended (macOS's "not open anymore",
+// no Gloam: seen with 0.11.0). Both killed together (logout, shutdown) leaves the layer to the next
 // launch or the restart. macOS offers no "clear when the setter exits" option that anyone has
 // documented, and other users of this layer clear it only on a normal quit.
 
@@ -57,8 +59,20 @@ enum ColourGuard {
         }
         ended.resume()
         watcher = ended
+        running = guardProcess
+    }
+
+    /// In Gloam, quitting for an update: the guard ends now, not restarted and clearing nothing
+    /// (the screens are kept for the new copy, which clears the layer as it starts).
+    static func stop() {
+        watcher?.cancel()
+        watcher = nil
+        running?.terminate()
+        running?.waitUntilExit()
+        running = nil
     }
 
     /// Kept, so the exit watch lives as long as the guard does.
     private static var watcher: DispatchSourceProcess?
+    private static var running: Process?
 }

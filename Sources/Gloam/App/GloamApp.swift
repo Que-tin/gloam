@@ -229,7 +229,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppModel.shared.flushSave()
         // Installing an update relaunches at once: the screens stay as they are (saved as dimmed,
         // resumed by the new copy) rather than flashing full brightness meanwhile.
-        if Updates.installing && Updates.state.status == .installing { return AppModel.shared.display.keepForRelaunch() }
+        if Updates.installing && Updates.state.status == .installing {
+            ColourGuard.stop()
+            return AppModel.shared.display.keepForRelaunch()
+        }
         AppModel.shared.display.restore()
     }
 }
