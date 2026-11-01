@@ -11,7 +11,7 @@ let package = Package(
     // The one dependency: Sparkle installs updates, which outside the App Store and without
     // notarization nothing else does (a downloaded update would meet Gatekeeper again).
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [
         // Pure, AppKit-free logic: colour science, sun position, the schedule curve.
