@@ -298,7 +298,7 @@ enum Windows {
         window.titleVisibility = .hidden
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = NSColor(Lamp.surface)
-        window.isMovableByWindowBackground = true
+        window.isMovableByWindowBackground = false
         window.isReleasedWhenClosed = false
         return window
     }
